@@ -29,7 +29,10 @@
     </div>
 
     <div class="container" id="gameContainer" style="display: none;">
-        <h1>2048</h1>
+        <div class="header-section">
+            <h1>2048</h1>
+            <button id="changelogBtn" class="changelog-btn">更新日志</button>
+        </div>
         <div class="subheader">
             <div class="score-container">
                 <span class="score-title">分数</span>
@@ -56,6 +59,32 @@
             当两个相同数字的方块相撞时，它们会<strong>合并成一个!</strong>
         </p>
     </div>
+
+    <!-- 更新日志弹窗 -->
+    <div id="changelogModal" class="modal">
+        <div class="modal-content">
+            <span class="close-btn">&times;</span>
+            <h2>更新日志</h2>
+            <div class="changelog-content">
+                <h3>v1.2.0</h3>
+                <ul>
+                    <li>新增更新日志功能</li>
+                    <li>新增内测用户账号: fupeng/pfizer</li>
+                </ul>
+                <h3>v1.1.0</h3>
+                <ul>
+                    <li>添加人机验证登录功能</li>
+                    <li>界面全面中文化</li>
+                </ul>
+                <h3>v1.0.0</h3>
+                <ul>
+                    <li>初始版本发布</li>
+                    <li>基础游戏功能实现</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
     <script src="game.js"></script>
 </body>
 </html>
