@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2048游戏</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="login-container" id="loginContainer">
+        <h2>2048游戏内测登录</h2>
+        <div class="login-form">
+            <div class="form-group">
+                <label for="username">用户名：</label>
+                <input type="text" id="username" placeholder="请输入内测用户名">
+            </div>
+            <div class="form-group">
+                <label for="password">密码：</label>
+                <input type="password" id="password" placeholder="请输入内测密码">
+            </div>
+            <div class="captcha-group" id="captchaContainer">
+                <label>人机验证：</label>
+                <div class="captcha-question" id="captchaQuestion"></div>
+                <input type="text" id="captchaAnswer" placeholder="请输入验证答案">
+            </div>
+            <button id="loginBtn">登录</button>
+            <p id="loginError" class="error-message"></p>
+        </div>
+    </div>
+
+    <div class="container" id="gameContainer" style="display: none;">
+        <h1>2048</h1>
+        <div class="subheader">
+            <div class="score-container">
+                <span class="score-title">分数</span>
+                <span class="score-value">0</span>
+            </div>
+            <button class="new-game-btn">新游戏</button>
+        </div>
+        <div class="game-container">
+            <div class="grid-container"></div>
+            <div class="game-over">
+                <p>游戏结束!</p>
+                <button class="try-again-btn">再试一次</button>
+            </div>
+            <div class="win-message">
+                <p>你赢了!</p>
+                <button class="continue-btn">继续游戏</button>
+            </div>
+        </div>
+        <p class="game-intro">
+            合并数字方块，得到<strong>2048方块!</strong>
+        </p>
+        <p class="game-instructions">
+            <strong>游戏玩法：</strong> 使用<strong>方向键</strong>移动方块。
+            当两个相同数字的方块相撞时，它们会<strong>合并成一个!</strong>
+        </p>
+    </div>
+    <script src="game.js"></script>
+</body>
+</html>
