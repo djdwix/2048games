@@ -19,6 +19,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const gameOver = document.querySelector('.game-over');
     const winMessage = document.querySelector('.win-message');
     
+    // 更新日志元素
+    const changelogBtn = document.getElementById('changelogBtn');
+    const changelogModal = document.getElementById('changelogModal');
+    const closeBtn = document.querySelector('.close-btn');
+    
     // 游戏状态
     let grid = [];
     let score = 0;
@@ -33,10 +38,16 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     
     // 内测凭证
-    const BETA_CREDENTIALS = {
-        username: 'cycling',
-        password: '125858'
-    };
+    const BETA_CREDENTIALS = [
+        {
+            username: 'cycling',
+            password: '125858'
+        },
+        {
+            username: 'fupeng',
+            password: 'pfizer'
+        }
+    ];
     
     // 生成人机验证问题
     function generateCaptcha() {
@@ -100,7 +111,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         
         // 验证凭证
-        if (username === BETA_CREDENTIALS.username && password === BETA_CREDENTIALS.password) {
+        const isValidUser = BETA_CREDENTIALS.some(
+            cred => cred.username === username && cred.password === password
+        );
+        
+        if (isValidUser) {
             // 登录成功
             loginError.textContent = '';
             loginContainer.style.display = 'none';
@@ -375,6 +390,21 @@ document.addEventListener('DOMContentLoaded', () => {
     continueBtn.addEventListener('click', () => {
         winMessage.style.display = 'none';
         isContinuing = true;
+    });
+    
+    // 更新日志弹窗控制
+    changelogBtn.addEventListener('click', () => {
+        changelogModal.style.display = 'block';
+    });
+    
+    closeBtn.addEventListener('click', () => {
+        changelogModal.style.display = 'none';
+    });
+    
+    window.addEventListener('click', (e) => {
+        if (e.target === changelogModal) {
+            changelogModal.style.display = 'none';
+        }
     });
     
     // 键盘控制
