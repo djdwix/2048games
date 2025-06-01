@@ -1,0 +1,296 @@
+body {
+    font-family: "Microsoft YaHei", "微软雅黑", Arial, sans-serif;
+    text-align: center;
+    background-color: #faf8ef;
+    color: #776e65;
+    margin: 0;
+    padding: 20px;
+}
+
+.login-container {
+    max-width: 400px;
+    margin: 50px auto;
+    padding: 30px;
+    background: white;
+    border-radius: 10px;
+    box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
+}
+
+.login-container h2 {
+    margin-top: 0;
+    color: #776e65;
+    font-size: 28px;
+}
+
+.login-form {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    text-align: left;
+}
+
+.form-group label {
+    margin-bottom: 8px;
+    font-weight: bold;
+    color: #776e65;
+}
+
+.form-group input {
+    padding: 12px;
+    border: 2px solid #bbada0;
+    border-radius: 5px;
+    font-size: 16px;
+}
+
+.form-group input:focus {
+    outline: none;
+    border-color: #8f7a66;
+}
+
+.captcha-group {
+    display: flex;
+    flex-direction: column;
+    text-align: left;
+    margin-bottom: 10px;
+}
+
+.captcha-question {
+    padding: 10px;
+    margin: 5px 0;
+    background: #f5f5f5;
+    border-radius: 5px;
+    font-weight: bold;
+    color: #333;
+}
+
+.error-message {
+    color: #f65e3b;
+    margin: 0;
+    min-height: 20px;
+}
+
+#loginBtn {
+    background: #8f7a66;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    padding: 12px;
+    font-weight: bold;
+    cursor: pointer;
+    font-size: 18px;
+    transition: background 0.3s;
+}
+
+#loginBtn:hover {
+    background: #9f8b77;
+}
+
+.container {
+    max-width: 500px;
+    margin: 0 auto;
+}
+
+h1 {
+    font-size: 80px;
+    margin: 0;
+    color: #776e65;
+}
+
+.subheader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.score-container {
+    background: #bbada0;
+    padding: 5px 15px;
+    border-radius: 5px;
+    color: white;
+    font-weight: bold;
+    text-align: center;
+}
+
+.score-title {
+    font-size: 13px;
+    display: block;
+}
+
+.score-value {
+    font-size: 25px;
+}
+
+button {
+    background: #8f7a66;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    padding: 10px 20px;
+    font-weight: bold;
+    cursor: pointer;
+    font-size: 18px;
+}
+
+button:hover {
+    background: #9f8b77;
+}
+
+.game-container {
+    position: relative;
+    background: #bbada0;
+    border-radius: 6px;
+    width: 100%;
+    padding-bottom: 100%;
+    margin-bottom: 20px;
+}
+
+.grid-container {
+    position: absolute;
+    z-index: 1;
+    width: 92%;
+    height: 92%;
+    padding: 4%;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    grid-template-rows: repeat(4, 1fr);
+    grid-gap: 15px;
+}
+
+.grid-cell {
+    background: rgba(238, 228, 218, 0.35);
+    border-radius: 3px;
+}
+
+.tile {
+    position: absolute;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 20%;
+    height: 20%;
+    border-radius: 3px;
+    font-size: 35px;
+    font-weight: bold;
+    transition: all 0.1s ease-in-out;
+    z-index: 10;
+}
+
+.game-over, .win-message {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(238, 228, 218, 0.73);
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    display: none;
+}
+
+.game-over p, .win-message p {
+    font-size: 60px;
+    font-weight: bold;
+    margin-bottom: 30px;
+}
+
+.game-intro {
+    margin-bottom: 10px;
+}
+
+.game-instructions {
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+@media (max-width: 520px) {
+    .login-container {
+        padding: 20px;
+        margin: 20px auto;
+    }
+    
+    h1 {
+        font-size: 50px;
+    }
+    
+    .tile {
+        font-size: 25px;
+    }
+    
+    .game-over p, .win-message p {
+        font-size: 40px;
+    }
+}
+
+/* 方块颜色 */
+.tile-2 {
+    background: #eee4da;
+}
+
+.tile-4 {
+    background: #ede0c8;
+}
+
+.tile-8 {
+    background: #f2b179;
+    color: white;
+}
+
+.tile-16 {
+    background: #f59563;
+    color: white;
+}
+
+.tile-32 {
+    background: #f67c5f;
+    color: white;
+}
+
+.tile-64 {
+    background: #f65e3b;
+    color: white;
+}
+
+.tile-128 {
+    background: #edcf72;
+    color: white;
+    font-size: 30px;
+}
+
+.tile-256 {
+    background: #edcc61;
+    color: white;
+    font-size: 30px;
+}
+
+.tile-512 {
+    background: #edc850;
+    color: white;
+    font-size: 30px;
+}
+
+.tile-1024 {
+    background: #edc53f;
+    color: white;
+    font-size: 25px;
+}
+
+.tile-2048 {
+    background: #edc22e;
+    color: white;
+    font-size: 25px;
+}
+
+.tile-super {
+    background: #3c3a32;
+    color: white;
+    font-size: 20px;
+}
