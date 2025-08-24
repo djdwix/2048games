@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         页面安全验证计时器（增强版）
 // @namespace    http://tampermonkey.net/
-// @version      4.2
-// @description  带本地延迟检测+IP显示+后台计时同步的安全计时器
+// @version      4.3
+// @description  带本地延迟检测+IP显示+后台计时同步+脚本在线校验的安全计时器
 // @author       You
 // @match        *://*/*
 // @grant        GM_addStyle
@@ -316,38 +316,68 @@ GM_addStyle(`
     text-decoration: underline;
     color: #3367d6;
   }
+  /* 新增：脚本校验警告样式 */
+  .script-warn {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    padding: 12px 20px;
+    font-size: 16px;
+    font-weight: bold;
+    text-align: center;
+    z-index: 99999; /* 最高层级，确保可见 */
+    box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+    transition: opacity 0.3s ease;
+  }
+  .script-warn.error {
+    background: #ff3b30;
+    color: white;
+  }
+  .script-warn.success {
+    background: #4cd964;
+    color: white;
+  }
+  .script-warn button {
+    margin-left: 20px;
+    padding: 4px 12px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    background: rgba(255,255,255,0.3);
+    color: white;
+    font-weight: 600;
+  }
 `);
-// 常量定义（更新：移除远程ping相关常量，新增本地延迟检测参数）
+// 常量定义（核心更新：删除旧校验地址，添加新脚本在线校验地址）
 const STORAGE_KEY = 'safeTimerEndTime';
 const TOTAL_TIME = 15 * 60;
 const UPDATE_URL = 'https://github.com/djdwix/2048games/blob/main/1.js';
 const STRENGTHEN_COUNT = 2;
 const FAST_VERIFY_THRESHOLD = 5000;
-const LOCAL_DELAY_INTERVAL = 3000; // 本地延迟检测间隔（3秒）
-const LOCAL_TEST_TIMES = 10; // 本地延迟检测：单次测试执行次数（取平均值更稳定）
-
-// 网络状态管理（核心更新：本地延迟检测+IP显示）
+const LOCAL_DELAY_INTERVAL = 3000;
+const LOCAL_TEST_TIMES = 10;
+const SCRIPT_CHECK_URL = 'http://localhost:3000/'; // 核心更新：新脚本在线校验地址
+const CHECK_TIMEOUT = 10000; // 校验超时时间（10秒）
+// 网络状态管理（保留前序功能）
 class NetworkMonitor {
   constructor() {
     this.isOnline = navigator.onLine;
-    this.localDelay = '未知'; // 改为“本地延迟”
-    this.userIP = '获取中...'; // 新增：IP地址
+    this.localDelay = '未知';
+    this.userIP = '获取中...';
     this.statusEl = null;
     this.modalEl = null;
-    this.delayTimer = null; // 本地延迟检测定时器
+    this.delayTimer = null;
     this.initElements();
     this.bindEvents();
-    this.startLocalDelayDetect(); // 启动本地延迟检测
-    this.fetchUserIP(); // 新增：获取IP地址
+    this.startLocalDelayDetect();
+    this.fetchUserIP();
   }
-  // 创建状态元素和弹窗（更新：新增IP地址显示项）
   initElements() {
-    // 右上角状态显示（文本不变，仍显示在线/离线）
     this.statusEl = document.createElement('div');
     this.statusEl.className = `net-status ${this.isOnline ? 'online' : 'offline'}`;
     this.statusEl.textContent = this.isOnline ? '在线' : '离线';
     document.body.appendChild(this.statusEl);
-    // 网络信息弹窗（新增IP地址列表项，修改延迟标签为“本地交互延迟”）
     this.modalEl = document.createElement('div');
     this.modalEl.className = 'net-modal';
     this.modalEl.innerHTML = `
@@ -364,10 +394,10 @@ class NetworkMonitor {
             <span class="net-info-value" id="net-status-value">${this.isOnline ? '在线' : '离线'}</span>
           </li>
           <li class="net-info-item">
-            <span class="net-info-label">本地交互延迟</span> <!-- 标签改为“本地交互延迟” -->
+            <span class="net-info-label">本地交互延迟</span>
             <span class="net-info-value dynamic" id="local-delay-value">${this.localDelay}</span>
           </li>
-          <li class="net-info-item"> <!-- 新增：IP地址显示项 -->
+          <li class="net-info-item">
             <span class="net-info-label">当前IP地址</span>
             <span class="net-info-value dynamic" id="user-ip-value">${this.userIP}</span>
           </li>
@@ -387,36 +417,28 @@ class NetworkMonitor {
       </div>
     `;
     document.body.appendChild(this.modalEl);
-    // 绑定关闭按钮事件
     this.modalEl.querySelector('.net-modal-close').addEventListener('click', () => {
       this.modalEl.classList.remove('active');
     });
   }
-  // 绑定事件监听（保留原有逻辑）
   bindEvents() {
-    // 点击状态显示切换弹窗
     this.statusEl.addEventListener('click', () => {
       this.modalEl.classList.toggle('active');
     });
-    // 监听在线/离线事件
     window.addEventListener('online', () => this.updateStatus(true));
     window.addEventListener('offline', () => this.updateStatus(false));
-    // 监听网络类型变化
     if (navigator.connection) {
       navigator.connection.addEventListener('change', () => {
         this.modalEl.querySelector('#net-type-value').textContent = this.getNetworkType();
       });
     }
   }
-  // 更新网络状态（保留原有逻辑）
   updateStatus(online) {
     this.isOnline = online;
     this.statusEl.className = `net-status ${online ? 'online' : 'offline'}`;
     this.statusEl.textContent = online ? '在线' : '离线';
     this.modalEl.querySelector('#net-status-value').textContent = online ? '在线' : '离线';
     this.modalEl.querySelector('.net-modal-title span').textContent = online ? '🌐' : '❌';
-    
-    // 在线时重启本地延迟检测，离线时停止
     if (online) {
       this.startLocalDelayDetect();
     } else {
@@ -425,50 +447,39 @@ class NetworkMonitor {
       clearInterval(this.delayTimer);
     }
   }
-  // 核心更新1：本地延迟检测（替换原远程ping）
-  // 原理：通过多次执行本地存储读写（无网络请求），计算平均耗时，反映网页与本地环境的交互延迟
   calculateLocalDelay() {
-    const startTime = performance.now(); // 高精度计时（比Date.now()更准）
-    // 执行多次本地操作（如读写localStorage），减少偶然误差
+    const startTime = performance.now();
     for (let i = 0; i < LOCAL_TEST_TIMES; i++) {
       localStorage.setItem(`localDelayTest_${i}`, 'test');
       localStorage.getItem(`localDelayTest_${i}`);
       localStorage.removeItem(`localDelayTest_${i}`);
     }
     const totalTime = performance.now() - startTime;
-    const avgDelay = Math.round(totalTime / LOCAL_TEST_TIMES); // 计算单次平均耗时
+    const avgDelay = Math.round(totalTime / LOCAL_TEST_TIMES);
     this.localDelay = `${avgDelay}ms`;
     this.modalEl.querySelector('#local-delay-value').textContent = this.localDelay;
   }
-  // 启动本地延迟检测（替换原startPing）
   startLocalDelayDetect() {
     if (!this.isOnline) return;
-    clearInterval(this.delayTimer); // 清除旧定时器，避免重复
-    this.calculateLocalDelay(); // 立即检测一次
-    // 定时重复检测
+    clearInterval(this.delayTimer);
+    this.calculateLocalDelay();
     this.delayTimer = setInterval(() => {
       if (this.isOnline) this.calculateLocalDelay();
     }, LOCAL_DELAY_INTERVAL);
   }
-  // 核心更新2：从http://cip.cc/获取IP地址
   fetchUserIP() {
     fetch('http://cip.cc/', {
       method: 'GET',
-      mode: 'cors', // 允许跨域（cip.cc支持CORS）
+      mode: 'cors',
       cache: 'no-store'
     })
     .then(response => {
       if (!response.ok) throw new Error('IP请求失败');
-      return response.text(); // cip.cc返回文本格式，需解析
+      return response.text();
     })
     .then(text => {
-      // 解析文本内容：提取“IP : xxx.xxx.xxx.xxx”中的IP
       const ipMatch = text.match(/IP\s*:\s*([\d\.]+)/);
-      if (ipMatch && ipMatch[1]) {
-        this.userIP = ipMatch[1];
-      } else {
-        this.userIP = '解析失败';
-      }
+      this.userIP = ipMatch && ipMatch[1] ? ipMatch[1] : '解析失败';
       this.modalEl.querySelector('#user-ip-value').textContent = this.userIP;
     })
     .catch(error => {
@@ -476,7 +487,6 @@ class NetworkMonitor {
       this.modalEl.querySelector('#user-ip-value').textContent = this.userIP;
     });
   }
-  // 获取网络类型（保留原有逻辑）
   getNetworkType() {
     if (!navigator.connection) return '未知';
     const types = {
@@ -491,7 +501,6 @@ class NetworkMonitor {
     };
     return types[navigator.connection.type] || navigator.connection.type;
   }
-  // 获取浏览器信息（保留原有逻辑）
   getBrowserInfo() {
     const ua = navigator.userAgent;
     if (ua.includes('Mobile') && ua.includes('Chrome')) return 'Chrome移动版';
@@ -501,21 +510,17 @@ class NetworkMonitor {
     if (ua.includes('Opera')) return 'Opera';
     return '未知浏览器';
   }
-  // 获取屏幕尺寸（保留原有逻辑）
   getScreenSize() {
     return `${screen.width}×${screen.height}px (${window.innerWidth}×${window.innerHeight}px)`;
   }
 }
-
-// 倒计时及验证功能（保留前序版本修复的同步和输入验证逻辑）
+// 倒计时及验证功能（保留前序功能）
 function initTimer() {
   const timerEl = document.createElement('div');
   timerEl.className = 'safe-timer';
   document.body.appendChild(timerEl);
   let endTime;
   const storedEndTime = localStorage.getItem(STORAGE_KEY);
-  
-  // 统一时间初始化（多网页同步核心）
   if (storedEndTime) {
     endTime = parseInt(storedEndTime);
     if (endTime <= Date.now()) {
@@ -526,26 +531,19 @@ function initTimer() {
     endTime = Date.now() + TOTAL_TIME * 1000;
     localStorage.setItem(STORAGE_KEY, endTime);
   }
-
-  // 时间格式化
   function formatTime(seconds) {
     const min = Math.floor(seconds / 60).toString().padStart(2, '0');
     const sec = (seconds % 60).toString().padStart(2, '0');
     return `${min}:${sec}`;
   }
-
-  // 时间颜色计算
   function getTimeColor(remainingTime) {
     const ratio = Math.max(0, Math.min(1, remainingTime / TOTAL_TIME));
     const hue = Math.floor(ratio * 120);
     return `hsl(${hue}, 70%, 50%)`;
   }
-
-  // 更新倒计时
   function updateTimer() {
     const now = Date.now();
     const remainingTime = Math.max(0, Math.ceil((endTime - now) / 1000));
-    
     if (remainingTime <= 0) {
       clearInterval(timer);
       timerEl.remove();
@@ -553,12 +551,9 @@ function initTimer() {
       showInitialVerify();
       return;
     }
-
     timerEl.textContent = `倒计时: ${formatTime(remainingTime)}`;
     timerEl.style.color = getTimeColor(remainingTime);
   }
-
-  // 多网页同步：监听localStorage变化
   window.addEventListener('storage', (e) => {
     if (e.key === STORAGE_KEY) {
       if (e.newValue) {
@@ -577,17 +572,12 @@ function initTimer() {
       updateTimer();
     }
   });
-
   updateTimer();
   const timer = setInterval(updateTimer, 1000);
 }
-
-// 生成6位验证码
 function generateCode() {
   return Math.floor(Math.random() * 900000 + 100000).toString();
 }
-
-// 加强验证（保留输入验证逻辑）
 function showStrengthenVerify(remainingTimes) {
   const code = generateCode();
   const modal = document.createElement('div');
@@ -613,10 +603,8 @@ function showStrengthenVerify(remainingTimes) {
   `;
   document.body.appendChild(modal);
   setTimeout(() => modal.classList.add('active'), 10);
-
   const verifyInput = modal.querySelector('.verify-input');
   const verifyError = modal.querySelector('.verify-error');
-
   modal.querySelector('.confirm-btn').addEventListener('click', () => {
     const inputCode = verifyInput.value.trim();
     if (inputCode !== code) {
@@ -633,7 +621,6 @@ function showStrengthenVerify(remainingTimes) {
       }
     }, 300);
   });
-
   modal.querySelector('.cancel-btn').addEventListener('click', () => {
     localStorage.removeItem(STORAGE_KEY);
     window.close();
@@ -642,8 +629,6 @@ function showStrengthenVerify(remainingTimes) {
     }, 300);
   });
 }
-
-// 初始验证（保留输入验证逻辑）
 function showInitialVerify() {
   const startTime = Date.now();
   const code = generateCode();
@@ -673,8 +658,6 @@ function showInitialVerify() {
   `;
   document.body.appendChild(modal);
   setTimeout(() => modal.classList.add('active'), 10);
-
-  // 验证码复制功能
   modal.querySelector('.verify-code').addEventListener('click', () => {
     navigator.clipboard.writeText(code).then(() => {
       const tip = document.createElement('div');
@@ -686,10 +669,8 @@ function showInitialVerify() {
       alert('复制失败，请手动复制');
     });
   });
-
   const verifyInput = modal.querySelector('.verify-input');
   const verifyError = modal.querySelector('.verify-error');
-
   modal.querySelector('.confirm-btn').addEventListener('click', () => {
     const inputCode = verifyInput.value.trim();
     if (!inputCode || inputCode !== code) {
@@ -697,7 +678,6 @@ function showInitialVerify() {
       verifyInput.focus();
       return;
     }
-
     const elapsed = Date.now() - startTime;
     modal.classList.remove('active');
     setTimeout(() => {
@@ -707,7 +687,6 @@ function showInitialVerify() {
       }
     }, 300);
   });
-
   modal.querySelector('.cancel-btn').addEventListener('click', () => {
     localStorage.removeItem(STORAGE_KEY);
     window.close();
@@ -716,10 +695,93 @@ function showInitialVerify() {
     }, 300);
   });
 }
-
-// 初始化所有功能
+// 核心更新1：脚本文本清理函数（用于消除格式/注释差异，确保比较准确性）
+function cleanScriptText(text) {
+  if (!text) return '';
+  // 1. 移除多行注释 /* ... */（含跨行）
+  text = text.replace(/\/\*[\s\S]*?\*\//g, '');
+  // 2. 移除单行注释 // ...（到行尾）
+  text = text.replace(/\/\/.*$/gm, '');
+  // 3. 移除所有空白字符（空格、换行、制表符等）
+  text = text.replace(/\s+/g, '');
+  return text;
+}
+// 核心更新2：显示校验警告（错误/成功提示）
+function showScriptWarn(message, isError = true) {
+  // 避免重复创建警告
+  if (document.querySelector('.script-warn')) return;
+  const warnEl = document.createElement('div');
+  warnEl.className = `script-warn ${isError ? 'error' : 'success'}`;
+  warnEl.innerHTML = `
+    ${message}
+    <button>关闭</button>
+  `;
+  document.body.appendChild(warnEl);
+  // 关闭按钮事件
+  warnEl.querySelector('button').addEventListener('click', () => {
+    warnEl.remove();
+  });
+  // 错误警告30秒后自动隐藏（避免长期遮挡）
+  if (isError) {
+    setTimeout(() => {
+      if (document.body.contains(warnEl)) warnEl.remove();
+    }, 30000);
+  }
+}
+// 核心更新3：脚本在线校验逻辑（对比本地与在线版本，新增校验成功文本）
+function checkScriptConsistency() {
+  // 1. 获取本地脚本内容
+  const localScript = document.currentScript?.textContent || '';
+  if (!localScript) {
+    showScriptWarn('脚本校验失败：无法读取本地脚本内容');
+    return;
+  }
+  const cleanedLocal = cleanScriptText(localScript);
+  // 2. 构建超时Promise（避免无限等待）
+  const timeoutPromise = new Promise((_, reject) => {
+    setTimeout(() => reject(new Error('获取在线内容超时')), CHECK_TIMEOUT);
+  });
+  // 3. 获取并解析在线校验内容（提取表格中的脚本代码）
+  const fetchPromise = fetch(SCRIPT_CHECK_URL, {
+    method: 'GET',
+    mode: 'cors',
+    cache: 'no-store'
+  })
+  .then(response => {
+    if (!response.ok) throw new Error(`HTTP错误 ${response.status}`);
+    return response.text();
+  })
+  .then(onlineHtml => {
+    // 解析HTML，提取表格中第二列（脚本内容，第一列为行号）
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(onlineHtml, 'text/html');
+    const rows = doc.querySelectorAll('table tr');
+    if (rows.length === 0) throw new Error('未找到在线脚本表格');
+    let onlineScript = '';
+    rows.forEach(row => {
+      const contentTd = row.querySelector('td:nth-child(2)');
+      if (contentTd) onlineScript += contentTd.textContent.trim() + '\n';
+    });
+    if (!onlineScript) throw new Error('无法提取在线脚本内容');
+    const cleanedOnline = cleanScriptText(onlineScript);
+    // 4. 对比清理后的内容（核心更新：新增校验成功文本显示）
+    if (cleanedLocal !== cleanedOnline) {
+      showScriptWarn(`⚠️ 警告：当前脚本与在线校验版本不一致！\n校验地址：${SCRIPT_CHECK_URL}\n可能存在安全风险，请重新获取官方脚本。`);
+    } else {
+      // 核心更新：校验成功时显示文本，明确提示校验通过
+      showScriptWarn(`✅ 脚本校验成功：与在线校验地址（${SCRIPT_CHECK_URL}）版本一致，可安全使用`, false);
+    }
+  });
+  // 5. 处理超时/网络错误
+  Promise.race([fetchPromise, timeoutPromise])
+  .catch(error => {
+    showScriptWarn(`脚本校验失败：${error.message}\n请检查网络或校验地址（${SCRIPT_CHECK_URL}）有效性`);
+  });
+}
+// 初始化所有功能（保留前序功能，执行脚本校验）
 (function() {
   'use strict';
-  new NetworkMonitor(); // 初始化网络监测（含本地延迟+IP显示）
-  initTimer(); // 初始化倒计时（多网页同步）
+  new NetworkMonitor(); // 网络监测
+  initTimer(); // 倒计时同步
+  checkScriptConsistency(); // 脚本在线校验
 })();
