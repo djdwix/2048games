@@ -1,16 +1,15 @@
 // ==UserScript==
 // @name         页面安全验证计时器（增强版）
 // @namespace    http://tampermonkey.net/
-// @version      2.2
-// @description  带本地存储+二次验证+脚本校验的安全计时器
+// @version      3.0
+// @description  带后台计时+加强验证的安全计时器，支持多次验证与本地存储
 // @author       You
 // @match        *://*/*
 // @grant        GM_addStyle
-// @grant        GM_xmlhttpRequest
 // ==/UserScript==
 
 GM_addStyle(`
-  /* 基础样式保持不变，新增二次验证相关样式 */
+  /* 倒计时样式（左上角固定） */
   .safe-timer {
     position: fixed;
     top: 12px;
@@ -27,6 +26,7 @@ GM_addStyle(`
     transition: color 0.3s ease;
   }
 
+  /* 弹窗背景（带动画） */
   .verify-modal {
     position: fixed;
     top: 0;
@@ -48,6 +48,7 @@ GM_addStyle(`
     visibility: visible;
   }
 
+  /* 弹窗内容容器 */
   .modal-box {
     width: 100%;
     max-width: 380px;
@@ -62,6 +63,7 @@ GM_addStyle(`
     transform: scale(1);
   }
 
+  /* 弹窗标题（带图标） */
   .modal-header {
     display: flex;
     align-items: center;
@@ -80,6 +82,7 @@ GM_addStyle(`
     margin: 0;
   }
 
+  /* 弹窗说明文字 */
   .modal-desc {
     font-size: 15px;
     color: #666;
@@ -89,6 +92,7 @@ GM_addStyle(`
     padding: 0 10px;
   }
 
+  /* 验证码样式（可复制） */
   .verify-code {
     width: 100%;
     padding: 15px 0;
@@ -110,16 +114,16 @@ GM_addStyle(`
     background: linear-gradient(135deg, #eef1f5 0%, #f5f7fa 100%);
     border-color: #d1d8e0;
   }
-  /* 不可复制验证码样式 */
+
+  /* 验证码样式（不可复制） */
   .verify-code.uncopyable {
-    background: linear-gradient(135deg, #f0f2f5 0%, #e4e6eb 100%);
     cursor: default;
-    border-color: #d1d8e0;
-  }
-  .verify-code.uncopyable:active {
-    transform: none;
+    background: linear-gradient(135deg, #f8f9fa 0%, #f1f3f5 100%);
+    border-color: #dee2e6;
+    pointer-events: none; /* 禁用点击 */
   }
 
+  /* 复制提示 */
   .copy-tip {
     font-size: 13px;
     color: #888;
@@ -128,21 +132,7 @@ GM_addStyle(`
     font-style: italic;
   }
 
-  /* 输入框样式（新增） */
-  .code-input {
-    width: 100%;
-    padding: 12px 15px;
-    border: 1px solid #ddd;
-    border-radius: 8px;
-    font-size: 16px;
-    margin: 0 0 20px;
-    box-sizing: border-box;
-  }
-  .code-input:focus {
-    outline: none;
-    border-color: #4285f4;
-  }
-
+  /* 按钮容器 */
   .modal-btns {
     display: flex;
     gap: 15px;
@@ -150,6 +140,7 @@ GM_addStyle(`
     margin-bottom: 20px;
   }
 
+  /* 按钮样式 */
   .modal-btn {
     flex: 1;
     padding: 13px 0;
@@ -166,16 +157,17 @@ GM_addStyle(`
     box-shadow: 0 1px 3px rgba(0,0,0,0.1);
   }
 
+  /* 确认/拒绝按钮 */
   .confirm-btn {
     background: linear-gradient(135deg, #4285f4 0%, #3367d6 100%);
     color: white;
   }
-
   .cancel-btn {
     background: linear-gradient(135deg, #ea4335 0%, #d93025 100%);
     color: white;
   }
 
+  /* 复制成功提示 */
   .copy-success {
     position: fixed;
     top: 50%;
@@ -197,6 +189,7 @@ GM_addStyle(`
     100% { opacity: 0; }
   }
 
+  /* 更新链接样式 */
   .update-link-wrap {
     text-align: center;
     padding-top: 10px;
@@ -212,24 +205,14 @@ GM_addStyle(`
     text-decoration: underline;
     color: #3367d6;
   }
-
-  /* 错误提示样式（新增） */
-  .error-tip {
-    color: #ea4335;
-    font-size: 14px;
-    text-align: center;
-    margin: 10px 0;
-    height: 16px;
-  }
 `);
 
 // 常量定义
-const STORAGE_KEY = 'safeTimerRemaining';
-const TOTAL_TIME = 15 * 60; // 15分钟总时长
+const STORAGE_KEY = 'safeTimerEndTime'; // 改为存储结束时间戳
+const TOTAL_TIME = 15 * 60; // 总时长15分钟（秒）
 const UPDATE_URL = 'https://github.com/djdwix/2048games/blob/main/1.js';
-// 脚本校验地址（转换为raw地址以获取纯文本内容）
-const SCRIPT_VERIFY_URL = UPDATE_URL.replace('blob/', 'raw/');
-let firstVerifyStartTime = 0; // 首次验证开始时间
+const STRENGTHEN_COUNT = 2; // 加强验证次数
+const FAST_VERIFY_THRESHOLD = 5000; // 快速验证阈值（5秒）
 
 // 创建倒计时元素
 function createTimer() {
@@ -239,96 +222,74 @@ function createTimer() {
   return timerEl;
 }
 
-// 格式化时间
+// 格式化时间（分:秒）
 function formatTime(seconds) {
   const min = Math.floor(seconds / 60).toString().padStart(2, '0');
   const sec = (seconds % 60).toString().padStart(2, '0');
   return `${min}:${sec}`;
 }
 
-// 时间颜色计算
+// 计算倒计时颜色
 function getTimeColor(remainingTime) {
   const ratio = Math.max(0, Math.min(1, remainingTime / TOTAL_TIME));
-  const hue = Math.floor(ratio * 120);
+  const hue = Math.floor(ratio * 120); // 绿→红渐变
   return `hsl(${hue}, 70%, 50%)`;
 }
 
-// 二次验证流程（不可复制，需输入）
-function showSecondaryVerify(remainingTimes) {
-  if (remainingTimes <= 0) {
-    alert('验证通过');
-    return;
-  }
+// 生成6位验证码
+function generateCode() {
+  return Math.floor(Math.random() * 900000 + 100000).toString();
+}
 
-  // 生成6位不可复制验证码
-  const verifyCode = Math.floor(Math.random() * 900000 + 100000).toString();
-
+// 加强验证弹窗（不可复制）
+function showStrengthenVerify(remainingTimes) {
+  const code = generateCode();
   const modal = document.createElement('div');
   modal.className = 'verify-modal';
   modal.innerHTML = `
     <div class="modal-box">
       <div class="modal-header">
         <span class="modal-icon">🔍</span>
-        <h3 class="modal-title">二次验证（${remainingTimes}/2）</h3>
+        <h3 class="modal-title">加强验证（${STRENGTHEN_COUNT - remainingTimes + 1}/${STRENGTHEN_COUNT}）</h3>
       </div>
-      <p class="modal-desc">请手动输入下方验证码（不可复制）</p>
-      <div class="verify-code uncopyable">${verifyCode}</div>
-      <p class="copy-tip">验证码不可复制，请仔细核对后输入</p>
-      <input type="text" class="code-input" placeholder="请输入6位验证码" maxlength="6">
-      <div class="error-tip"></div>
+      <p class="modal-desc">检测到快速验证行为，请完成剩余验证</p>
+      <div class="verify-code uncopyable">${code}</div>
+      <p class="copy-tip">验证码不可复制，请手动输入</p>
       <div class="modal-btns">
-        <button class="modal-btn confirm-btn">确认</button>
-        <button class="modal-btn cancel-btn">取消</button>
+        <button class="modal-btn confirm-btn">确认验证</button>
+        <button class="modal-btn cancel-btn">拒绝</button>
       </div>
     </div>
   `;
   document.body.appendChild(modal);
   setTimeout(() => modal.classList.add('active'), 10);
 
-  const inputEl = modal.querySelector('.code-input');
-  const errorEl = modal.querySelector('.error-tip');
-  const confirmBtn = modal.querySelector('.confirm-btn');
-  const cancelBtn = modal.querySelector('.cancel-btn');
-
-  // 自动聚焦输入框
-  setTimeout(() => inputEl.focus(), 300);
-
-  // 确认验证
-  confirmBtn.addEventListener('click', () => {
-    const input = inputEl.value.trim();
-    if (input !== verifyCode) {
-      errorEl.textContent = '验证码错误，请重新输入';
-      inputEl.value = '';
-      inputEl.focus();
-      return;
-    }
+  // 确认按钮：继续下一次验证或结束
+  modal.querySelector('.confirm-btn').addEventListener('click', () => {
     modal.classList.remove('active');
     setTimeout(() => {
       modal.remove();
-      showSecondaryVerify(remainingTimes - 1); // 继续下一次验证
+      remainingTimes--;
+      if (remainingTimes > 0) {
+        showStrengthenVerify(remainingTimes); // 继续下一次
+      }
     }, 300);
   });
 
-  // 取消验证（关闭页面）
-  cancelBtn.addEventListener('click', () => {
+  // 拒绝按钮：关闭页面
+  modal.querySelector('.cancel-btn').addEventListener('click', () => {
     localStorage.removeItem(STORAGE_KEY);
     window.close();
     setTimeout(() => {
       if (document.body.contains(modal)) alert('请手动关闭页面');
     }, 300);
   });
-
-  // 支持回车确认
-  inputEl.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') confirmBtn.click();
-  });
 }
 
-// 首次验证弹窗
-function showVerifyModal() {
-  const verifyCode = Math.floor(Math.random() * 900000 + 100000).toString();
-  firstVerifyStartTime = Date.now(); // 记录验证开始时间
-
+// 初始验证弹窗（可复制）
+function showInitialVerify() {
+  const startTime = Date.now(); // 记录弹窗显示时间
+  const code = generateCode();
   const modal = document.createElement('div');
   modal.className = 'verify-modal';
   modal.innerHTML = `
@@ -338,7 +299,7 @@ function showVerifyModal() {
         <h3 class="modal-title">安全验证</h3>
       </div>
       <p class="modal-desc">为确认您的访问安全，请完成以下验证</p>
-      <div class="verify-code">${verifyCode}</div>
+      <div class="verify-code">${code}</div>
       <p class="copy-tip">点击验证码即可复制</p>
       <div class="modal-btns">
         <button class="modal-btn confirm-btn">确认验证</button>
@@ -352,9 +313,9 @@ function showVerifyModal() {
   document.body.appendChild(modal);
   setTimeout(() => modal.classList.add('active'), 10);
 
-  // 验证码复制
+  // 验证码复制功能
   modal.querySelector('.verify-code').addEventListener('click', () => {
-    navigator.clipboard.writeText(verifyCode).then(() => {
+    navigator.clipboard.writeText(code).then(() => {
       const tip = document.createElement('div');
       tip.className = 'copy-success';
       tip.textContent = '验证码已复制成功';
@@ -365,22 +326,20 @@ function showVerifyModal() {
     });
   });
 
-  // 确认按钮
+  // 确认按钮：判断是否需要加强验证
   modal.querySelector('.confirm-btn').addEventListener('click', () => {
-    const verifyDuration = Date.now() - firstVerifyStartTime;
+    const elapsed = Date.now() - startTime; // 计算验证耗时
     modal.classList.remove('active');
-    setTimeout(() => modal.remove(), 300);
-
-    // 5秒内完成验证需二次校验
-    if (verifyDuration <= 5000) {
-      setTimeout(() => {
-        alert('检测到验证速度较快，需进行二次验证');
-        showSecondaryVerify(2); // 发起2次二次验证
-      }, 500);
-    }
+    setTimeout(() => {
+      modal.remove();
+      // 若5秒内完成，触发加强验证
+      if (elapsed < FAST_VERIFY_THRESHOLD) {
+        showStrengthenVerify(STRENGTHEN_COUNT);
+      }
+    }, 300);
   });
 
-  // 拒绝按钮
+  // 拒绝按钮：关闭页面
   modal.querySelector('.cancel-btn').addEventListener('click', () => {
     localStorage.removeItem(STORAGE_KEY);
     window.close();
@@ -390,69 +349,49 @@ function showVerifyModal() {
   });
 }
 
-// 脚本完整性校验
-function verifyScriptIntegrity() {
-  // 获取本地脚本内容（去除注释和空白以兼容格式差异）
-  const localScript = GM_info.script.source
-    .replace(/\/\/.*$/gm, '') // 去除单行注释
-    .replace(/\/\*[\s\S]*?\*\//g, '') // 去除多行注释
-    .replace(/\s+/g, ''); // 去除所有空白
-
-  // 请求远程脚本
-  GM_xmlhttpRequest({
-    method: 'GET',
-    url: SCRIPT_VERIFY_URL,
-    onload: (response) => {
-      if (response.status !== 200) {
-        console.warn('脚本校验失败：无法获取远程脚本');
-        return;
-      }
-
-      // 处理远程脚本内容（同规则清洗）
-      const remoteScript = response.responseText
-        .replace(/\/\/.*$/gm, '')
-        .replace(/\/\*[\s\S]*?\*\//g, '')
-        .replace(/\s+/g, '');
-
-      // 对比校验
-      if (localScript !== remoteScript) {
-        alert('⚠️ 警告：脚本内容与官方版本不一致！可能已被篡改，建议重新安装。');
-      }
-    },
-    onerror: (err) => {
-      console.warn('脚本校验请求失败：', err);
-    }
-  });
-}
-
-// 初始化
+// 初始化功能
 (function() {
   'use strict';
 
-  // 优先执行脚本完整性校验
-  verifyScriptIntegrity();
-
   const timerEl = createTimer();
-  let remainingTime = parseInt(localStorage.getItem(STORAGE_KEY)) || TOTAL_TIME;
-  if (isNaN(remainingTime) || remainingTime > TOTAL_TIME || remainingTime < 0) {
-    remainingTime = TOTAL_TIME;
+  let endTime;
+
+  // 从本地存储读取结束时间戳
+  const storedEndTime = localStorage.getItem(STORAGE_KEY);
+  if (storedEndTime) {
+    endTime = parseInt(storedEndTime);
+    // 若已过期，重置倒计时
+    if (endTime <= Date.now()) {
+      endTime = Date.now() + TOTAL_TIME * 1000;
+    }
+  } else {
+    // 首次运行：设置结束时间（当前时间+总时长）
+    endTime = Date.now() + TOTAL_TIME * 1000;
   }
 
-  const timer = setInterval(() => {
+  // 保存结束时间到本地存储
+  localStorage.setItem(STORAGE_KEY, endTime);
+
+  // 倒计时更新函数（基于系统时间差，支持后台运行）
+  function updateTimer() {
+    const now = Date.now();
+    const remainingTime = Math.max(0, Math.ceil((endTime - now) / 1000));
+
     if (remainingTime <= 0) {
       clearInterval(timer);
       timerEl.remove();
       localStorage.removeItem(STORAGE_KEY);
-      showVerifyModal();
+      showInitialVerify(); // 显示初始验证
       return;
     }
 
+    // 更新显示
     timerEl.textContent = `倒计时: ${formatTime(remainingTime)}`;
     timerEl.style.color = getTimeColor(remainingTime);
-    localStorage.setItem(STORAGE_KEY, remainingTime);
-    remainingTime--;
-  }, 1000);
+  }
 
-  timerEl.textContent = `倒计时: ${formatTime(remainingTime)}`;
-  timerEl.style.color = getTimeColor(remainingTime);
+  // 初始化更新一次
+  updateTimer();
+  // 每秒更新（即使后台运行，基于时间差计算仍准确）
+  const timer = setInterval(updateTimer, 1000);
 })();
