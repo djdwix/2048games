@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         页面安全验证计时器（增强版）
 // @namespace    http://tampermonkey.net/
-// @version      4.3
-// @description  带本地延迟检测+IP显示+后台计时同步+脚本在线校验的安全计时器
+// @version      4.4
+// @description  带本地延迟检测+IP显示+后台计时同步+动态验证码+科幻弹窗的安全计时器
 // @author       You
 // @match        *://*/*
 // @grant        GM_addStyle
@@ -13,51 +13,57 @@ GM_addStyle(`
     position: fixed;
     top: 12px;
     left: 12px;
-    background: rgba(255,255,255,0.95);
-    border: 1px solid #eee;
+    background: rgba(15, 23, 42, 0.95);
+    border: 1px solid rgba(76, 201, 240, 0.5);
     border-radius: 8px;
     padding: 8px 15px;
     font-size: 16px;
     font-weight: 600;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    color: #e0f2fe;
+    box-shadow: 0 2px 8px rgba(76, 201, 240, 0.2);
     z-index: 9999;
     user-select: none;
-    transition: color 0.3s ease;
+    transition: color 0.3s ease, box-shadow 0.3s ease;
+  }
+  .safe-timer:hover {
+    box-shadow: 0 0 12px rgba(76, 201, 240, 0.4);
   }
   /* 网络状态显示（右上角） */
   .net-status {
     position: fixed;
     top: 12px;
     right: 12px;
-    background: rgba(255,255,255,0.95);
-    border: 1px solid #eee;
+    background: rgba(15, 23, 42, 0.95);
+    border: 1px solid rgba(76, 201, 240, 0.5);
     border-radius: 8px;
     padding: 8px 15px;
     font-size: 16px;
     font-weight: 600;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    box-shadow: 0 2px 8px rgba(76, 201, 240, 0.2);
     z-index: 9999;
     user-select: none;
     cursor: pointer;
     transition: all 0.2s ease;
   }
   .net-status.online {
-    color: #4cd964;
+    color: #4cc9f0;
   }
   .net-status.offline {
-    color: #ff3b30;
+    color: #f72585;
   }
   .net-status:active {
     transform: scale(0.95);
+    box-shadow: 0 0 8px rgba(76, 201, 240, 0.1);
   }
-  /* 网络状态弹窗 */
+  /* 网络状态弹窗（同步科幻风格） */
   .net-modal {
     position: fixed;
     top: 0;
     left: 0;
     width: 100%;
     height: 100%;
-    background: rgba(0,0,0,0.6);
+    background: rgba(10, 15, 30, 0.85);
+    backdrop-filter: blur(8px);
     display: flex;
     justify-content: center;
     align-items: center;
@@ -74,15 +80,17 @@ GM_addStyle(`
   .net-modal-box {
     width: 100%;
     max-width: 380px;
-    background: white;
+    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+    border: 1px solid rgba(76, 201, 240, 0.5);
     border-radius: 16px;
     padding: 25px 20px;
-    box-shadow: 0 8px 30px rgba(0,0,0,0.2);
-    transform: scale(0.95);
-    transition: transform 0.3s ease;
+    box-shadow: 0 0 20px rgba(76, 201, 240, 0.3);
+    transform: scale(0.9) translateY(10px);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
   }
   .net-modal.active .net-modal-box {
-    transform: scale(1);
+    transform: scale(1) translateY(0);
+    box-shadow: 0 0 30px rgba(76, 201, 240, 0.4);
   }
   .net-modal-header {
     display: flex;
@@ -90,26 +98,34 @@ GM_addStyle(`
     justify-content: space-between;
     margin-bottom: 20px;
     padding-bottom: 10px;
-    border-bottom: 1px solid #f0f0f0;
+    border-bottom: 1px solid rgba(76, 201, 240, 0.3);
   }
   .net-modal-title {
     font-size: 20px;
     font-weight: bold;
-    color: #1a1a1a;
+    color: #4cc9f0;
     margin: 0;
     display: flex;
     align-items: center;
+    text-shadow: 0 0 5px rgba(76, 201, 240, 0.5);
   }
   .net-modal-title span {
     margin-right: 8px;
+    font-size: 24px;
   }
   .net-modal-close {
-    background: none;
-    border: none;
+    background: transparent;
+    border: 1px solid rgba(76, 201, 240, 0.5);
+    color: #4cc9f0;
     font-size: 22px;
     cursor: pointer;
-    color: #888;
-    padding: 0 5px;
+    padding: 0 8px;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+  }
+  .net-modal-close:hover {
+    background: rgba(76, 201, 240, 0.1);
+    box-shadow: 0 0 8px rgba(76, 201, 240, 0.3);
   }
   .net-info-list {
     list-style: none;
@@ -118,30 +134,32 @@ GM_addStyle(`
   }
   .net-info-item {
     padding: 12px 0;
-    border-bottom: 1px dashed #f0f0f0;
+    border-bottom: 1px dashed rgba(76, 201, 240, 0.2);
     font-size: 15px;
   }
   .net-info-label {
-    color: #666;
+    color: #94a3b8;
     display: block;
     margin-bottom: 4px;
     font-size: 13px;
   }
   .net-info-value {
-    color: #1a1a1a;
+    color: #e0f2fe;
     font-weight: 500;
   }
   .net-info-value.dynamic {
-    color: #4285f4;
+    color: #4cc9f0;
+    text-shadow: 0 0 3px rgba(76, 201, 240, 0.4);
   }
-  /* 验证弹窗样式 */
+  /* 科幻化验证弹窗样式（核心更新） */
   .verify-modal {
     position: fixed;
     top: 0;
     left: 0;
     width: 100%;
     height: 100%;
-    background: rgba(0,0,0,0.6);
+    background: rgba(10, 15, 30, 0.9);
+    backdrop-filter: blur(10px);
     display: flex;
     justify-content: center;
     align-items: center;
@@ -149,7 +167,7 @@ GM_addStyle(`
     padding: 0 15px;
     opacity: 0;
     visibility: hidden;
-    transition: opacity 0.3s ease, visibility 0.3s ease;
+    transition: opacity 0.4s ease, visibility 0.4s ease;
   }
   .verify-modal.active {
     opacity: 1;
@@ -158,100 +176,120 @@ GM_addStyle(`
   .modal-box {
     width: 100%;
     max-width: 380px;
-    background: white;
+    background: linear-gradient(135deg, #1a103d 0%, #0f172a 100%);
+    border: 1px solid rgba(76, 201, 240, 0.6);
     border-radius: 16px;
     padding: 30px 20px;
-    box-shadow: 0 8px 30px rgba(0,0,0,0.2);
-    transform: scale(0.95);
-    transition: transform 0.3s ease;
+    box-shadow: 0 0 25px rgba(76, 201, 240, 0.3), inset 0 0 15px rgba(76, 201, 240, 0.1);
+    transform: scale(0.9) translateY(15px);
+    transition: transform 0.4s ease, box-shadow 0.4s ease;
   }
   .verify-modal.active .modal-box {
-    transform: scale(1);
+    transform: scale(1) translateY(0);
+    box-shadow: 0 0 35px rgba(76, 201, 240, 0.4), inset 0 0 20px rgba(76, 201, 240, 0.15);
   }
   .modal-header {
     display: flex;
     align-items: center;
     justify-content: center;
     margin-bottom: 20px;
+    gap: 12px;
   }
   .modal-icon {
-    font-size: 24px;
-    margin-right: 10px;
-    color: #4285f4;
+    font-size: 28px;
+    color: #4cc9f0;
+    text-shadow: 0 0 8px rgba(76, 201, 240, 0.6);
   }
   .modal-title {
     font-size: 22px;
     font-weight: bold;
-    color: #1a1a1a;
+    color: #4cc9f0;
     margin: 0;
+    text-shadow: 0 0 6px rgba(76, 201, 240, 0.5);
+    letter-spacing: 0.5px;
   }
   .modal-desc {
     font-size: 15px;
-    color: #666;
+    color: #e0e7ff;
     text-align: center;
     margin: 0 0 25px;
-    line-height: 1.5;
+    line-height: 1.6;
     padding: 0 10px;
+    opacity: 0.9;
   }
+  /* 科幻化验证码样式 */
   .verify-code {
     width: 100%;
     padding: 15px 0;
-    background: linear-gradient(135deg, #f5f7fa 0%, #eef1f5 100%);
-    border: 1px solid #e1e5eb;
+    background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+    border: 1px solid rgba(76, 201, 240, 0.6);
     border-radius: 12px;
     font-size: 24px;
     font-weight: bold;
-    color: #2c3e50;
+    color: #4cc9f0;
     text-align: center;
-    letter-spacing: 4px;
+    letter-spacing: 6px;
     margin: 0 0 12px;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: all 0.3s ease;
     user-select: none;
+    box-shadow: 0 0 12px rgba(76, 201, 240, 0.2), inset 0 0 8px rgba(76, 201, 240, 0.4);
+    text-shadow: 0 0 5px rgba(76, 201, 240, 0.7);
   }
   .verify-code:active {
     transform: scale(0.98);
-    background: linear-gradient(135deg, #eef1f5 0%, #f5f7fa 100%);
-    border-color: #d1d8e0;
+    background: linear-gradient(135deg, #2a5298 0%, #1e3c72 100%);
+    border-color: rgba(76, 201, 240, 0.4);
+    box-shadow: 0 0 8px rgba(76, 201, 240, 0.15), inset 0 0 6px rgba(76, 201, 240, 0.3);
   }
   .verify-code.uncopyable {
     cursor: default;
-    background: linear-gradient(135deg, #f8f9fa 0%, #f1f3f5 100%);
-    border-color: #dee2e6;
+    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+    border-color: rgba(76, 201, 240, 0.3);
     pointer-events: none;
+    box-shadow: inset 0 0 6px rgba(76, 201, 240, 0.2);
   }
+  /* 科幻化输入框 */
   .verify-input-wrap {
     margin: 15px 0 5px;
   }
   .verify-input {
     width: 100%;
     padding: 12px 0;
-    border: 1px solid #e1e5eb;
+    background: #1e293b;
+    border: 1px solid rgba(76, 201, 240, 0.5);
     border-radius: 8px;
     font-size: 16px;
     text-align: center;
     outline: none;
-    transition: border-color 0.2s ease;
+    transition: all 0.3s ease;
+    color: #f8fafc;
+    box-shadow: inset 0 0 6px rgba(76, 201, 240, 0.1);
   }
   .verify-input:focus {
-    border-color: #4285f4;
-    box-shadow: 0 0 0 2px rgba(66, 133, 244, 0.2);
+    border-color: #4cc9f0;
+    box-shadow: 0 0 10px rgba(76, 201, 240, 0.4), inset 0 0 8px rgba(76, 201, 240, 0.2);
   }
+  /* 科幻化错误提示 */
   .verify-error {
     display: none;
-    color: #ff3b30;
+    color: #f72585;
     text-align: center;
     font-size: 13px;
     margin-top: -10px;
     margin-bottom: 15px;
+    font-weight: 600;
+    text-shadow: 0 0 3px rgba(247, 37, 133, 0.4);
   }
   .copy-tip {
     font-size: 13px;
-    color: #888;
+    color: #b5c8ff;
     text-align: center;
     margin: 0 0 25px;
     font-style: italic;
+    opacity: 0.8;
   }
+  /* 科幻化按钮组 */
   .modal-btns {
     display: flex;
     gap: 15px;
@@ -266,90 +304,73 @@ GM_addStyle(`
     font-size: 16px;
     font-weight: 600;
     cursor: pointer;
-    transition: all 0.2s ease;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    transition: all 0.3s ease;
+    color: #fff;
+    letter-spacing: 0.5px;
   }
   .modal-btn:active {
     transform: translateY(2px);
-    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    box-shadow: 0 0 8px rgba(0,0,0,0.2);
   }
+  /* 确认按钮科幻风格 */
   .confirm-btn {
-    background: linear-gradient(135deg, #4285f4 0%, #3367d6 100%);
-    color: white;
+    background: linear-gradient(135deg, #4361ee 0%, #3a0ca3 100%);
+    box-shadow: 0 0 12px rgba(67, 97, 238, 0.5);
   }
+  .confirm-btn:hover {
+    box-shadow: 0 0 18px rgba(67, 97, 238, 0.7);
+  }
+  /* 取消按钮科幻风格 */
   .cancel-btn {
-    background: linear-gradient(135deg, #ea4335 0%, #d93025 100%);
-    color: white;
+    background: linear-gradient(135deg, #f72585 0%, #7209b7 100%);
+    box-shadow: 0 0 12px rgba(247, 37, 133, 0.5);
   }
+  .cancel-btn:hover {
+    box-shadow: 0 0 18px rgba(247, 37, 133, 0.7);
+  }
+  /* 复制成功提示科幻化 */
   .copy-success {
     position: fixed;
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    background: rgba(0,0,0,0.8);
-    color: white;
-    padding: 10px 20px;
+    background: rgba(15, 23, 42, 0.9);
+    border: 1px solid rgba(76, 201, 240, 0.6);
+    color: #4cc9f0;
+    padding: 12px 24px;
     border-radius: 8px;
     font-size: 15px;
     z-index: 10001;
     opacity: 0;
+    box-shadow: 0 0 15px rgba(76, 201, 240, 0.4);
     animation: fadeInOut 1.5s ease;
   }
   @keyframes fadeInOut {
-    0% { opacity: 0; }
-    20% { opacity: 1; }
-    80% { opacity: 1; }
-    100% { opacity: 0; }
+    0% { opacity: 0; transform: translate(-50%, -50%) scale(0.9); }
+    20% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    80% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    100% { opacity: 0; transform: translate(-50%, -50%) scale(0.9); }
   }
+  /* 脚本更新链接科幻化 */
   .update-link-wrap {
     text-align: center;
     padding-top: 10px;
-    border-top: 1px dashed #eee;
+    border-top: 1px dashed rgba(76, 201, 240, 0.3);
   }
   .update-link {
     font-size: 13px;
-    color: #4285f4;
+    color: #4cc9f0;
     text-decoration: none;
     cursor: pointer;
+    text-shadow: 0 0 3px rgba(76, 201, 240, 0.5);
   }
   .update-link:hover, .update-link:active {
     text-decoration: underline;
-    color: #3367d6;
-  }
-  /* 新增：脚本校验警告样式 */
-  .script-warn {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    padding: 12px 20px;
-    font-size: 16px;
-    font-weight: bold;
-    text-align: center;
-    z-index: 99999; /* 最高层级，确保可见 */
-    box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-    transition: opacity 0.3s ease;
-  }
-  .script-warn.error {
-    background: #ff3b30;
-    color: white;
-  }
-  .script-warn.success {
-    background: #4cd964;
-    color: white;
-  }
-  .script-warn button {
-    margin-left: 20px;
-    padding: 4px 12px;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    background: rgba(255,255,255,0.3);
-    color: white;
-    font-weight: 600;
+    color: #7dd3fc;
+    text-shadow: 0 0 5px rgba(76, 201, 240, 0.7);
   }
 `);
-// 常量定义（核心更新：删除旧校验地址，添加新脚本在线校验地址）
+// 常量定义（核心更新：删除所有脚本校验相关常量）
 const STORAGE_KEY = 'safeTimerEndTime';
 const TOTAL_TIME = 15 * 60;
 const UPDATE_URL = 'https://github.com/djdwix/2048games/blob/main/1.js';
@@ -357,9 +378,7 @@ const STRENGTHEN_COUNT = 2;
 const FAST_VERIFY_THRESHOLD = 5000;
 const LOCAL_DELAY_INTERVAL = 3000;
 const LOCAL_TEST_TIMES = 10;
-const SCRIPT_CHECK_URL = 'http://localhost:3000/'; // 核心更新：新脚本在线校验地址
-const CHECK_TIMEOUT = 10000; // 校验超时时间（10秒）
-// 网络状态管理（保留前序功能）
+// 网络状态管理（保留功能，同步科幻风格）
 class NetworkMonitor {
   constructor() {
     this.isOnline = navigator.onLine;
@@ -514,7 +533,7 @@ class NetworkMonitor {
     return `${screen.width}×${screen.height}px (${window.innerWidth}×${window.innerHeight}px)`;
   }
 }
-// 倒计时及验证功能（保留前序功能）
+// 倒计时及验证功能（保留核心，更新验证码逻辑）
 function initTimer() {
   const timerEl = document.createElement('div');
   timerEl.className = 'safe-timer';
@@ -538,8 +557,8 @@ function initTimer() {
   }
   function getTimeColor(remainingTime) {
     const ratio = Math.max(0, Math.min(1, remainingTime / TOTAL_TIME));
-    const hue = Math.floor(ratio * 120);
-    return `hsl(${hue}, 70%, 50%)`;
+    const hue = Math.floor(ratio * 180) + 180; // 科幻蓝紫渐变（180-360色调）
+    return `hsl(${hue}, 70%, 60%)`;
   }
   function updateTimer() {
     const now = Date.now();
@@ -575,25 +594,28 @@ function initTimer() {
   updateTimer();
   const timer = setInterval(updateTimer, 1000);
 }
+// 生成随机6位验证码
 function generateCode() {
   return Math.floor(Math.random() * 900000 + 100000).toString();
 }
+// 加强验证（核心更新：验证码错误自动更新）
 function showStrengthenVerify(remainingTimes) {
-  const code = generateCode();
+  // 用let声明code，支持后续更新
+  let code = generateCode();
   const modal = document.createElement('div');
   modal.className = 'verify-modal';
   modal.innerHTML = `
     <div class="modal-box">
       <div class="modal-header">
-        <span class="modal-icon">🔍</span>
+        <span class="modal-icon">🛡️</span>
         <h3 class="modal-title">加强验证（${STRENGTHEN_COUNT - remainingTimes + 1}/${STRENGTHEN_COUNT}）</h3>
       </div>
-      <p class="modal-desc">检测到快速验证行为，请完成剩余验证</p>
+      <p class="modal-desc">检测到快速验证行为，请完成剩余安全校验</p>
       <div class="verify-code uncopyable">${code}</div>
       <div class="verify-input-wrap">
         <input type="text" class="verify-input" placeholder="请输入6位验证码" maxlength="6" autocomplete="off">
       </div>
-      <div class="verify-error">验证码错误，请重新输入</div>
+      <div class="verify-error">验证码错误，已自动刷新，请重新输入</div>
       <p class="copy-tip">验证码不可复制，请手动输入</p>
       <div class="modal-btns">
         <button class="modal-btn confirm-btn">确认验证</button>
@@ -605,10 +627,18 @@ function showStrengthenVerify(remainingTimes) {
   setTimeout(() => modal.classList.add('active'), 10);
   const verifyInput = modal.querySelector('.verify-input');
   const verifyError = modal.querySelector('.verify-error');
+  const verifyCodeEl = modal.querySelector('.verify-code');
+  
+  // 确认按钮事件（核心更新：错误时自动更新验证码）
   modal.querySelector('.confirm-btn').addEventListener('click', () => {
     const inputCode = verifyInput.value.trim();
     if (inputCode !== code) {
       verifyError.style.display = 'block';
+      // 自动生成新验证码并更新显示
+      code = generateCode();
+      verifyCodeEl.textContent = code;
+      // 清空输入框并聚焦
+      verifyInput.value = '';
       verifyInput.focus();
       return;
     }
@@ -621,6 +651,7 @@ function showStrengthenVerify(remainingTimes) {
       }
     }, 300);
   });
+  // 取消按钮事件
   modal.querySelector('.cancel-btn').addEventListener('click', () => {
     localStorage.removeItem(STORAGE_KEY);
     window.close();
@@ -629,23 +660,25 @@ function showStrengthenVerify(remainingTimes) {
     }, 300);
   });
 }
+// 初始验证（核心更新：验证码错误自动更新）
 function showInitialVerify() {
   const startTime = Date.now();
-  const code = generateCode();
+  // 用let声明code，支持后续更新
+  let code = generateCode();
   const modal = document.createElement('div');
   modal.className = 'verify-modal';
   modal.innerHTML = `
     <div class="modal-box">
       <div class="modal-header">
-        <span class="modal-icon">🔒</span>
+        <span class="modal-icon">🛡️</span>
         <h3 class="modal-title">安全验证</h3>
       </div>
-      <p class="modal-desc">为确认您的访问安全，请完成以下验证</p>
+      <p class="modal-desc">为确认您的访问安全，请完成以下身份校验</p>
       <div class="verify-code">${code}</div>
       <div class="verify-input-wrap">
         <input type="text" class="verify-input" placeholder="请输入6位验证码" maxlength="6" autocomplete="off">
       </div>
-      <div class="verify-error">验证码错误，请重新输入</div>
+      <div class="verify-error">验证码错误，已自动刷新，请重新输入</div>
       <p class="copy-tip">点击验证码即可复制</p>
       <div class="modal-btns">
         <button class="modal-btn confirm-btn">确认验证</button>
@@ -658,7 +691,12 @@ function showInitialVerify() {
   `;
   document.body.appendChild(modal);
   setTimeout(() => modal.classList.add('active'), 10);
-  modal.querySelector('.verify-code').addEventListener('click', () => {
+  const verifyInput = modal.querySelector('.verify-input');
+  const verifyError = modal.querySelector('.verify-error');
+  const verifyCodeEl = modal.querySelector('.verify-code');
+  
+  // 验证码复制功能
+  verifyCodeEl.addEventListener('click', () => {
     navigator.clipboard.writeText(code).then(() => {
       const tip = document.createElement('div');
       tip.className = 'copy-success';
@@ -669,12 +707,17 @@ function showInitialVerify() {
       alert('复制失败，请手动复制');
     });
   });
-  const verifyInput = modal.querySelector('.verify-input');
-  const verifyError = modal.querySelector('.verify-error');
+  
+  // 确认按钮事件（核心更新：错误时自动更新验证码）
   modal.querySelector('.confirm-btn').addEventListener('click', () => {
     const inputCode = verifyInput.value.trim();
     if (!inputCode || inputCode !== code) {
       verifyError.style.display = 'block';
+      // 自动生成新验证码并更新显示
+      code = generateCode();
+      verifyCodeEl.textContent = code;
+      // 清空输入框并聚焦
+      verifyInput.value = '';
       verifyInput.focus();
       return;
     }
@@ -687,6 +730,8 @@ function showInitialVerify() {
       }
     }, 300);
   });
+  
+  // 取消按钮事件
   modal.querySelector('.cancel-btn').addEventListener('click', () => {
     localStorage.removeItem(STORAGE_KEY);
     window.close();
@@ -695,93 +740,9 @@ function showInitialVerify() {
     }, 300);
   });
 }
-// 核心更新1：脚本文本清理函数（用于消除格式/注释差异，确保比较准确性）
-function cleanScriptText(text) {
-  if (!text) return '';
-  // 1. 移除多行注释 /* ... */（含跨行）
-  text = text.replace(/\/\*[\s\S]*?\*\//g, '');
-  // 2. 移除单行注释 // ...（到行尾）
-  text = text.replace(/\/\/.*$/gm, '');
-  // 3. 移除所有空白字符（空格、换行、制表符等）
-  text = text.replace(/\s+/g, '');
-  return text;
-}
-// 核心更新2：显示校验警告（错误/成功提示）
-function showScriptWarn(message, isError = true) {
-  // 避免重复创建警告
-  if (document.querySelector('.script-warn')) return;
-  const warnEl = document.createElement('div');
-  warnEl.className = `script-warn ${isError ? 'error' : 'success'}`;
-  warnEl.innerHTML = `
-    ${message}
-    <button>关闭</button>
-  `;
-  document.body.appendChild(warnEl);
-  // 关闭按钮事件
-  warnEl.querySelector('button').addEventListener('click', () => {
-    warnEl.remove();
-  });
-  // 错误警告30秒后自动隐藏（避免长期遮挡）
-  if (isError) {
-    setTimeout(() => {
-      if (document.body.contains(warnEl)) warnEl.remove();
-    }, 30000);
-  }
-}
-// 核心更新3：脚本在线校验逻辑（对比本地与在线版本，新增校验成功文本）
-function checkScriptConsistency() {
-  // 1. 获取本地脚本内容
-  const localScript = document.currentScript?.textContent || '';
-  if (!localScript) {
-    showScriptWarn('脚本校验失败：无法读取本地脚本内容');
-    return;
-  }
-  const cleanedLocal = cleanScriptText(localScript);
-  // 2. 构建超时Promise（避免无限等待）
-  const timeoutPromise = new Promise((_, reject) => {
-    setTimeout(() => reject(new Error('获取在线内容超时')), CHECK_TIMEOUT);
-  });
-  // 3. 获取并解析在线校验内容（提取表格中的脚本代码）
-  const fetchPromise = fetch(SCRIPT_CHECK_URL, {
-    method: 'GET',
-    mode: 'cors',
-    cache: 'no-store'
-  })
-  .then(response => {
-    if (!response.ok) throw new Error(`HTTP错误 ${response.status}`);
-    return response.text();
-  })
-  .then(onlineHtml => {
-    // 解析HTML，提取表格中第二列（脚本内容，第一列为行号）
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(onlineHtml, 'text/html');
-    const rows = doc.querySelectorAll('table tr');
-    if (rows.length === 0) throw new Error('未找到在线脚本表格');
-    let onlineScript = '';
-    rows.forEach(row => {
-      const contentTd = row.querySelector('td:nth-child(2)');
-      if (contentTd) onlineScript += contentTd.textContent.trim() + '\n';
-    });
-    if (!onlineScript) throw new Error('无法提取在线脚本内容');
-    const cleanedOnline = cleanScriptText(onlineScript);
-    // 4. 对比清理后的内容（核心更新：新增校验成功文本显示）
-    if (cleanedLocal !== cleanedOnline) {
-      showScriptWarn(`⚠️ 警告：当前脚本与在线校验版本不一致！\n校验地址：${SCRIPT_CHECK_URL}\n可能存在安全风险，请重新获取官方脚本。`);
-    } else {
-      // 核心更新：校验成功时显示文本，明确提示校验通过
-      showScriptWarn(`✅ 脚本校验成功：与在线校验地址（${SCRIPT_CHECK_URL}）版本一致，可安全使用`, false);
-    }
-  });
-  // 5. 处理超时/网络错误
-  Promise.race([fetchPromise, timeoutPromise])
-  .catch(error => {
-    showScriptWarn(`脚本校验失败：${error.message}\n请检查网络或校验地址（${SCRIPT_CHECK_URL}）有效性`);
-  });
-}
-// 初始化所有功能（保留前序功能，执行脚本校验）
+// 初始化所有功能（核心更新：删除脚本校验初始化）
 (function() {
   'use strict';
   new NetworkMonitor(); // 网络监测
   initTimer(); // 倒计时同步
-  checkScriptConsistency(); // 脚本在线校验
 })();
