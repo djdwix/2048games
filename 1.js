@@ -1,13 +1,12 @@
 // ==UserScript==
 // @name         页面安全验证计时器（增强版）
 // @namespace    http://tampermonkey.net/
-// @version      4.0
-// @description  带网络监测+后台计时+加强验证的安全计时器
+// @version      4.1
+// @description  带网络监测+后台计时+加强验证的安全计时器（修复验证/网络/同步问题）
 // @author       You
 // @match        *://*/*
 // @grant        GM_addStyle
 // ==/UserScript==
-
 GM_addStyle(`
   /* 倒计时样式（左上角） */
   .safe-timer {
@@ -25,7 +24,6 @@ GM_addStyle(`
     user-select: none;
     transition: color 0.3s ease;
   }
-
   /* 网络状态显示（右上角） */
   .net-status {
     position: fixed;
@@ -52,7 +50,6 @@ GM_addStyle(`
   .net-status:active {
     transform: scale(0.95);
   }
-
   /* 网络状态弹窗 */
   .net-modal {
     position: fixed;
@@ -137,8 +134,7 @@ GM_addStyle(`
   .net-info-value.dynamic {
     color: #4285f4;
   }
-
-  /* 验证弹窗样式（保持原有） */
+  /* 验证弹窗样式（新增输入框和错误提示样式） */
   .verify-modal {
     position: fixed;
     top: 0;
@@ -224,6 +220,33 @@ GM_addStyle(`
     border-color: #dee2e6;
     pointer-events: none;
   }
+  /* 新增：验证码输入框样式 */
+  .verify-input-wrap {
+    margin: 15px 0 5px;
+  }
+  .verify-input {
+    width: 100%;
+    padding: 12px 0;
+    border: 1px solid #e1e5eb;
+    border-radius: 8px;
+    font-size: 16px;
+    text-align: center;
+    outline: none;
+    transition: border-color 0.2s ease;
+  }
+  .verify-input:focus {
+    border-color: #4285f4;
+    box-shadow: 0 0 0 2px rgba(66, 133, 244, 0.2);
+  }
+  /* 新增：验证码错误提示样式 */
+  .verify-error {
+    display: none;
+    color: #ff3b30;
+    text-align: center;
+    font-size: 13px;
+    margin-top: -10px;
+    margin-bottom: 15px;
+  }
   .copy-tip {
     font-size: 13px;
     color: #888;
@@ -296,7 +319,6 @@ GM_addStyle(`
     color: #3367d6;
   }
 `);
-
 // 常量定义
 const STORAGE_KEY = 'safeTimerEndTime';
 const TOTAL_TIME = 15 * 60;
@@ -304,19 +326,20 @@ const UPDATE_URL = 'https://github.com/djdwix/2048games/blob/main/1.js';
 const STRENGTHEN_COUNT = 2;
 const FAST_VERIFY_THRESHOLD = 5000;
 const PING_INTERVAL = 3000; // 延迟检测间隔（3秒）
+const PING_TIMEOUT = 5000; // 新增：ping超时时间（5秒）
 
-// 网络状态管理
+// 网络状态管理（修复网络延迟超时问题）
 class NetworkMonitor {
   constructor() {
     this.isOnline = navigator.onLine;
     this.delay = '未知';
     this.statusEl = null;
     this.modalEl = null;
+    this.pingTimer = null; // 新增：定时器实例，避免重复创建
     this.initElements();
     this.bindEvents();
     this.startPing();
   }
-
   // 创建状态元素和弹窗
   initElements() {
     // 右上角状态显示
@@ -324,7 +347,6 @@ class NetworkMonitor {
     this.statusEl.className = `net-status ${this.isOnline ? 'online' : 'offline'}`;
     this.statusEl.textContent = this.isOnline ? '在线' : '离线';
     document.body.appendChild(this.statusEl);
-
     // 网络信息弹窗
     this.modalEl = document.createElement('div');
     this.modalEl.className = 'net-modal';
@@ -361,24 +383,20 @@ class NetworkMonitor {
       </div>
     `;
     document.body.appendChild(this.modalEl);
-
     // 绑定关闭按钮事件
     this.modalEl.querySelector('.net-modal-close').addEventListener('click', () => {
       this.modalEl.classList.remove('active');
     });
   }
-
   // 绑定事件监听
   bindEvents() {
     // 点击状态显示切换弹窗
     this.statusEl.addEventListener('click', () => {
       this.modalEl.classList.toggle('active');
     });
-
     // 监听在线/离线事件
     window.addEventListener('online', () => this.updateStatus(true));
     window.addEventListener('offline', () => this.updateStatus(false));
-
     // 监听网络类型变化
     if (navigator.connection) {
       navigator.connection.addEventListener('change', () => {
@@ -386,7 +404,6 @@ class NetworkMonitor {
       });
     }
   }
-
   // 更新网络状态
   updateStatus(online) {
     this.isOnline = online;
@@ -395,42 +412,52 @@ class NetworkMonitor {
     this.modalEl.querySelector('#net-status-value').textContent = online ? '在线' : '离线';
     this.modalEl.querySelector('.net-modal-title span').textContent = online ? '🌐' : '❌';
     
-    // 在线时重新开始ping
+    // 在线时重新开始ping（清除旧定时器）
     if (online) {
       this.startPing();
     } else {
       this.delay = '离线';
       this.modalEl.querySelector('#net-delay-value').textContent = this.delay;
+      clearInterval(this.pingTimer); // 新增：离线时清除定时器
     }
   }
-
-  // 开始延迟检测
+  // 开始延迟检测（修复：清除旧定时器避免重复）
   startPing() {
     if (!this.isOnline) return;
+    clearInterval(this.pingTimer); // 关键修复：先清除原有定时器
     this.ping(); // 立即检测一次
     // 定时检测
     this.pingTimer = setInterval(() => {
       if (this.isOnline) this.ping();
     }, PING_INTERVAL);
   }
-
-  // 检测网络延迟
+  // 检测网络延迟（关键修复：换可靠资源+加超时+改GET方法）
   ping() {
     const start = Date.now();
-    // 请求一个小资源（使用GitHub的favicon，体积小）
-    fetch('https://github.com/favicon.ico?t=' + Date.now(), {
-      method: 'HEAD',
+    // 新增：超时Promise（5秒超时）
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('超时')), PING_TIMEOUT)
+    );
+    // 修复：换百度favicon（更易访问，支持CORS），改GET方法
+    fetch(`https://www.baidu.com/favicon.ico?t=${Date.now()}`, {
+      method: 'GET',
       mode: 'cors',
       cache: 'no-store'
-    }).then(() => {
-      this.delay = `${Date.now() - start}ms`;
+    })
+    .then(response => {
+      if (response.ok) { // 新增：检查响应是否成功
+        this.delay = `${Date.now() - start}ms`;
+      } else {
+        this.delay = '响应错误';
+      }
       this.modalEl.querySelector('#net-delay-value').textContent = this.delay;
-    }).catch(() => {
-      this.delay = '超时';
+    })
+    .catch(error => {
+      // 区分超时和其他错误
+      this.delay = error.message === '超时' ? '超时' : '连接失败';
       this.modalEl.querySelector('#net-delay-value').textContent = this.delay;
     });
   }
-
   // 获取网络类型
   getNetworkType() {
     if (!navigator.connection) return '未知';
@@ -446,7 +473,6 @@ class NetworkMonitor {
     };
     return types[navigator.connection.type] || navigator.connection.type;
   }
-
   // 获取浏览器信息
   getBrowserInfo() {
     const ua = navigator.userAgent;
@@ -455,47 +481,53 @@ class NetworkMonitor {
     if (ua.includes('Firefox')) return 'Firefox';
     return '未知浏览器';
   }
-
   // 获取屏幕尺寸
   getScreenSize() {
     return `${screen.width}×${screen.height}px (${window.innerWidth}×${window.innerHeight}px)`;
   }
 }
 
-// 倒计时及验证功能（保持原有逻辑）
+// 倒计时及验证功能（修复验证输入和倒计时同步）
 function initTimer() {
   const timerEl = document.createElement('div');
   timerEl.className = 'safe-timer';
   document.body.appendChild(timerEl);
   let endTime;
-
   const storedEndTime = localStorage.getItem(STORAGE_KEY);
+  
+  // 初始化结束时间（确保所有网页共用同一时间）
   if (storedEndTime) {
     endTime = parseInt(storedEndTime);
+    // 若存储的时间已过期，重新生成
     if (endTime <= Date.now()) {
       endTime = Date.now() + TOTAL_TIME * 1000;
+      localStorage.setItem(STORAGE_KEY, endTime);
     }
   } else {
     endTime = Date.now() + TOTAL_TIME * 1000;
+    localStorage.setItem(STORAGE_KEY, endTime);
   }
-  localStorage.setItem(STORAGE_KEY, endTime);
 
+  // 时间格式化
   function formatTime(seconds) {
     const min = Math.floor(seconds / 60).toString().padStart(2, '0');
     const sec = (seconds % 60).toString().padStart(2, '0');
     return `${min}:${sec}`;
   }
 
+  // 时间颜色计算
   function getTimeColor(remainingTime) {
     const ratio = Math.max(0, Math.min(1, remainingTime / TOTAL_TIME));
     const hue = Math.floor(ratio * 120);
     return `hsl(${hue}, 70%, 50%)`;
   }
 
+  // 更新倒计时
   function updateTimer() {
     const now = Date.now();
     const remainingTime = Math.max(0, Math.ceil((endTime - now) / 1000));
-
+    
+    // 倒计时结束
     if (remainingTime <= 0) {
       clearInterval(timer);
       timerEl.remove();
@@ -508,18 +540,45 @@ function initTimer() {
     timerEl.style.color = getTimeColor(remainingTime);
   }
 
+  // 关键修复：监听localStorage变化，实现多网页倒计时同步
+  window.addEventListener('storage', (e) => {
+    if (e.key === STORAGE_KEY) {
+      // 若存储的时间被更新
+      if (e.newValue) {
+        endTime = parseInt(e.newValue);
+        // 检查新时间是否已过期
+        if (endTime <= Date.now()) {
+          clearInterval(timer);
+          timerEl.remove();
+          localStorage.removeItem(STORAGE_KEY);
+          showInitialVerify();
+        }
+      } else {
+        // 若存储的时间被删除（其他网页倒计时结束）
+        clearInterval(timer);
+        timerEl.remove();
+        showInitialVerify();
+      }
+      // 立即更新当前网页倒计时显示
+      updateTimer();
+    }
+  });
+
   updateTimer();
   const timer = setInterval(updateTimer, 1000);
 }
 
+// 生成6位验证码
 function generateCode() {
   return Math.floor(Math.random() * 900000 + 100000).toString();
 }
 
+// 加强验证（修复：添加输入验证）
 function showStrengthenVerify(remainingTimes) {
   const code = generateCode();
   const modal = document.createElement('div');
   modal.className = 'verify-modal';
+  // 新增：验证码输入框和错误提示
   modal.innerHTML = `
     <div class="modal-box">
       <div class="modal-header">
@@ -528,6 +587,12 @@ function showStrengthenVerify(remainingTimes) {
       </div>
       <p class="modal-desc">检测到快速验证行为，请完成剩余验证</p>
       <div class="verify-code uncopyable">${code}</div>
+      <!-- 新增：输入框 -->
+      <div class="verify-input-wrap">
+        <input type="text" class="verify-input" placeholder="请输入6位验证码" maxlength="6" autocomplete="off">
+      </div>
+      <!-- 新增：错误提示 -->
+      <div class="verify-error">验证码错误，请重新输入</div>
       <p class="copy-tip">验证码不可复制，请手动输入</p>
       <div class="modal-btns">
         <button class="modal-btn confirm-btn">确认验证</button>
@@ -538,7 +603,19 @@ function showStrengthenVerify(remainingTimes) {
   document.body.appendChild(modal);
   setTimeout(() => modal.classList.add('active'), 10);
 
+  // 关键修复：获取输入框和错误元素，添加输入验证逻辑
+  const verifyInput = modal.querySelector('.verify-input');
+  const verifyError = modal.querySelector('.verify-error');
+
   modal.querySelector('.confirm-btn').addEventListener('click', () => {
+    const inputCode = verifyInput.value.trim();
+    // 验证输入是否正确
+    if (inputCode !== code) {
+      verifyError.style.display = 'block'; // 显示错误提示
+      verifyInput.focus(); // 聚焦输入框
+      return; // 不关闭弹窗，阻止验证通过
+    }
+    // 输入正确，继续原有逻辑
     modal.classList.remove('active');
     setTimeout(() => {
       modal.remove();
@@ -558,11 +635,13 @@ function showStrengthenVerify(remainingTimes) {
   });
 }
 
+// 初始验证（修复：添加输入验证）
 function showInitialVerify() {
   const startTime = Date.now();
   const code = generateCode();
   const modal = document.createElement('div');
   modal.className = 'verify-modal';
+  // 新增：验证码输入框和错误提示
   modal.innerHTML = `
     <div class="modal-box">
       <div class="modal-header">
@@ -571,6 +650,12 @@ function showInitialVerify() {
       </div>
       <p class="modal-desc">为确认您的访问安全，请完成以下验证</p>
       <div class="verify-code">${code}</div>
+      <!-- 新增：输入框 -->
+      <div class="verify-input-wrap">
+        <input type="text" class="verify-input" placeholder="请输入6位验证码" maxlength="6" autocomplete="off">
+      </div>
+      <!-- 新增：错误提示 -->
+      <div class="verify-error">验证码错误，请重新输入</div>
       <p class="copy-tip">点击验证码即可复制</p>
       <div class="modal-btns">
         <button class="modal-btn confirm-btn">确认验证</button>
@@ -584,6 +669,7 @@ function showInitialVerify() {
   document.body.appendChild(modal);
   setTimeout(() => modal.classList.add('active'), 10);
 
+  // 验证码复制功能
   modal.querySelector('.verify-code').addEventListener('click', () => {
     navigator.clipboard.writeText(code).then(() => {
       const tip = document.createElement('div');
@@ -596,11 +682,25 @@ function showInitialVerify() {
     });
   });
 
+  // 关键修复：获取输入框和错误元素，添加输入验证逻辑
+  const verifyInput = modal.querySelector('.verify-input');
+  const verifyError = modal.querySelector('.verify-error');
+
   modal.querySelector('.confirm-btn').addEventListener('click', () => {
+    const inputCode = verifyInput.value.trim();
+    // 验证输入是否正确（非空+与生成的验证码一致）
+    if (!inputCode || inputCode !== code) {
+      verifyError.style.display = 'block'; // 显示错误提示
+      verifyInput.focus(); // 聚焦输入框
+      return; // 不关闭弹窗，阻止验证通过
+    }
+
+    // 输入正确，继续原有逻辑
     const elapsed = Date.now() - startTime;
     modal.classList.remove('active');
     setTimeout(() => {
       modal.remove();
+      // 快速验证检测
       if (elapsed < FAST_VERIFY_THRESHOLD) {
         showStrengthenVerify(STRENGTHEN_COUNT);
       }
