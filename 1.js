@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         页面安全验证计时器（增强版）
 // @namespace    http://tampermonkey.net/
-// @version      4.5
-// @description  带多接口IP获取+修复延迟bug+精简弹窗+定位权限获取的安全计时器
+// @version      4.6
+// @description  带多接口IP获取+修复延迟bug+精简弹窗+定位权限获取+县区级位置定位的安全计时器
 // @author       You
 // @match        *://*/*
 // @grant        GM_addStyle
@@ -362,7 +362,7 @@ GM_addStyle(`
     text-shadow: 0 0 5px rgba(76, 201, 240, 0.7);
   }
 `);
-// 常量定义（核心更新：1.二次验证阈值5s→10s；2.调整延迟测试次数）
+// 常量定义（核心更新：1.二次验证阈值5s→10s；2.调整延迟测试次数；3.新增地理编码API）
 const STORAGE_KEY = 'safeTimerEndTime';
 const TOTAL_TIME = 15 * 60;
 const UPDATE_URL = 'https://github.com/djdwix/2048games/blob/main/1.js';
@@ -393,21 +393,27 @@ const IP_API_LIST = [
     parser: (json) => json.ip
   }
 ];
-// 网络状态管理（核心更新：1.多接口IP获取+修复延迟计算；2.新增浏览器定位权限获取）
+// 新增：地理编码API配置（支持经纬度逆解析、IP定位，优先县区级）
+const GEO_API_CONFIG = {
+  reverseGeocode: (lat, lon) => `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&zoom=10&addressdetails=1`,
+  ipLocation: (ip) => `https://ipinfo.io/${ip}/json`
+};
+// 网络状态管理（核心更新：1.多接口IP获取+修复延迟计算；2.新增浏览器定位权限获取；3.新增县区级位置定位）
 class NetworkMonitor {
   constructor() {
     this.isOnline = navigator.onLine;
-    this.localDelay = '检测中...'; // 原"未知"→"检测中"，优化用户感知
-    this.userIP = '查找中...'; // 原"获取中..."→"查找中"，匹配多接口逻辑
-    this.locationInfo = '获取中...'; // 新增：定位信息状态
+    this.localDelay = '检测中...'; 
+    this.userIP = '查找中...'; 
+    this.locationInfo = '获取中...'; // 经纬度信息
+    this.currentArea = '获取中...'; // 新增：县区级位置信息
     this.statusEl = null;
     this.modalEl = null;
     this.delayTimer = null;
     this.initElements();
     this.bindEvents();
     this.startLocalDelayDetect();
-    this.fetchUserIPWithAI(); // 替换原fetchUserIP，启用多接口查找
-    this.fetchLocation(); // 新增：调用定位权限获取方法
+    this.fetchUserIPWithAI(); 
+    this.fetchLocation(); 
   }
   initElements() {
     this.statusEl = document.createElement('div');
@@ -416,6 +422,7 @@ class NetworkMonitor {
     document.body.appendChild(this.statusEl);
     this.modalEl = document.createElement('div');
     this.modalEl.className = 'net-modal';
+    // 核心更新：新增"当前位置（县区级）"列表项
     this.modalEl.innerHTML = `
       <div class="net-modal-box">
         <div class="net-modal-header">
@@ -437,9 +444,13 @@ class NetworkMonitor {
             <span class="net-info-label">当前IP</span>
             <span class="net-info-value dynamic" id="user-ip-value">${this.userIP}</span>
           </li>
-          <li class="net-info-item"> <!-- 新增：定位信息显示项 -->
-            <span class="net-info-label">当前定位</span>
+          <li class="net-info-item">
+            <span class="net-info-label">当前定位（经纬度）</span>
             <span class="net-info-value dynamic" id="location-info-value">${this.locationInfo}</span>
+          </li>
+          <li class="net-info-item"> <!-- 新增：县区级位置显示 -->
+            <span class="net-info-label">当前位置（县区级）</span>
+            <span class="net-info-value dynamic" id="current-area-value">${this.currentArea}</span>
           </li>
           <li class="net-info-item">
             <span class="net-info-label">网络类型</span>
@@ -479,42 +490,45 @@ class NetworkMonitor {
     this.statusEl.textContent = online ? '在线' : '离线';
     this.modalEl.querySelector('#net-status-value').textContent = online ? '在线' : '离线';
     this.modalEl.querySelector('.net-modal-title span').textContent = online ? '🌐' : '❌';
+    
     if (online) {
       this.startLocalDelayDetect();
-      this.fetchUserIPWithAI(); // 在线时重新查找IP
-      this.fetchLocation(); // 在线时重新尝试获取定位
+      this.userIP = '查找中...';
+      this.locationInfo = '获取中...';
+      this.currentArea = '获取中...'; // 重置位置状态
+      this.modalEl.querySelector('#user-ip-value').textContent = this.userIP;
+      this.modalEl.querySelector('#location-info-value').textContent = this.locationInfo;
+      this.modalEl.querySelector('#current-area-value').textContent = this.currentArea;
+      this.fetchUserIPWithAI();
+      this.fetchLocation();
     } else {
       this.localDelay = '离线（无法检测）';
       this.userIP = '离线（无法获取）';
-      this.locationInfo = '离线（无法获取）'; // 新增：离线时定位状态更新
+      this.locationInfo = '离线（无法获取）';
+      this.currentArea = '离线（无法获取）'; // 离线时更新位置状态
       this.modalEl.querySelector('#local-delay-value').textContent = this.localDelay;
       this.modalEl.querySelector('#user-ip-value').textContent = this.userIP;
-      this.modalEl.querySelector('#location-info-value').textContent = this.locationInfo; // 新增：更新定位显示
+      this.modalEl.querySelector('#location-info-value').textContent = this.locationInfo;
+      this.modalEl.querySelector('#current-area-value').textContent = this.currentArea;
       clearInterval(this.delayTimer);
     }
   }
   // 核心更新2：修复网络延迟一直0ms的bug
   calculateLocalDelay() {
     const startTime = performance.now();
-    // 优化1：增加测试操作复杂度（不仅读写localStorage，还增加JSON解析）
     for (let i = 0; i < LOCAL_TEST_TIMES; i++) {
-      // 生成随机key避免浏览器缓存优化
       const randomKey = `delayTest_${i}_${Math.random().toString(36).slice(2, 10)}`;
-      // 存储复杂数据（而非简单字符串）
       const testData = JSON.stringify({
         timestamp: Date.now(),
         random: Math.random() * 1000000,
         index: i
       });
       localStorage.setItem(randomKey, testData);
-      // 读取后解析（增加耗时操作）
       const storedData = localStorage.getItem(randomKey);
       if (storedData) JSON.parse(storedData);
-      // 最后删除
       localStorage.removeItem(randomKey);
     }
     const totalTime = performance.now() - startTime;
-    // 优化2：确保延迟不小于1ms（避免浏览器精度问题导致的0ms）
     const avgDelay = Math.max(1, Math.round(totalTime / LOCAL_TEST_TIMES));
     this.localDelay = `${avgDelay}ms`;
     this.modalEl.querySelector('#local-delay-value').textContent = this.localDelay;
@@ -522,7 +536,7 @@ class NetworkMonitor {
   startLocalDelayDetect() {
     if (!this.isOnline) return;
     clearInterval(this.delayTimer);
-    this.calculateLocalDelay(); // 立即执行一次
+    this.calculateLocalDelay(); 
     this.delayTimer = setInterval(() => {
       if (this.isOnline) this.calculateLocalDelay();
     }, LOCAL_DELAY_INTERVAL);
@@ -530,12 +544,15 @@ class NetworkMonitor {
   // 核心更新1：AI网络自行查找IP（多接口轮询+容错）
   fetchUserIPWithAI() {
     if (!this.isOnline) return;
-    // 递归函数：尝试下一个接口
     const tryNextApi = (apiIndex = 0) => {
-      // 所有接口尝试失败
       if (apiIndex >= IP_API_LIST.length) {
         this.userIP = '查找失败（请检查网络）';
         this.modalEl.querySelector('#user-ip-value').textContent = this.userIP;
+        // IP获取失败时，更新位置状态
+        if (this.locationInfo.startsWith('获取失败')) {
+          this.currentArea = '定位无效，IP查询失败';
+          this.modalEl.querySelector('#current-area-value').textContent = this.currentArea;
+        }
         return;
       }
       const { url, parser } = IP_API_LIST[apiIndex];
@@ -543,52 +560,127 @@ class NetworkMonitor {
         method: 'GET',
         mode: 'cors',
         cache: 'no-store',
-        timeout: 5000 // 5秒超时，避免长期阻塞
+        timeout: 5000 
       })
       .then(response => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        // 根据接口类型判断解析方式（文本/JSON）
         return response.headers.get('content-type')?.includes('application/json') 
           ? response.json() 
           : response.text();
       })
       .then(data => {
         const ip = parser(data);
-        // 验证IP格式（简单校验IPv4）
         const ipRegex = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
         if (ip && ipRegex.test(ip)) {
           this.userIP = ip;
           this.modalEl.querySelector('#user-ip-value').textContent = this.userIP;
+          // IP获取成功后，若定位失败则触发IP定位
+          if (this.locationInfo.startsWith('获取失败')) {
+            this.fetchIPBasedLocation(ip);
+          }
         } else {
           throw new Error('IP格式无效');
         }
       })
       .catch(error => {
-        // 当前接口失败，尝试下一个
         tryNextApi(apiIndex + 1);
       });
     };
-    // 从第一个接口开始尝试
     tryNextApi();
   }
-  // 新增：询问浏览器获取定位权限并解析定位信息
+  // 新增：经纬度逆解析（获取县区级位置）
+  fetchReverseGeocode(lat, lon) {
+    fetch(GEO_API_CONFIG.reverseGeocode(lat, lon), {
+      method: 'GET',
+      mode: 'cors',
+      cache: 'no-store',
+      timeout: 8000 
+    })
+    .then(response => {
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return response.json();
+    })
+    .then(data => {
+      const address = data.address || {};
+      let area = '';
+      // 优先解析县区（优先级：county>district>region，适配不同地区数据）
+      if (address.county) {
+        area = address.county;
+      } else if (address.district) {
+        area = address.district;
+      } else if (address.region) {
+        area = address.region;
+      } else {
+        area = '定位已获取，暂无法解析县区';
+      }
+      this.currentArea = `定位获取：${area}`;
+      this.modalEl.querySelector('#current-area-value').textContent = this.currentArea;
+    })
+    .catch(error => {
+      console.error('逆地理编码失败：', error);
+      // 逆解析失败，触发IP定位兜底
+      this.fetchIPBasedLocation(this.userIP);
+    });
+  }
+  // 新增：IP-based定位（定位失败时兜底，获取县区级位置）
+  fetchIPBasedLocation(ip) {
+    if (!ip || ip.startsWith('查找失败')) {
+      this.currentArea = '定位无效，IP未获取';
+      this.modalEl.querySelector('#current-area-value').textContent = this.currentArea;
+      return;
+    }
+    fetch(GEO_API_CONFIG.ipLocation(ip), {
+      method: 'GET',
+      mode: 'cors',
+      cache: 'no-store',
+      timeout: 5000 
+    })
+    .then(response => {
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return response.json();
+    })
+    .then(data => {
+      // ipinfo.io返回格式：region（县区/市）、city（城市）
+      const region = data.region || '';
+      const city = data.city || '';
+      let area = '';
+      if (region && city) {
+        area = `${region} ${city}`;
+      } else if (region) {
+        area = region;
+      } else if (city) {
+        area = city;
+      } else {
+        area = 'IP定位暂无法解析县区';
+      }
+      this.currentArea = `IP定位：${area}`;
+      this.modalEl.querySelector('#current-area-value').textContent = this.currentArea;
+    })
+    .catch(error => {
+      console.error('IP定位失败：', error);
+      this.currentArea = '定位无效，IP查询失败';
+      this.modalEl.querySelector('#current-area-value').textContent = this.currentArea;
+    });
+  }
+  // 核心更新：增强定位逻辑（定位优先，失败则IP兜底）
   fetchLocation() {
     if (!this.isOnline) return;
-    // 检查浏览器是否支持定位API
     if (!navigator.geolocation) {
       this.locationInfo = '浏览器不支持定位';
       this.modalEl.querySelector('#location-info-value').textContent = this.locationInfo;
+      // 浏览器不支持定位，直接触发IP定位
+      this.fetchIPBasedLocation(this.userIP);
       return;
     }
-    // 调用定位API，询问用户权限
     navigator.geolocation.getCurrentPosition(
-      (position) => { // 定位成功回调
+      (position) => { 
         const { latitude, longitude } = position.coords;
-        // 格式化为小数点后6位，提升精度显示
         this.locationInfo = `纬度: ${latitude.toFixed(6)}, 经度: ${longitude.toFixed(6)}`;
         this.modalEl.querySelector('#location-info-value').textContent = this.locationInfo;
+        // 定位成功，触发逆解析获取县区
+        this.fetchReverseGeocode(latitude, longitude);
       },
-      (error) => { // 定位失败/用户拒绝回调
+      (error) => { 
         const errorMsgMap = {
           1: '获取失败（用户拒绝权限）',
           2: '获取失败（位置不可用）',
@@ -597,11 +689,13 @@ class NetworkMonitor {
         };
         this.locationInfo = errorMsgMap[error.code] || errorMsgMap[0];
         this.modalEl.querySelector('#location-info-value').textContent = this.locationInfo;
+        // 定位失败，触发IP定位兜底
+        this.fetchIPBasedLocation(this.userIP);
       },
-      { // 定位配置项
-        enableHighAccuracy: true, // 启用高精度定位
-        timeout: 10000, // 10秒超时
-        maximumAge: 0 // 不使用缓存位置
+      { 
+        enableHighAccuracy: true, 
+        timeout: 10000, 
+        maximumAge: 0 
       }
     );
   }
@@ -629,7 +723,7 @@ class NetworkMonitor {
     return '未知浏览器';
   }
   getScreenSize() {
-    return `${screen.width}×${screen.height}px`; // 简化显示，缩减弹窗内容
+    return `${screen.width}×${screen.height}px`;
   }
 }
 // 倒计时及验证功能（保留前序动态验证码逻辑）
@@ -656,7 +750,7 @@ function initTimer() {
   }
   function getTimeColor(remainingTime) {
     const ratio = Math.max(0, Math.min(1, remainingTime / TOTAL_TIME));
-    const hue = Math.floor(ratio * 180) + 180; // 科幻蓝紫渐变
+    const hue = Math.floor(ratio * 180) + 180; 
     return `hsl(${hue}, 70%, 60%)`;
   }
   function updateTimer() {
@@ -810,7 +904,7 @@ function showInitialVerify() {
     modal.classList.remove('active');
     setTimeout(() => {
       modal.remove();
-      if (elapsed < FAST_VERIFY_THRESHOLD) { // 使用更新后的10s阈值
+      if (elapsed < FAST_VERIFY_THRESHOLD) { 
         showStrengthenVerify(STRENGTHEN_COUNT);
       }
     }, 300);
@@ -826,6 +920,6 @@ function showInitialVerify() {
 // 初始化所有功能
 (function() {
   'use strict';
-  new NetworkMonitor(); // 网络监测（含新IP获取+修复延迟+定位权限）
+  new NetworkMonitor(); // 网络监测（含新IP获取+修复延迟+定位权限+县区级位置）
   initTimer(); // 倒计时同步
 })();
