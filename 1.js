@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         页面安全验证计时器（增强版）
 // @namespace    http://tampermonkey.net/
-// @version      4.6
-// @description  带多接口IP获取+修复延迟bug+精简弹窗+定位权限+验证信息统计
+// @version      4.5
+// @description  带多接口IP获取+修复延迟bug+精简弹窗+定位权限获取的安全计时器
 // @author       You
 // @match        *://*/*
 // @grant        GM_addStyle
@@ -361,206 +361,59 @@ GM_addStyle(`
     color: #7dd3fc;
     text-shadow: 0 0 5px rgba(76, 201, 240, 0.7);
   }
-  /* 新增：验证信息界面样式 */
-  .info-btn {
-    position: fixed;
-    top: 12px;
-    right: 120px;
-    background: rgba(15, 23, 42, 0.95);
-    border: 1px solid rgba(76, 201, 240, 0.5);
-    border-radius: 8px;
-    padding: 8px 15px;
-    font-size: 16px;
-    font-weight: 600;
-    color: #4cc9f0;
-    box-shadow: 0 2px 8px rgba(76, 201, 240, 0.2);
-    z-index: 9999;
-    user-select: none;
-    cursor: pointer;
-    transition: all 0.2s ease;
-  }
-  .info-btn:hover {
-    box-shadow: 0 0 12px rgba(76, 201, 240, 0.4);
-  }
-  .info-btn:active {
-    transform: scale(0.95);
-    box-shadow: 0 0 8px rgba(76, 201, 240, 0.1);
-  }
-  .info-modal {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(10, 15, 30, 0.85);
-    backdrop-filter: blur(8px);
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    z-index: 10002;
-    padding: 0 15px;
-    opacity: 0;
-    visibility: hidden;
-    transition: opacity 0.3s ease, visibility 0.3s ease;
-  }
-  .info-modal.active {
-    opacity: 1;
-    visibility: visible;
-  }
-  .info-modal-box {
-    width: 100%;
-    max-width: 280px;
-    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
-    border: 1px solid rgba(76, 201, 240, 0.5);
-    border-radius: 12px;
-    padding: 15px 10px;
-    box-shadow: 0 0 15px rgba(76, 201, 240, 0.3);
-    transform: scale(0.9) translateY(10px);
-    transition: transform 0.3s ease, box-shadow 0.3s ease;
-  }
-  .info-modal.active .info-modal-box {
-    transform: scale(1) translateY(0);
-    box-shadow: 0 0 20px rgba(76, 201, 240, 0.4);
-  }
-  .info-modal-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 12px;
-    padding-bottom: 8px;
-    border-bottom: 1px solid rgba(76, 201, 240, 0.3);
-  }
-  .info-modal-title {
-    font-size: 18px;
-    font-weight: bold;
-    color: #4cc9f0;
-    margin: 0;
-    display: flex;
-    align-items: center;
-    text-shadow: 0 0 5px rgba(76, 201, 240, 0.5);
-  }
-  .info-modal-title span {
-    margin-right: 6px;
-    font-size: 20px;
-  }
-  .info-modal-close {
-    background: transparent;
-    border: 1px solid rgba(76, 201, 240, 0.5);
-    color: #4cc9f0;
-    font-size: 18px;
-    cursor: pointer;
-    padding: 0 6px;
-    border-radius: 4px;
-    transition: all 0.2s ease;
-  }
-  .info-modal-close:hover {
-    background: rgba(76, 201, 240, 0.1);
-    box-shadow: 0 0 6px rgba(76, 201, 240, 0.3);
-  }
-  .info-list {
-    list-style: none;
-    padding: 0;
-    margin: 0 0 12px;
-  }
-  .info-item {
-    padding: 12px 0;
-    border-bottom: 1px dashed rgba(76, 201, 240, 0.2);
-    font-size: 15px;
-  }
-  .info-label {
-    color: #94a3b8;
-    display: block;
-    margin-bottom: 4px;
-    font-size: 13px;
-  }
-  .info-value {
-    color: #e0f2fe;
-    font-weight: 500;
-    text-shadow: 0 0 3px rgba(76, 201, 240, 0.3);
-  }
 `);
-// 常量定义（核心更新：1.二次验证阈值10s 2.新增验证统计存储键 3.定位相关）
+// 常量定义（核心更新：1.二次验证阈值5s→10s；2.调整延迟测试次数）
 const STORAGE_KEY = 'safeTimerEndTime';
 const TOTAL_TIME = 15 * 60;
 const UPDATE_URL = 'https://github.com/djdwix/2048games/blob/main/1.js';
 const STRENGTHEN_COUNT = 2;
-const FAST_VERIFY_THRESHOLD = 10000; // 核心更新2：5s→10s
+const FAST_VERIFY_THRESHOLD = 10000; // 核心更新：原5000→10000（5s→10s）
 const LOCAL_DELAY_INTERVAL = 3000;
-const LOCAL_TEST_TIMES = 50; 
-// 新增：验证统计存储键
-const LAST_VERIFY_TIME_KEY = 'lastVerifyTime';
-const VERIFY_TOTAL_COUNT_KEY = 'verifyTotalCount';
+const LOCAL_TEST_TIMES = 50; // 原10→50，增加测试次数修复0ms bug
 // 核心更新1：AI网络自行查找IP的多接口配置（含响应解析规则）
 const IP_API_LIST = [
   {
-    url: 'https://api.ipify.org?format=text', 
-    parser: (text) => text.trim() 
+    url: 'https://api.ipify.org?format=text', // 直接返回IP字符串
+    parser: (text) => text.trim() // 解析逻辑：直接取文本
   },
   {
-    url: 'https://ipinfo.io/ip', 
+    url: 'https://ipinfo.io/ip', // 直接返回IP字符串
     parser: (text) => text.trim()
   },
   {
-    url: 'https://icanhazip.com', 
+    url: 'https://icanhazip.com', // 直接返回IP字符串（含换行）
     parser: (text) => text.trim()
   },
   {
-    url: 'https://httpbin.org/ip', 
-    parser: (json) => json.origin.split(',')[0].trim() 
+    url: 'https://httpbin.org/ip', // 返回JSON：{"origin":"x.x.x.x"}
+    parser: (json) => json.origin.split(',')[0].trim() // 兼容多IP场景
   },
   {
-    url: 'https://api.myip.com', 
+    url: 'https://api.myip.com', // 返回JSON：{"ip":"x.x.x.x",...}
     parser: (json) => json.ip
   }
 ];
-// 工具函数：格式化北京时间（精确到分）
-function formatBeijingTime(timestamp) {
-  if (!timestamp) return '未记录';
-  const date = new Date(timestamp);
-  return date.toLocaleString('zh-CN', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false
-  }).replace(/\//g, '-');
-}
-// 工具函数：更新验证统计（次数+时间）
-function updateVerifyStats() {
-  // 更新总次数
-  const currentCount = parseInt(localStorage.getItem(VERIFY_TOTAL_COUNT_KEY) || '0') + 1;
-  localStorage.setItem(VERIFY_TOTAL_COUNT_KEY, currentCount);
-  // 更新上次验证时间（北京时间戳）
-  localStorage.setItem(LAST_VERIFY_TIME_KEY, Date.now().toString());
-}
-// 网络状态+定位管理（核心更新：1.询问定位权限 2.整合验证信息界面）
+// 网络状态管理（核心更新：1.多接口IP获取+修复延迟计算；2.新增浏览器定位权限获取）
 class NetworkMonitor {
   constructor() {
     this.isOnline = navigator.onLine;
-    this.localDelay = '检测中...';
-    this.userIP = '查找中...';
-    this.userLocation = '待授权...'; // 新增：定位信息
+    this.localDelay = '检测中...'; // 原"未知"→"检测中"，优化用户感知
+    this.userIP = '查找中...'; // 原"获取中..."→"查找中"，匹配多接口逻辑
+    this.locationInfo = '获取中...'; // 新增：定位信息状态
     this.statusEl = null;
     this.modalEl = null;
-    this.infoBtn = null; // 新增：信息按钮
-    this.infoModal = null; // 新增：信息弹窗
     this.delayTimer = null;
     this.initElements();
     this.bindEvents();
     this.startLocalDelayDetect();
-    this.fetchUserIPWithAI();
-    this.initLocationPermission(); // 核心更新1：询问定位权限
-    this.updateInfoModalData(); // 初始化验证信息
+    this.fetchUserIPWithAI(); // 替换原fetchUserIP，启用多接口查找
+    this.fetchLocation(); // 新增：调用定位权限获取方法
   }
   initElements() {
-    // 网络状态元素
     this.statusEl = document.createElement('div');
     this.statusEl.className = `net-status ${this.isOnline ? 'online' : 'offline'}`;
     this.statusEl.textContent = this.isOnline ? '在线' : '离线';
     document.body.appendChild(this.statusEl);
-    // 网络状态弹窗（新增：定位信息项）
     this.modalEl = document.createElement('div');
     this.modalEl.className = 'net-modal';
     this.modalEl.innerHTML = `
@@ -584,9 +437,9 @@ class NetworkMonitor {
             <span class="net-info-label">当前IP</span>
             <span class="net-info-value dynamic" id="user-ip-value">${this.userIP}</span>
           </li>
-          <li class="net-info-item"> <!-- 新增：定位信息项 -->
-            <span class="net-info-label">定位信息</span>
-            <span class="net-info-value dynamic" id="user-location-value">${this.userLocation}</span>
+          <li class="net-info-item"> <!-- 新增：定位信息显示项 -->
+            <span class="net-info-label">当前定位</span>
+            <span class="net-info-value dynamic" id="location-info-value">${this.locationInfo}</span>
           </li>
           <li class="net-info-item">
             <span class="net-info-label">网络类型</span>
@@ -607,50 +460,11 @@ class NetworkMonitor {
     this.modalEl.querySelector('.net-modal-close').addEventListener('click', () => {
       this.modalEl.classList.remove('active');
     });
-    // 新增：验证信息按钮
-    this.infoBtn = document.createElement('div');
-    this.infoBtn.className = 'info-btn';
-    this.infoBtn.textContent = '验证信息';
-    document.body.appendChild(this.infoBtn);
-    // 新增：验证信息弹窗
-    this.infoModal = document.createElement('div');
-    this.infoModal.className = 'info-modal';
-    this.infoModal.innerHTML = `
-      <div class="info-modal-box">
-        <div class="info-modal-header">
-          <h3 class="info-modal-title">
-            <span>📊</span>验证统计
-          </h3>
-          <button class="info-modal-close">×</button>
-        </div>
-        <ul class="info-list">
-          <li class="info-item">
-            <span class="info-label">上次验证时间（北京时间）</span>
-            <span class="info-value" id="last-verify-time">${formatBeijingTime(localStorage.getItem(LAST_VERIFY_TIME_KEY))}</span>
-          </li>
-          <li class="info-item">
-            <span class="info-label">累计验证次数</span>
-            <span class="info-value" id="verify-total-count">${localStorage.getItem(VERIFY_TOTAL_COUNT_KEY) || '0'}</span>
-          </li>
-        </ul>
-      </div>
-    `;
-    document.body.appendChild(this.infoModal);
-    this.infoModal.querySelector('.info-modal-close').addEventListener('click', () => {
-      this.infoModal.classList.remove('active');
-    });
   }
   bindEvents() {
-    // 网络状态点击
     this.statusEl.addEventListener('click', () => {
       this.modalEl.classList.toggle('active');
     });
-    // 新增：验证信息按钮点击
-    this.infoBtn.addEventListener('click', () => {
-      this.updateInfoModalData();
-      this.infoModal.classList.toggle('active');
-    });
-    // 网络状态变化
     window.addEventListener('online', () => this.updateStatus(true));
     window.addEventListener('offline', () => this.updateStatus(false));
     if (navigator.connection) {
@@ -667,31 +481,40 @@ class NetworkMonitor {
     this.modalEl.querySelector('.net-modal-title span').textContent = online ? '🌐' : '❌';
     if (online) {
       this.startLocalDelayDetect();
-      this.fetchUserIPWithAI();
+      this.fetchUserIPWithAI(); // 在线时重新查找IP
+      this.fetchLocation(); // 在线时重新尝试获取定位
     } else {
       this.localDelay = '离线（无法检测）';
       this.userIP = '离线（无法获取）';
+      this.locationInfo = '离线（无法获取）'; // 新增：离线时定位状态更新
       this.modalEl.querySelector('#local-delay-value').textContent = this.localDelay;
       this.modalEl.querySelector('#user-ip-value').textContent = this.userIP;
+      this.modalEl.querySelector('#location-info-value').textContent = this.locationInfo; // 新增：更新定位显示
       clearInterval(this.delayTimer);
     }
   }
   // 核心更新2：修复网络延迟一直0ms的bug
   calculateLocalDelay() {
     const startTime = performance.now();
+    // 优化1：增加测试操作复杂度（不仅读写localStorage，还增加JSON解析）
     for (let i = 0; i < LOCAL_TEST_TIMES; i++) {
+      // 生成随机key避免浏览器缓存优化
       const randomKey = `delayTest_${i}_${Math.random().toString(36).slice(2, 10)}`;
+      // 存储复杂数据（而非简单字符串）
       const testData = JSON.stringify({
         timestamp: Date.now(),
         random: Math.random() * 1000000,
         index: i
       });
       localStorage.setItem(randomKey, testData);
+      // 读取后解析（增加耗时操作）
       const storedData = localStorage.getItem(randomKey);
       if (storedData) JSON.parse(storedData);
+      // 最后删除
       localStorage.removeItem(randomKey);
     }
     const totalTime = performance.now() - startTime;
+    // 优化2：确保延迟不小于1ms（避免浏览器精度问题导致的0ms）
     const avgDelay = Math.max(1, Math.round(totalTime / LOCAL_TEST_TIMES));
     this.localDelay = `${avgDelay}ms`;
     this.modalEl.querySelector('#local-delay-value').textContent = this.localDelay;
@@ -699,7 +522,7 @@ class NetworkMonitor {
   startLocalDelayDetect() {
     if (!this.isOnline) return;
     clearInterval(this.delayTimer);
-    this.calculateLocalDelay();
+    this.calculateLocalDelay(); // 立即执行一次
     this.delayTimer = setInterval(() => {
       if (this.isOnline) this.calculateLocalDelay();
     }, LOCAL_DELAY_INTERVAL);
@@ -707,7 +530,9 @@ class NetworkMonitor {
   // 核心更新1：AI网络自行查找IP（多接口轮询+容错）
   fetchUserIPWithAI() {
     if (!this.isOnline) return;
+    // 递归函数：尝试下一个接口
     const tryNextApi = (apiIndex = 0) => {
+      // 所有接口尝试失败
       if (apiIndex >= IP_API_LIST.length) {
         this.userIP = '查找失败（请检查网络）';
         this.modalEl.querySelector('#user-ip-value').textContent = this.userIP;
@@ -718,16 +543,18 @@ class NetworkMonitor {
         method: 'GET',
         mode: 'cors',
         cache: 'no-store',
-        timeout: 5000
+        timeout: 5000 // 5秒超时，避免长期阻塞
       })
       .then(response => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        // 根据接口类型判断解析方式（文本/JSON）
         return response.headers.get('content-type')?.includes('application/json') 
           ? response.json() 
           : response.text();
       })
       .then(data => {
         const ip = parser(data);
+        // 验证IP格式（简单校验IPv4）
         const ipRegex = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
         if (ip && ipRegex.test(ip)) {
           this.userIP = ip;
@@ -737,64 +564,46 @@ class NetworkMonitor {
         }
       })
       .catch(error => {
+        // 当前接口失败，尝试下一个
         tryNextApi(apiIndex + 1);
       });
     };
+    // 从第一个接口开始尝试
     tryNextApi();
   }
-  // 核心更新1：询问浏览器定位权限并获取定位
-  initLocationPermission() {
+  // 新增：询问浏览器获取定位权限并解析定位信息
+  fetchLocation() {
+    if (!this.isOnline) return;
+    // 检查浏览器是否支持定位API
     if (!navigator.geolocation) {
-      this.userLocation = '浏览器不支持';
-      this.modalEl.querySelector('#user-location-value').textContent = this.userLocation;
+      this.locationInfo = '浏览器不支持定位';
+      this.modalEl.querySelector('#location-info-value').textContent = this.locationInfo;
       return;
     }
-    // 询问定位权限
-    navigator.geolocation.requestPermission()
-      .then(permissionStatus => {
-        if (permissionStatus === 'granted') {
-          // 权限允许：获取定位
-          navigator.geolocation.getCurrentPosition(
-            (position) => {
-              const { latitude, longitude } = position.coords;
-              this.userLocation = `纬度: ${latitude.toFixed(2)}, 经度: ${longitude.toFixed(2)}`;
-              this.modalEl.querySelector('#user-location-value').textContent = this.userLocation;
-            },
-            (error) => {
-              // 获取定位失败
-              const errorMsg = {
-                1: '用户拒绝定位',
-                2: '位置不可用',
-                3: '请求超时'
-              }[error.code] || `获取失败（${error.code}）`;
-              this.userLocation = errorMsg;
-              this.modalEl.querySelector('#user-location-value').textContent = this.userLocation;
-            },
-            {
-              enableHighAccuracy: false,
-              timeout: 10000,
-              maximumAge: 300000
-            }
-          );
-        } else if (permissionStatus === 'denied') {
-          this.userLocation = '用户拒绝授权';
-          this.modalEl.querySelector('#user-location-value').textContent = this.userLocation;
-        } else {
-          this.userLocation = '权限暂未决定';
-          this.modalEl.querySelector('#user-location-value').textContent = this.userLocation;
-        }
-      })
-      .catch(error => {
-        this.userLocation = '权限请求失败';
-        this.modalEl.querySelector('#user-location-value').textContent = this.userLocation;
-      });
-  }
-  // 新增：更新验证信息弹窗数据
-  updateInfoModalData() {
-    const lastTime = formatBeijingTime(localStorage.getItem(LAST_VERIFY_TIME_KEY));
-    const totalCount = localStorage.getItem(VERIFY_TOTAL_COUNT_KEY) || '0';
-    this.infoModal.querySelector('#last-verify-time').textContent = lastTime;
-    this.infoModal.querySelector('#verify-total-count').textContent = totalCount;
+    // 调用定位API，询问用户权限
+    navigator.geolocation.getCurrentPosition(
+      (position) => { // 定位成功回调
+        const { latitude, longitude } = position.coords;
+        // 格式化为小数点后6位，提升精度显示
+        this.locationInfo = `纬度: ${latitude.toFixed(6)}, 经度: ${longitude.toFixed(6)}`;
+        this.modalEl.querySelector('#location-info-value').textContent = this.locationInfo;
+      },
+      (error) => { // 定位失败/用户拒绝回调
+        const errorMsgMap = {
+          1: '获取失败（用户拒绝权限）',
+          2: '获取失败（位置不可用）',
+          3: '获取失败（请求超时）',
+          0: '获取失败（未知错误）'
+        };
+        this.locationInfo = errorMsgMap[error.code] || errorMsgMap[0];
+        this.modalEl.querySelector('#location-info-value').textContent = this.locationInfo;
+      },
+      { // 定位配置项
+        enableHighAccuracy: true, // 启用高精度定位
+        timeout: 10000, // 10秒超时
+        maximumAge: 0 // 不使用缓存位置
+      }
+    );
   }
   getNetworkType() {
     if (!navigator.connection) return '未知';
@@ -820,7 +629,7 @@ class NetworkMonitor {
     return '未知浏览器';
   }
   getScreenSize() {
-    return `${screen.width}×${screen.height}px`;
+    return `${screen.width}×${screen.height}px`; // 简化显示，缩减弹窗内容
   }
 }
 // 倒计时及验证功能（保留前序动态验证码逻辑）
@@ -847,7 +656,7 @@ function initTimer() {
   }
   function getTimeColor(remainingTime) {
     const ratio = Math.max(0, Math.min(1, remainingTime / TOTAL_TIME));
-    const hue = Math.floor(ratio * 180) + 180; 
+    const hue = Math.floor(ratio * 180) + 180; // 科幻蓝紫渐变
     return `hsl(${hue}, 70%, 60%)`;
   }
   function updateTimer() {
@@ -887,8 +696,8 @@ function initTimer() {
 function generateCode() {
   return Math.floor(Math.random() * 900000 + 100000).toString();
 }
-// 加强验证（保留动态验证码逻辑，新增：验证成功更新统计）
-function showStrengthenVerify(remainingTimes, networkMonitor) {
+// 加强验证（保留动态验证码逻辑，阈值已更新为10s）
+function showStrengthenVerify(remainingTimes) {
   let code = generateCode();
   const modal = document.createElement('div');
   modal.className = 'verify-modal';
@@ -930,17 +739,8 @@ function showStrengthenVerify(remainingTimes, networkMonitor) {
     setTimeout(() => {
       modal.remove();
       remainingTimes--;
-      // 最后一次加强验证成功：更新统计
-      if (remainingTimes === 0) {
-        updateVerifyStats();
-        networkMonitor.updateInfoModalData();
-        // 重置倒计时
-        const endTime = Date.now() + TOTAL_TIME * 1000;
-        localStorage.setItem(STORAGE_KEY, endTime);
-        initTimer();
-      }
       if (remainingTimes > 0) {
-        showStrengthenVerify(remainingTimes, networkMonitor);
+        showStrengthenVerify(remainingTimes);
       }
     }, 300);
   });
@@ -952,8 +752,8 @@ function showStrengthenVerify(remainingTimes, networkMonitor) {
     }, 300);
   });
 }
-// 初始验证（保留动态验证码逻辑，新增：验证成功更新统计）
-function showInitialVerify(networkMonitor) {
+// 初始验证（保留动态验证码逻辑，阈值已更新为10s）
+function showInitialVerify() {
   const startTime = Date.now();
   let code = generateCode();
   const modal = document.createElement('div');
@@ -969,4 +769,63 @@ function showInitialVerify(networkMonitor) {
       <div class="verify-input-wrap">
         <input type="text" class="verify-input" placeholder="请输入6位验证码" maxlength="6" autocomplete="off">
       </div>
-      <div class="verify-e
+      <div class="verify-error">验证码错误，已自动刷新，请重新输入</div>
+      <p class="copy-tip">点击验证码即可复制</p>
+      <div class="modal-btns">
+        <button class="modal-btn confirm-btn">确认验证</button>
+        <button class="modal-btn cancel-btn">拒绝</button>
+      </div>
+      <div class="update-link-wrap">
+        <a href="${UPDATE_URL}" target="_blank" class="update-link">检查脚本更新</a>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  setTimeout(() => modal.classList.add('active'), 10);
+  const verifyInput = modal.querySelector('.verify-input');
+  const verifyError = modal.querySelector('.verify-error');
+  const verifyCodeEl = modal.querySelector('.verify-code');
+  verifyCodeEl.addEventListener('click', () => {
+    navigator.clipboard.writeText(code).then(() => {
+      const tip = document.createElement('div');
+      tip.className = 'copy-success';
+      tip.textContent = '验证码已复制成功';
+      document.body.appendChild(tip);
+      setTimeout(() => tip.remove(), 1500);
+    }).catch(() => {
+      alert('复制失败，请手动复制');
+    });
+  });
+  modal.querySelector('.confirm-btn').addEventListener('click', () => {
+    const inputCode = verifyInput.value.trim();
+    if (!inputCode || inputCode !== code) {
+      verifyError.style.display = 'block';
+      code = generateCode();
+      verifyCodeEl.textContent = code;
+      verifyInput.value = '';
+      verifyInput.focus();
+      return;
+    }
+    const elapsed = Date.now() - startTime;
+    modal.classList.remove('active');
+    setTimeout(() => {
+      modal.remove();
+      if (elapsed < FAST_VERIFY_THRESHOLD) { // 使用更新后的10s阈值
+        showStrengthenVerify(STRENGTHEN_COUNT);
+      }
+    }, 300);
+  });
+  modal.querySelector('.cancel-btn').addEventListener('click', () => {
+    localStorage.removeItem(STORAGE_KEY);
+    window.close();
+    setTimeout(() => {
+      if (document.body.contains(modal)) alert('请手动关闭页面');
+    }, 300);
+  });
+}
+// 初始化所有功能
+(function() {
+  'use strict';
+  new NetworkMonitor(); // 网络监测（含新IP获取+修复延迟+定位权限）
+  initTimer(); // 倒计时同步
+})();
