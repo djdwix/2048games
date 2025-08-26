@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         页面安全验证计时器（增强版V4.8）
 // @namespace    http://tampermonkey.net/
-// @version      4.8
+// @version      4.81
 // @description  本地与网页延迟检测+日志功能+点击导出日志+多接口IP/定位+验证重启倒计时
 // @author       You
 // @match        *://*/*
