@@ -6,8 +6,9 @@
 // @author       You
 // @match        *://*/*
 // @grant        GM_addStyle
-// @grant        GM_registerBackgroundScript  // 新增：后台运行权限（Tampermonkey专属）
-// @downloadURL  https://raw.githubusercontent.com/djdwix/2048games/main/3.user.js
+// @grant        GM_registerBackgroundScript
+// @downloadURL
+https://raw.githubusercontent.com/djdwix/2048games/main/3.user.js
 // @updateURL    https://raw.githubusercontent.com/djdwix/2048games/main/3.user.js
 // ==/UserScript==
 
