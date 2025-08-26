@@ -333,7 +333,7 @@ GM_addStyle(`
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    background: rgba(15, 23, 4    2, 0.9);
+    background: rgba(15, 23, 42, 0.9);
     border: 1px solid rgba(76, 201, 240, 0.6);
     color: #4cc9f0;
     padding: 12px 24px;
