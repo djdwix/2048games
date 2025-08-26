@@ -11,7 +11,7 @@
 // ==/UserScript==
 
 GM_addStyle(`
-  /* 倒计时样式（保留科幻风格，增加点击提示） */
+  /* 倒计时样式（） */
   .safe-timer {
     position: fixed;
     top: 12px;
@@ -811,7 +811,7 @@ function initTimer() {
       return;
     }
 
-    timerEl.textContent = `倒计时: ${formatTime(remainingTime)}（点击导出日志）`;
+    timerEl.textContent = `倒计时: ${formatTime(remainingTime)}（导出日志）`;
     timerEl.style.color = getTimeColor(remainingTime);
   }
 
