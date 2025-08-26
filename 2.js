@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         安全验证码自动输入助手
 // @namespace    http://tampermonkey.net/
-// @version      1.3
-// @description  自动识别并填写页面安全验证计时器的验证码（配套脚本）- 全局版
+// @version      1.4
+// @description  自动识别并填写页面安全验证计时器的验证码（配套脚本）- 无限时版
 // @author       You
 // @match        *://*/*
 // @grant        GM_notification
@@ -17,16 +17,14 @@
     'use strict';
     
     // 配置参数
-    const CHECK_INTERVAL = 15000; // 检测间隔改为15秒一次
-    const MAX_WAIT_TIME = 3000000; // 最大等待时间延长至50分钟
-    const AUTO_CONFIRM_DELAY = 1000; // 自动确认延迟调整至1秒
+    const CHECK_INTERVAL = 15000; // 检测间隔15秒一次
+    const AUTO_CONFIRM_DELAY = 1000; // 自动确认延迟1秒
     
     // 获取用户设置 - 默认全部开启
     let autoFillEnabled = GM_getValue('autoFillEnabled', true);
     let autoConfirmEnabled = GM_getValue('autoConfirmEnabled', true);
     let notificationEnabled = GM_getValue('notificationEnabled', true);
     
-    let startTime = Date.now();
     let filledCodes = new Set();
     let currentSession = Date.now();
     let isInitialized = false;
@@ -78,7 +76,13 @@
     // 创建增强版状态指示器
     function createEnhancedStatusIndicator() {
         const oldIndicator = document.getElementById('auto-fill-status');
-        if (oldIndicator) oldIndicator.remove();
+        if (oldIndicator) {
+            try {
+                oldIndicator.remove();
+            } catch (e) {
+                console.warn('移除旧指示器失败:', e);
+            }
+        }
         
         const indicator = document.createElement('div');
         indicator.style.position = 'fixed';
@@ -118,42 +122,61 @@
         
         // 点击切换功能
         indicator.addEventListener('click', function(e) {
-            if (e.shiftKey) {
-                autoConfirmEnabled = !autoConfirmEnabled;
-                GM_setValue('autoConfirmEnabled', autoConfirmEnabled);
-                showNotification(`自动确认 ${autoConfirmEnabled ? '开启' : '关闭'}`);
-            } else if (e.ctrlKey) {
-                notificationEnabled = !notificationEnabled;
-                GM_setValue('notificationEnabled', notificationEnabled);
-                showNotification(`通知 ${notificationEnabled ? '开启' : '关闭'}`);
-            } else {
-                autoFillEnabled = !autoFillEnabled;
-                GM_setValue('autoFillEnabled', autoFillEnabled);
-                updateStatusIndicator();
-                showNotification(`自动输入 ${autoFillEnabled ? '开启' : '关闭'}`);
+            try {
+                if (e.shiftKey) {
+                    autoConfirmEnabled = !autoConfirmEnabled;
+                    GM_setValue('autoConfirmEnabled', autoConfirmEnabled);
+                    showNotification(`自动确认 ${autoConfirmEnabled ? '开启' : '关闭'}`);
+                } else if (e.ctrlKey) {
+                    notificationEnabled = !notificationEnabled;
+                    GM_setValue('notificationEnabled', notificationEnabled);
+                    showNotification(`通知 ${notificationEnabled ? '开启' : '关闭'}`);
+                } else {
+                    autoFillEnabled = !autoFillEnabled;
+                    GM_setValue('autoFillEnabled', autoFillEnabled);
+                    updateStatusIndicator();
+                    showNotification(`自动输入 ${autoFillEnabled ? '开启' : '关闭'}`);
+                }
+            } catch (error) {
+                console.error('切换功能时出错:', error);
             }
         });
         
         // 添加右键菜单
         indicator.addEventListener('contextmenu', function(e) {
-            e.preventDefault();
-            showQuickMenu(e.clientX, e.clientY);
+            try {
+                e.preventDefault();
+                showQuickMenu(e.clientX, e.clientY);
+            } catch (error) {
+                console.error('显示右键菜单时出错:', error);
+            }
         });
         
-        document.body.appendChild(indicator);
+        try {
+            document.body.appendChild(indicator);
+        } catch (error) {
+            console.error('添加状态指示器失败:', error);
+        }
+        
         return indicator;
     }
     
     // 显示快捷菜单
     function showQuickMenu(x, y) {
         const existingMenu = document.getElementById('auto-fill-menu');
-        if (existingMenu) existingMenu.remove();
+        if (existingMenu) {
+            try {
+                existingMenu.remove();
+            } catch (e) {
+                console.warn('移除旧菜单失败:', e);
+            }
+        }
         
         const menu = document.createElement('div');
         menu.id = 'auto-fill-menu';
         menu.className = 'auto-fill-menu';
-        menu.style.left = x + 'px';
-        menu.style.top = y + 'px';
+        menu.style.left = Math.min(x, window.innerWidth - 170) + 'px';
+        menu.style.top = Math.min(y, window.innerHeight - 200) + 'px';
         
         menu.innerHTML = `
             <div class="menu-item" data-action="toggle-auto">自动输入: ${autoFillEnabled ? '关闭' : '开启'}</div>
@@ -166,58 +189,74 @@
         `;
         
         menu.addEventListener('click', function(e) {
-            const target = e.target;
-            if (!target.classList.contains('menu-item')) return;
-            
-            const action = target.getAttribute('data-action');
-            switch(action) {
-                case 'toggle-auto':
-                    autoFillEnabled = !autoFillEnabled;
-                    GM_setValue('autoFillEnabled', autoFillEnabled);
-                    updateStatusIndicator();
-                    showNotification(`自动输入 ${autoFillEnabled ? '开启' : '关闭'}`);
-                    break;
-                case 'toggle-confirm':
-                    autoConfirmEnabled = !autoConfirmEnabled;
-                    GM_setValue('autoConfirmEnabled', autoConfirmEnabled);
-                    showNotification(`自动确认 ${autoConfirmEnabled ? '开启' : '关闭'}`);
-                    break;
-                case 'toggle-notify':
-                    notificationEnabled = !notificationEnabled;
-                    GM_setValue('notificationEnabled', notificationEnabled);
-                    showNotification(`通知 ${notificationEnabled ? '开启' : '关闭'}`);
-                    break;
-                case 'manual-trigger':
-                    monitorVerification();
-                    showNotification('正在检测验证码...');
-                    break;
-                case 'reset-session':
-                    currentSession = Date.now();
-                    filledCodes.clear();
-                    showNotification('会话已重置');
-                    break;
-                case 'check-now':
-                    checkForVerificationImmediately();
-                    break;
+            try {
+                const target = e.target;
+                if (!target.classList.contains('menu-item')) return;
+                
+                const action = target.getAttribute('data-action');
+                switch(action) {
+                    case 'toggle-auto':
+                        autoFillEnabled = !autoFillEnabled;
+                        GM_setValue('autoFillEnabled', autoFillEnabled);
+                        updateStatusIndicator();
+                        showNotification(`自动输入 ${autoFillEnabled ? '开启' : '关闭'}`);
+                        break;
+                    case 'toggle-confirm':
+                        autoConfirmEnabled = !autoConfirmEnabled;
+                        GM_setValue('autoConfirmEnabled', autoConfirmEnabled);
+                        showNotification(`自动确认 ${autoConfirmEnabled ? '开启' : '关闭'}`);
+                        break;
+                    case 'toggle-notify':
+                        notificationEnabled = !notificationEnabled;
+                        GM_setValue('notificationEnabled', notificationEnabled);
+                        showNotification(`通知 ${notificationEnabled ? '开启' : '关闭'}`);
+                        break;
+                    case 'manual-trigger':
+                        monitorVerification();
+                        showNotification('正在检测验证码...');
+                        break;
+                    case 'reset-session':
+                        currentSession = Date.now();
+                        filledCodes.clear();
+                        showNotification('会话已重置');
+                        break;
+                    case 'check-now':
+                        checkForVerificationImmediately();
+                        break;
+                }
+                menu.remove();
+            } catch (error) {
+                console.error('菜单操作时出错:', error);
             }
-            menu.remove();
         });
         
         const closeMenuHandler = function(e) {
-            if (!menu.contains(e.target)) {
-                menu.remove();
-                document.removeEventListener('click', closeMenuHandler);
+            try {
+                if (!menu.contains(e.target)) {
+                    menu.remove();
+                    document.removeEventListener('click', closeMenuHandler);
+                }
+            } catch (error) {
+                console.error('关闭菜单时出错:', error);
             }
         };
         
         setTimeout(() => {
-            document.addEventListener('click', closeMenuHandler);
+            try {
+                document.addEventListener('click', closeMenuHandler);
+            } catch (error) {
+                console.error('添加菜单关闭监听器失败:', error);
+            }
         }, 100);
         
-        document.body.appendChild(menu);
+        try {
+            document.body.appendChild(menu);
+        } catch (error) {
+            console.error('添加菜单失败:', error);
+        }
     }
     
-    // 立即检测验证码（不等待15秒间隔）
+    // 立即检测验证码
     function checkForVerificationImmediately() {
         showNotification('强制检测中...');
         monitorVerification();
@@ -225,13 +264,16 @@
     
     // 更新状态指示器
     function updateStatusIndicator() {
-        const indicator = document.getElementById('auto-fill-status');
-        if (indicator) {
-            indicator.style.color = autoFillEnabled ? '#4cc9f0' : '#f72585';
-            const iconSpan = indicator.querySelector('span:first-child');
-            const textSpan = indicator.querySelector('span:last-child');
-            if (iconSpan) iconSpan.textContent = autoFillEnabled ? '🔒' : '🔓';
-            if (textSpan) textSpan.textContent = `验证助手: ${autoFillEnabled ? '开启' : '关闭'}`;
+        try {
+            const indicator = document.getElementById('auto-fill-status');
+            if (indicator) {
+                indicator.style.color = autoFillEnabled ? '#4cc9f0' : '#f72585';
+                const spans = indicator.getElementsByTagName('span');
+                if (spans[0]) spans[0].textContent = autoFillEnabled ? '🔒' : '🔓';
+                if (spans[1]) spans[1].textContent = `验证助手: ${autoFillEnabled ? '开启' : '关闭'}`;
+            }
+        } catch (error) {
+            console.error('更新状态指示器时出错:', error);
         }
     }
     
@@ -239,43 +281,54 @@
     function showNotification(message) {
         if (!notificationEnabled) return;
         
-        const oldNotices = document.querySelectorAll('.auto-fill-notice');
-        oldNotices.forEach(notice => notice.remove());
-        
-        if (typeof GM_notification === 'function') {
-            try {
-                GM_notification({
-                    text: message,
-                    title: '验证助手 v1.3',
-                    timeout: 2500,
-                    highlight: true
-                });
-            } catch (error) {
-                createFallbackNotification(message);
+        try {
+            const oldNotices = document.querySelectorAll('.auto-fill-notice');
+            oldNotices.forEach(notice => {
+                try {
+                    notice.remove();
+                } catch (e) {
+                    console.warn('移除旧通知失败:', e);
+                }
+            });
+            
+            if (typeof GM_notification === 'function') {
+                try {
+                    GM_notification({
+                        text: message,
+                        title: '验证助手 v1.4',
+                        timeout: 2500,
+                        highlight: true
+                    });
+                    return;
+                } catch (error) {
+                    console.warn('GM_notification 失败，使用备用通知:', error);
+                }
             }
-        } else {
-            createFallbackNotification(message);
+            
+            // 备用通知
+            const notice = document.createElement('div');
+            notice.className = 'auto-fill-notice';
+            notice.textContent = message;
+            
+            document.body.appendChild(notice);
+            setTimeout(() => {
+                try {
+                    if (notice.parentNode) {
+                        notice.remove();
+                    }
+                } catch (e) {
+                    console.warn('移除通知失败:', e);
+                }
+            }, 2500);
+            
+        } catch (error) {
+            console.error('显示通知时出错:', error);
         }
-    }
-    
-    // 创建备用通知
-    function createFallbackNotification(message) {
-        const notice = document.createElement('div');
-        notice.className = 'auto-fill-notice';
-        notice.textContent = message;
-        
-        document.body.appendChild(notice);
-        setTimeout(() => {
-            if (notice.parentNode) {
-                notice.remove();
-            }
-        }, 2500);
     }
     
     // 查找验证码和输入框
     function findVerificationElements() {
         try {
-            // 支持多种验证码格式
             const codeSelectors = [
                 '.verify-code:not(.uncopyable)',
                 '.verify-code',
@@ -286,64 +339,71 @@
                 '[class*="verify"][class*="code"]',
                 '[class*="security"][class*="code"]',
                 '.code-text',
-                '.verification-number'
+                '.verification-number',
+                '.captcha-code'
             ];
             
-            let codeElement = null;
             for (const selector of codeSelectors) {
-                const elements = document.querySelectorAll(selector);
-                for (const el of elements) {
-                    if (el.offsetParent === null) continue;
-                    
-                    const text = el.textContent.trim();
-                    const numericText = text.replace(/\D/g, '');
-                    if (numericText.length === 6 && /^\d{6}$/.test(numericText)) {
-                        codeElement = el;
-                        break;
+                try {
+                    const elements = document.querySelectorAll(selector);
+                    for (const el of elements) {
+                        if (!el || !el.offsetParent) continue;
+                        
+                        const text = el.textContent || '';
+                        const numericText = text.replace(/\D/g, '');
+                        if (numericText.length === 6 && /^\d{6}$/.test(numericText)) {
+                            const inputElement = findInputElement();
+                            if (inputElement) {
+                                return {
+                                    codeElement: el,
+                                    inputElement: inputElement,
+                                    modal: el.closest('.verify-modal, .modal, .popup, .dialog')
+                                };
+                            }
+                        }
                     }
+                } catch (e) {
+                    continue;
                 }
-                if (codeElement) break;
             }
             
-            if (!codeElement) return null;
-            
-            // 支持多种输入框格式
-            const inputSelectors = [
-                '.verify-input',
-                '.security-input',
-                '.auth-input',
-                '.code-input',
-                'input[type="text"][placeholder*="码"]',
-                'input[type="text"][placeholder*="code"]',
-                'input[type="text"][placeholder*="验证"]',
-                'input[type="text"][placeholder*="请输入"]',
-                'input[type="text"][maxlength="6"]',
-                'input[type="text"][pattern="\\d{6}"]'
-            ];
-            
-            let inputElement = null;
-            for (const selector of inputSelectors) {
-                const elements = document.querySelectorAll(selector);
-                for (const el of elements) {
-                    if (el.offsetParent !== null && el.disabled === false) {
-                        inputElement = el;
-                        break;
-                    }
-                }
-                if (inputElement) break;
-            }
-            
-            if (!inputElement) return null;
-            
-            return {
-                codeElement: codeElement,
-                inputElement: inputElement,
-                modal: codeElement.closest('.verify-modal, .modal, .popup')
-            };
+            return null;
         } catch (error) {
             console.warn('查找验证元素时出错:', error);
             return null;
         }
+    }
+    
+    // 查找输入框
+    function findInputElement() {
+        const inputSelectors = [
+            '.verify-input',
+            '.security-input',
+            '.auth-input',
+            '.code-input',
+            'input[type="text"][placeholder*="码"]',
+            'input[type="text"][placeholder*="code"]',
+            'input[type="text"][placeholder*="验证"]',
+            'input[type="text"][placeholder*="请输入"]',
+            'input[type="text"][maxlength="6"]',
+            'input[type="text"][pattern="\\d{6}"]',
+            'input[type="text"]'
+        ];
+        
+        for (const selector of inputSelectors) {
+            try {
+                const elements = document.querySelectorAll(selector);
+                for (const el of elements) {
+                    if (el && el.offsetParent && !el.disabled && el.type === 'text') {
+                        return el;
+                    }
+                }
+            } catch (e) {
+                continue;
+            }
+        }
+        
+        return null;
     }
     
     // 提取验证码
@@ -351,7 +411,7 @@
         if (!codeElement) return null;
         
         try {
-            let code = codeElement.textContent.trim();
+            let code = codeElement.textContent || '';
             code = code.replace(/\D/g, '');
             
             if (code.length === 6 && /^\d{6}$/.test(code)) {
@@ -360,9 +420,16 @@
             
             const dataAttributes = ['data-code', 'data-value', 'data-verify', 'data-number', 'data-auth'];
             for (const attr of dataAttributes) {
-                const dataCode = codeElement.getAttribute(attr);
-                if (dataCode && /^\d{6}$/.test(dataCode.replace(/\D/g, ''))) {
-                    return dataCode.replace(/\D/g, '');
+                try {
+                    const dataCode = codeElement.getAttribute(attr);
+                    if (dataCode) {
+                        const numericCode = dataCode.replace(/\D/g, '');
+                        if (numericCode.length === 6) {
+                            return numericCode;
+                        }
+                    }
+                } catch (e) {
+                    continue;
                 }
             }
             
@@ -377,19 +444,12 @@
     function autoFillVerificationCode() {
         if (!autoFillEnabled) return false;
         
-        if (Date.now() - startTime > MAX_WAIT_TIME) {
-            if (notificationEnabled) {
-                showNotification('自动输入超时（5分钟），请手动操作');
-            }
-            return false;
-        }
-        
         try {
             const elements = findVerificationElements();
             if (!elements) return false;
             
-            // 检查弹窗可见性（如果有modal）
-            if (elements.modal && window.getComputedStyle(elements.modal).display === 'none') {
+            // 检查元素是否仍然在DOM中
+            if (!document.body.contains(elements.codeElement) || !document.body.contains(elements.inputElement)) {
                 return false;
             }
             
@@ -401,22 +461,23 @@
                 return false;
             }
             
-            if (elements.inputElement.value.trim() === verificationCode) {
+            // 检查是否已经填写
+            if (elements.inputElement.value === verificationCode) {
                 filledCodes.add(codeKey);
                 return false;
             }
             
             // 填写验证码
             elements.inputElement.value = verificationCode;
-            elements.inputElement.focus();
             
             // 触发事件
-            const events = ['input', 'change', 'keydown', 'keypress', 'keyup', 'blur'];
-            events.forEach(eventType => {
+            ['input', 'change'].forEach(eventType => {
                 try {
                     const event = new Event(eventType, { bubbles: true });
                     elements.inputElement.dispatchEvent(event);
-                } catch (e) {}
+                } catch (e) {
+                    // 忽略事件错误
+                }
             });
             
             filledCodes.add(codeKey);
@@ -446,20 +507,24 @@
             );
             
             for (const button of confirmButtons) {
-                if (button.offsetParent !== null && 
-                    button.disabled === false && 
-                    window.getComputedStyle(button).display !== 'none') {
-                    setTimeout(() => {
-                        try {
-                            button.click();
-                            if (notificationEnabled) {
-                                showNotification('✅ 已自动提交验证');
+                try {
+                    if (button && button.offsetParent && 
+                        !button.disabled && 
+                        window.getComputedStyle(button).display !== 'none') {
+                        setTimeout(() => {
+                            try {
+                                button.click();
+                                if (notificationEnabled) {
+                                    showNotification('✅ 已自动提交验证');
+                                }
+                            } catch (e) {
+                                console.warn('点击确认按钮时出错:', e);
                             }
-                        } catch (e) {
-                            console.warn('点击确认按钮时出错:', e);
-                        }
-                    }, AUTO_CONFIRM_DELAY);
-                    return true;
+                        }, AUTO_CONFIRM_DELAY);
+                        return true;
+                    }
+                } catch (e) {
+                    continue;
                 }
             }
             return false;
@@ -487,73 +552,78 @@
     function init() {
         if (isInitialized) return;
         
-        console.log('安全验证码自动输入助手 v1.3 (全局版) 已启动');
-        console.log('检测间隔: 15秒 | 默认状态: 开启');
+        console.log('安全验证码自动输入助手 v1.4 (无限时版) 已启动');
+        console.log('检测间隔: 15秒 | 运行时间: 无限制');
         
-        createEnhancedStatusIndicator();
-        isInitialized = true;
-        
-        // 确保默认设置正确
-        if (GM_getValue('autoFillEnabled') === undefined) {
-            GM_setValue('autoFillEnabled', true);
-        }
-        if (GM_getValue('autoConfirmEnabled') === undefined) {
-            GM_setValue('autoConfirmEnabled', true);
-        }
-        if (GM_getValue('notificationEnabled') === undefined) {
-            GM_setValue('notificationEnabled', true);
-        }
-        
-        // 15秒间隔检测
-        checkIntervalId = setInterval(monitorVerification, CHECK_INTERVAL);
-        
-        // 监听DOM变化
-        observer = new MutationObserver(function(mutations) {
-            for (const mutation of mutations) {
-                if (mutation.addedNodes.length > 0 || mutation.type === 'attributes') {
-                    setTimeout(monitorVerification, 500);
-                    break;
+        try {
+            createEnhancedStatusIndicator();
+            isInitialized = true;
+            
+            // 确保默认设置正确
+            if (GM_getValue('autoFillEnabled') === undefined) {
+                GM_setValue('autoFillEnabled', true);
+            }
+            if (GM_getValue('autoConfirmEnabled') === undefined) {
+                GM_setValue('autoConfirmEnabled', true);
+            }
+            if (GM_getValue('notificationEnabled') === undefined) {
+                GM_setValue('notificationEnabled', true);
+            }
+            
+            // 15秒间隔检测
+            checkIntervalId = setInterval(monitorVerification, CHECK_INTERVAL);
+            
+            // 监听DOM变化
+            observer = new MutationObserver(function(mutations) {
+                for (const mutation of mutations) {
+                    if (mutation.addedNodes.length > 0 || mutation.type === 'attributes') {
+                        setTimeout(monitorVerification, 500);
+                        break;
+                    }
                 }
-            }
-        });
-        
-        observer.observe(document.body, {
-            childList: true,
-            subtree: true,
-            attributes: true,
-            attributeFilter: ['class', 'style', 'id']
-        });
-        
-        // 页面加载后立即检测一次
-        setTimeout(monitorVerification, 3000);
-        
-        // 添加键盘快捷键
-        document.addEventListener('keydown', function(e) {
-            if (e.altKey && e.key === 'a') {
-                e.preventDefault();
-                autoFillEnabled = !autoFillEnabled;
-                GM_setValue('autoFillEnabled', autoFillEnabled);
-                updateStatusIndicator();
-                showNotification(`自动输入 ${autoFillEnabled ? '开启' : '关闭'}`);
-            }
-            if (e.altKey && e.key === 's') {
-                e.preventDefault();
-                monitorVerification();
-                showNotification('手动触发检测');
-            }
-            if (e.altKey && e.key === 'd') {
-                e.preventDefault();
-                checkForVerificationImmediately();
-            }
-        });
-        
-        // 清理函数
-        window.addEventListener('beforeunload', function() {
-            if (checkIntervalId) clearInterval(checkIntervalId);
-            if (observer) observer.disconnect();
-        });
-        
-        showNotification('验证助手已启动 (15秒检测间隔)');
+            });
+            
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true,
+                attributes: true,
+                attributeFilter: ['class', 'style', 'id']
+            });
+            
+            // 页面加载后立即检测一次
+            setTimeout(monitorVerification, 3000);
+            
+            // 添加键盘快捷键
+            document.addEventListener('keydown', function(e) {
+                try {
+                    if (e.altKey && e.key === 'a') {
+                        e.preventDefault();
+                        autoFillEnabled = !autoFillEnabled;
+                        GM_setValue('autoFillEnabled', autoFillEnabled);
+                        updateStatusIndicator();
+                        showNotification(`自动输入 ${autoFillEnabled ? '开启' : '关闭'}`);
+                    }
+                    if (e.altKey && e.key === 's') {
+                        e.preventDefault();
+                        monitorVerification();
+                        showNotification('手动触发检测');
+                    }
+                    if (e.altKey && e.key === 'd') {
+                        e.preventDefault();
+                        checkForVerificationImmediately();
+                    }
+                } catch (error) {
+                    console.error('快捷键处理错误:', error);
+                }
+            });
+            
+            showNotification('验证助手已启动 (无限时运行)');
+            
+        } catch (error) {
+            console.error('初始化过程中出错:', error);
+            // 重试初始化
+            setTimeout(init, 5000);
+        }
     }
     
     // 安全初始化
@@ -565,7 +635,7 @@
                 setTimeout(init, 2000);
             }
         } catch (error) {
-            console.error('初始化失败:', error);
+            console.error('安全初始化失败:', error);
             setTimeout(init, 3000);
         }
     }
