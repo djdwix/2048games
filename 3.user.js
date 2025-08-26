@@ -1,13 +1,13 @@
 // ==UserScript==
 // @name         页面安全验证计时器（增强版V4.8）
 // @namespace    http://tampermonkey.net/
-// @version      5.0
+// @version      4.81
 // @description  本地与网页延迟检测+日志功能+点击导出日志+多接口IP/定位+验证重启倒计时
 // @author       You
 // @match        *://*/*
 // @grant        GM_addStyle
-// @downloadURL https://github.com/djdwix/2048games/blob/main/3.user.js
-// @updateURL https://github.com/djdwix/2048games/blob/main/3.user.js
+// @downloadURL  https://github.com/djdwix/2048games/blob/main/3.user.js
+// @updateURL    https://github.com/djdwix/2048games/blob/main/3.user.js
 // ==/UserScript==
 
 GM_addStyle(`
