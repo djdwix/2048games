@@ -1,14 +1,15 @@
 // ==UserScript==
 // @name         安全验证码自动输入助手
 // @namespace    http://tampermonkey.net/
-// @version      1.4
-// @description  自动识别并填写页面安全验证计时器的验证码（配套脚本）- 无限时版
+// @version      1.5
+// @description  自动识别并填写页面安全验证计时器的验证码（配套脚本）- 支持后台运行版
 // @author       You
 // @match        *://*/*
 // @grant        GM_notification
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_addStyle
+// @grant        GM_registerBackgroundScript  // 新增：后台运行权限
 // @downloadURL  https://raw.githubusercontent.com/djdwix/2048games/main/2.js
 // @updateURL    https://raw.githubusercontent.com/djdwix/2048games/main/2.js
 // ==/UserScript==
@@ -19,6 +20,7 @@
     // 配置参数
     const CHECK_INTERVAL = 15000; // 检测间隔15秒一次
     const AUTO_CONFIRM_DELAY = 1000; // 自动确认延迟1秒
+    const BACKGROUND_CHECK_INTERVAL = 5000; // 后台检测间隔5秒
     
     // 获取用户设置 - 默认全部开启
     let autoFillEnabled = GM_getValue('autoFillEnabled', true);
@@ -29,7 +31,9 @@
     let currentSession = Date.now();
     let isInitialized = false;
     let checkIntervalId = null;
+    let backgroundCheckId = null;
     let observer = null;
+    let isForeground = document.visibilityState === 'visible';
 
     // 添加全局样式
     GM_addStyle(`
@@ -71,8 +75,119 @@
             font-size: 14px !important;
             font-weight: 600 !important;
         }
+        /* 适配文件2的验证弹窗样式 */
+        .verify-modal .verify-code {
+            cursor: pointer !important;
+        }
+        .verify-modal .verify-code.uncopyable {
+            cursor: default !important;
+            pointer-events: none !important;
+        }
     `);
     
+    // 后台运行功能
+    function initBackgroundRunner() {
+        // 监听页面可见性变化
+        document.addEventListener('visibilitychange', () => {
+            isForeground = document.visibilityState === 'visible';
+            if (isForeground) {
+                log('页面切换到前台，恢复正常检测');
+                startForegroundMonitoring();
+            } else {
+                log('页面切换到后台，启用后台检测');
+                startBackgroundMonitoring();
+            }
+        });
+        
+        log('后台运行模块初始化完成');
+    }
+    
+    // 前台监控
+    function startForegroundMonitoring() {
+        // 停止后台检测
+        if (backgroundCheckId) {
+            clearInterval(backgroundCheckId);
+            backgroundCheckId = null;
+        }
+        
+        // 启动前台检测
+        if (!checkIntervalId) {
+            checkIntervalId = setInterval(monitorVerification, CHECK_INTERVAL);
+        }
+        
+        // 重新启动DOM观察器
+        if (observer) {
+            observer.disconnect();
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true,
+                attributes: true,
+                attributeFilter: ['class', 'style', 'id']
+            });
+        }
+    }
+    
+    // 后台监控
+    function startBackgroundMonitoring() {
+        // 停止前台检测
+        if (checkIntervalId) {
+            clearInterval(checkIntervalId);
+            checkIntervalId = null;
+        }
+        
+        // 停止DOM观察器
+        if (observer) {
+            observer.disconnect();
+        }
+        
+        // 启动后台检测（简化版，减少资源消耗）
+        if (!backgroundCheckId) {
+            backgroundCheckId = setInterval(() => {
+                if (hasVerificationElements()) {
+                    log('后台检测到验证元素，可能需要用户交互');
+                    // 可以在这里触发通知或其它后台操作
+                }
+            }, BACKGROUND_CHECK_INTERVAL);
+        }
+    }
+    
+    // 简单的日志功能
+    function log(message) {
+        const timeStr = new Date().toLocaleString('zh-CN', {
+            year: 'numeric', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', second: '2-digit'
+        }).replace(/\//g, '-');
+        console.log(`[验证助手][${timeStr}] ${message}`);
+    }
+    
+    // 检查是否存在验证元素（简化版，用于后台检测）
+    function hasVerificationElements() {
+        try {
+            const codeSelectors = [
+                '.verify-code',
+                '.security-code',
+                '.auth-code',
+                '[class*="code"][class*="verify"]'
+            ];
+            
+            for (const selector of codeSelectors) {
+                const elements = document.querySelectorAll(selector);
+                for (const el of elements) {
+                    if (el && el.offsetParent) {
+                        const text = el.textContent || '';
+                        const numericText = text.replace(/\D/g, '');
+                        if (numericText.length === 6 && /^\d{6}$/.test(numericText)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            return false;
+        } catch (error) {
+            return false;
+        }
+    }
+
     // 创建增强版状态指示器
     function createEnhancedStatusIndicator() {
         const oldIndicator = document.getElementById('auto-fill-status');
@@ -186,6 +301,7 @@
             <div class="menu-item" data-action="manual-trigger">立即检测验证码</div>
             <div class="menu-item" data-action="reset-session">重置当前会话</div>
             <div class="menu-item" data-action="check-now">强制立即检测</div>
+            <div class="menu-item" data-action="toggle-background">后台模式: ${isForeground ? '关闭' : '开启'}</div>
         `;
         
         menu.addEventListener('click', function(e) {
@@ -222,6 +338,17 @@
                         break;
                     case 'check-now':
                         checkForVerificationImmediately();
+                        break;
+                    case 'toggle-background':
+                        if (isForeground) {
+                            // 模拟切换到后台
+                            startBackgroundMonitoring();
+                            showNotification('已启用后台检测模式');
+                        } else {
+                            // 模拟切换到前台
+                            startForegroundMonitoring();
+                            showNotification('已启用前台检测模式');
+                        }
                         break;
                 }
                 menu.remove();
@@ -295,7 +422,7 @@
                 try {
                     GM_notification({
                         text: message,
-                        title: '验证助手 v1.4',
+                        title: '验证助手 v1.5',
                         timeout: 2500,
                         highlight: true
                     });
@@ -486,7 +613,7 @@
                 showNotification(`✅ 验证码已自动填写: ${verificationCode}`);
             }
             
-            console.log('安全验证码已自动填写:', verificationCode);
+            log(`安全验证码已自动填写: ${verificationCode}`);
             return true;
             
         } catch (error) {
@@ -552,8 +679,8 @@
     function init() {
         if (isInitialized) return;
         
-        console.log('安全验证码自动输入助手 v1.4 (无限时版) 已启动');
-        console.log('检测间隔: 15秒 | 运行时间: 无限制');
+        console.log('安全验证码自动输入助手 v1.5 (支持后台运行版) 已启动');
+        log('检测间隔: 15秒 | 支持后台运行');
         
         try {
             createEnhancedStatusIndicator();
@@ -570,11 +697,20 @@
                 GM_setValue('notificationEnabled', true);
             }
             
-            // 15秒间隔检测
-            checkIntervalId = setInterval(monitorVerification, CHECK_INTERVAL);
+            // 初始化后台运行模块
+            initBackgroundRunner();
             
-            // 监听DOM变化
+            // 根据当前可见状态启动相应的监控模式
+            if (isForeground) {
+                startForegroundMonitoring();
+            } else {
+                startBackgroundMonitoring();
+            }
+            
+            // 监听DOM变化（仅在前台）
             observer = new MutationObserver(function(mutations) {
+                if (!isForeground) return;
+                
                 for (const mutation of mutations) {
                     if (mutation.addedNodes.length > 0 || mutation.type === 'attributes') {
                         setTimeout(monitorVerification, 500);
@@ -583,12 +719,14 @@
                 }
             });
             
-            observer.observe(document.body, {
-                childList: true,
-                subtree: true,
-                attributes: true,
-                attributeFilter: ['class', 'style', 'id']
-            });
+            if (isForeground) {
+                observer.observe(document.body, {
+                    childList: true,
+                    subtree: true,
+                    attributes: true,
+                    attributeFilter: ['class', 'style', 'id']
+                });
+            }
             
             // 页面加载后立即检测一次
             setTimeout(monitorVerification, 3000);
@@ -612,12 +750,22 @@
                         e.preventDefault();
                         checkForVerificationImmediately();
                     }
+                    if (e.altKey && e.key === 'b') {
+                        e.preventDefault();
+                        if (isForeground) {
+                            startBackgroundMonitoring();
+                            showNotification('已启用后台检测模式');
+                        } else {
+                            startForegroundMonitoring();
+                            showNotification('已启用前台检测模式');
+                        }
+                    }
                 } catch (error) {
                     console.error('快捷键处理错误:', error);
                 }
             });
             
-            showNotification('验证助手已启动 (无限时运行)');
+            showNotification(`验证助手已启动 (${isForeground ? '前台' : '后台'}模式)`);
             
         } catch (error) {
             console.error('初始化过程中出错:', error);
