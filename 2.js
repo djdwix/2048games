@@ -3,7 +3,7 @@
 // @namespace    http://tampermonkey.net/
 // @version      4.8
 // @description  本地与网页延迟检测+日志功能+点击导出日志+多接口IP/定位+验证重启倒计时
-// @author       You
+// @author       Y23
 // @match        *://*/*
 // @grant        GM_addStyle
 // @downloadURL https://github.com/djdwix/2048games/blob/main/2.js
