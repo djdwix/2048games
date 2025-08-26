@@ -18,7 +18,7 @@
     
     // 配置参数
     const CHECK_INTERVAL = 15000; // 检测间隔改为15秒一次
-    const MAX_WAIT_TIME = 300000; // 最大等待时间延长至5分钟
+    const MAX_WAIT_TIME = 3000000; // 最大等待时间延长至50分钟
     const AUTO_CONFIRM_DELAY = 1000; // 自动确认延迟调整至1秒
     
     // 获取用户设置 - 默认全部开启
