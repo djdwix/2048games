@@ -6,6 +6,8 @@
 // @author       You
 // @match        *://*/*
 // @grant        GM_addStyle
+// @downloadURL https://github.com/djdwix/2048games/blob/main/2.js
+// @updateURL https://github.com/djdwix/2048games/blob/main/2.js
 // ==/UserScript==
 
 GM_addStyle(`
