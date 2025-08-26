@@ -9,9 +9,8 @@
 // @downloadURL  https://raw.githubusercontent.com/djdwix/2048games/main/3.user.js
 // @updateURL    https://raw.githubusercontent.com/djdwix/2048games/main/3.user.js
 // ==/UserScript==
-
 GM_addStyle(`
-  /* 倒计时样式（） */
+  /* 倒计时样式（保留科幻风格，隐藏点击提示文字，保留点击功能） */
   .safe-timer {
     position: fixed;
     top: 12px;
@@ -27,7 +26,7 @@ GM_addStyle(`
     z-index: 9999;
     user-select: none;
     transition: color 0.3s ease, box-shadow 0.3s ease;
-    cursor: pointer; /* 提示可点击 */
+    cursor: pointer; /* 保留点击指针提示，暗示可交互 */
   }
   .safe-timer:hover {
     box-shadow: 0 0 12px rgba(76, 201, 240, 0.4);
@@ -336,7 +335,7 @@ GM_addStyle(`
     color: #4cc9f0;
     padding: 12px 24px;
     border-radius: 8px;
-    font-size: 15px;
+       font-size: 15px;
     z-index: 10001;
     opacity: 0;
     box-shadow: 0 0 15px rgba(76, 201, 240, 0.4);
@@ -366,7 +365,6 @@ GM_addStyle(`
     text-shadow: 0 0 5px rgba(76, 201, 240, 0.7);
   }
 `);
-
 // 常量定义（新增日志相关配置）
 const STORAGE_KEY = 'safeTimerEndTime';
 const LOG_STORAGE_KEY = 'safeTimerLogs'; // 日志存储键
@@ -377,7 +375,6 @@ const STRENGTHEN_COUNT = 2; // 加强验证次数
 const FAST_VERIFY_THRESHOLD = 10000; // 快速验证阈值（10s）
 const LOCAL_DELAY_INTERVAL = 5000; // 延迟检测间隔（5s，避免频繁请求）
 const DELAY_TEST_TIMEOUT = 5000; // 延迟检测超时时间（5s）
-
 // IP与定位接口配置（保留原多接口容错）
 const IP_API_LIST = [
   { url: 'https://api.ipify.org?format=text', parser: (text) => text.trim() },
@@ -399,7 +396,6 @@ const GEO_API_CONFIG = {
     (ip) => `https://bigdatacloud.net/data/ip-geolocation-full?ip=${ip}&localityLanguage=zh`
   ]
 };
-
 // 1. 日志核心功能（新增）
 function log(content) {
   const timeStr = new Date().toLocaleString('zh-CN', {
@@ -417,7 +413,6 @@ function log(content) {
   localStorage.setItem(LOG_STORAGE_KEY, JSON.stringify(logs));
   console.log(`[安全计时器][${timeStr}] ${content}`); // 同时输出到控制台
 }
-
 // 网络状态管理（更新：延迟检测改为“本地-网页”延迟，新增日志记录）
 class NetworkMonitor {
   constructor() {
@@ -436,14 +431,12 @@ class NetworkMonitor {
     this.fetchLocation(); 
     log('网络监测模块初始化完成，初始状态：' + (this.isOnline ? '在线' : '离线'));
   }
-
   initElements() {
     // 网络状态按钮
     this.statusEl = document.createElement('div');
     this.statusEl.className = `net-status ${this.isOnline ? 'online' : 'offline'}`;
     this.statusEl.textContent = this.isOnline ? '在线' : '离线';
     document.body.appendChild(this.statusEl);
-
     // 网络状态弹窗
     this.modalEl = document.createElement('div');
     this.modalEl.className = 'net-modal';
@@ -494,7 +487,6 @@ class NetworkMonitor {
       this.modalEl.classList.remove('active');
     });
   }
-
   bindEvents() {
     this.statusEl.addEventListener('click', () => this.modalEl.classList.toggle('active'));
     window.addEventListener('online', () => this.updateStatus(true));
@@ -507,7 +499,6 @@ class NetworkMonitor {
       });
     }
   }
-
   updateStatus(online) {
     this.isOnline = online;
     const statusText = online ? '在线' : '离线';
@@ -528,7 +519,6 @@ class NetworkMonitor {
       this.setOfflineInfo();
     }
   }
-
   // 2. 核心更新：本地-网页延迟检测（替换原localStorage检测）
   calculateLocalDelay() {
     if (!window.location.origin) {
@@ -537,17 +527,14 @@ class NetworkMonitor {
       log(`本地-网页延迟检测：${this.localDelay}`);
       return;
     }
-
     // 构造测试请求（加随机参数防缓存）
     const testUrl = `${window.location.origin}/?delayTest=${Date.now()}`;
     const startTime = performance.now();
     let timeoutTimer;
-
     // 超时处理
     const timeoutPromise = new Promise((_, reject) => {
       timeoutTimer = setTimeout(() => reject(new Error('TimeoutError')), DELAY_TEST_TIMEOUT);
     });
-
     // 发送请求检测延迟
     Promise.race([
       fetch(testUrl, { method: 'GET', mode: 'cors', cache: 'no-store' }),
@@ -567,21 +554,18 @@ class NetworkMonitor {
       log(`本地-网页延迟检测：${this.localDelay}（原因：${error.message}）`);
     });
   }
-
   startLocalDelayDetect() {
     if (!this.isOnline) return;
     this.stopLocalDelayDetect(); // 避免重复定时器
     this.calculateLocalDelay(); // 立即检测一次
     this.delayTimer = setInterval(() => this.calculateLocalDelay(), LOCAL_DELAY_INTERVAL);
   }
-
   stopLocalDelayDetect() {
     if (this.delayTimer) {
       clearInterval(this.delayTimer);
       this.delayTimer = null;
     }
   }
-
   // IP获取（保留多接口容错，新增日志）
   fetchUserIPWithAI() {
     if (!this.isOnline) return;
@@ -596,7 +580,6 @@ class NetworkMonitor {
         }
         return;
       }
-
       const { url, parser } = IP_API_LIST[apiIndex];
       fetch(url, { method: 'GET', mode: 'cors', cache: 'no-store', timeout: 5000 })
         .then(response => {
@@ -616,7 +599,6 @@ class NetworkMonitor {
     };
     tryNextApi();
   }
-
   // 定位相关（保留多接口，新增日志）
   fetchReverseGeocode(lat, lon) {
     const tryNextApi = (apiIndex = 0) => {
@@ -625,7 +607,6 @@ class NetworkMonitor {
         this.fetchIPBasedLocation(this.userIP);
         return;
       }
-
       const apiUrl = GEO_API_CONFIG.reverseGeocodeList[apiIndex](lat, lon);
       fetch(apiUrl, { method: 'GET', mode: 'cors', cache: 'no-store', timeout: 8000 })
         .then(response => {
@@ -648,7 +629,6 @@ class NetworkMonitor {
     };
     tryNextApi();
   }
-
   fetchIPBasedLocation(ip) {
     if (!ip || ip.startsWith('查找失败')) {
       this.currentArea = '定位无效（IP未获取）';
@@ -656,7 +636,6 @@ class NetworkMonitor {
       log(`IP定位失败：${this.currentArea}`);
       return;
     }
-
     const tryNextApi = (apiIndex = 0) => {
       if (apiIndex >= GEO_API_CONFIG.ipLocationList.length) {
         this.currentArea = '定位无效（所有IP接口失败）';
@@ -664,7 +643,6 @@ class NetworkMonitor {
         log(`IP定位失败：${this.currentArea}`);
         return;
       }
-
       const apiUrl = GEO_API_CONFIG.ipLocationList[apiIndex](ip);
       fetch(apiUrl, { method: 'GET', mode: 'cors', cache: 'no-store', timeout: 6000 })
         .then(response => {
@@ -679,13 +657,12 @@ class NetworkMonitor {
           log(`IP定位成功：${this.currentArea}`);
         })
         .catch(error => {
-          log(`IP定位接口${apiIndex + 1}失败：${error.message}`);
+        log(`IP定位接口${apiIndex + 1}失败：${error.message}`);
           tryNextApi(apiIndex + 1);
         });
     };
     tryNextApi();
   }
-
   fetchLocation() {
     if (!this.isOnline) return;
     if (!navigator.geolocation) {
@@ -695,7 +672,6 @@ class NetworkMonitor {
       log(`定位初始化：${this.locationInfo}`);
       return;
     }
-
     navigator.geolocation.getCurrentPosition(
       (position) => { 
         const { latitude, longitude } = position.coords;
@@ -714,7 +690,6 @@ class NetworkMonitor {
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
   }
-
   // 辅助函数（保留原逻辑）
   getNetworkType() {
     if (!navigator.connection) return '未知';
@@ -754,50 +729,46 @@ class NetworkMonitor {
     this.modalEl.querySelector('#current-area-value').textContent = this.currentArea;
   }
 }
-
-// 3. 倒计时初始化（新增：点击导出日志功能，修复重复创建bug）
+// 3. 倒计时初始化（更新：隐藏点击提示文字，强化多网页同步逻辑）
 function initTimer() {
   // 先清理旧元素（修复重复创建bug）
   const oldTimerEl = document.querySelector('.safe-timer');
   if (oldTimerEl) oldTimerEl.remove();
-
   const timerEl = document.createElement('div');
   timerEl.className = 'safe-timer';
   document.body.appendChild(timerEl);
-
-  // 初始化结束时间
+  // 初始化结束时间（多网页同步核心：优先读取本地存储，避免新网页重设）
   let endTime;
   const storedEndTime = localStorage.getItem(STORAGE_KEY);
   if (storedEndTime) {
     endTime = parseInt(storedEndTime);
+    // 仅当存储时间过期时才重设，否则直接复用（确保多网页同步）
     if (endTime <= Date.now()) {
       endTime = Date.now() + TOTAL_TIME * 1000;
       localStorage.setItem(STORAGE_KEY, endTime);
       log(`倒计时重置：存储的结束时间已过期，重新设置为${new Date(endTime).toLocaleString()}`);
     } else {
-      log(`倒计时初始化：从存储中读取结束时间：${new Date(endTime).toLocaleString()}`);
+      log(`倒计时初始化：从存储同步结束时间：${new Date(endTime).toLocaleString()}`);
     }
   } else {
+    // 无存储时才初始化（首次启动场景）
     endTime = Date.now() + TOTAL_TIME * 1000;
     localStorage.setItem(STORAGE_KEY, endTime);
     log(`倒计时初始化：首次启动，设置结束时间：${new Date(endTime).toLocaleString()}`);
   }
-
   // 时间格式化
   function formatTime(seconds) {
     const min = Math.floor(seconds / 60).toString().padStart(2, '0');
     const sec = (seconds % 60).toString().padStart(2, '0');
     return `${min}:${sec}`;
   }
-
   // 动态颜色
   function getTimeColor(remainingTime) {
     const ratio = Math.max(0, Math.min(1, remainingTime / TOTAL_TIME));
     const hue = Math.floor(ratio * 180) + 180; // 红→青渐变
     return `hsl(${hue}, 70%, 60%)`;
   }
-
-  // 更新倒计时
+  // 更新倒计时（隐藏“点击导出日志”文字）
   function updateTimer() {
     const now = Date.now();
     const remainingTime = Math.max(0, Math.ceil((endTime - now) / 1000));
@@ -810,12 +781,11 @@ function initTimer() {
       showInitialVerify();
       return;
     }
-
-    timerEl.textContent = `倒计时: ${formatTime(remainingTime)}（导出日志）`;
+    // 仅显示倒计时，隐藏点击提示文字（保留点击导出功能）
+    timerEl.textContent = `倒计时: ${formatTime(remainingTime)}`;
     timerEl.style.color = getTimeColor(remainingTime);
   }
-
-  // 4. 核心功能：点击倒计时器导出日志（新增）
+  // 保留点击导出日志功能（文字隐藏，功能正常）
   timerEl.addEventListener('click', () => {
     const logs = JSON.parse(localStorage.getItem(LOG_STORAGE_KEY) || '[]');
     if (logs.length === 0) {
@@ -823,15 +793,13 @@ function initTimer() {
       log('日志导出操作：用户点击导出，但无日志数据');
       return;
     }
-
     // 格式化日志文本
-    let logText = `页面安全验证计时器日志（版本V4.8）\n`;
+    let logText = `页面安全验证计时器日志（版本V4.81）\n`;
     logText += `生成时间：${new Date().toLocaleString('zh-CN')}\n`;
     logText += `===============================\n\n`;
     logs.forEach((item, index) => {
       logText += `${index + 1}. [${item.time}] ${item.content}\n`;
     });
-
     // 创建下载链接
     const blob = new Blob([logText], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -841,19 +809,18 @@ function initTimer() {
     a.href = url;
     document.body.appendChild(a);
     a.click();
-
     // 清理临时元素
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
     log(`日志导出成功：文件名=${fileName}，共${logs.length}条记录`);
   });
-
-  // 多标签页同步（修复：同步时记录日志）
+  // 多标签页同步（强化：实时响应存储变化，确保所有网页倒计时一致）
   window.addEventListener('storage', (e) => {
     if (e.key === STORAGE_KEY) {
       if (e.newValue) {
         endTime = parseInt(e.newValue);
         log(`多标签页同步：倒计时结束时间更新为${new Date(endTime).toLocaleString()}`);
+        // 若同步的时间已过期，触发验证
         if (endTime <= Date.now()) {
           clearInterval(timer);
           timerEl.remove();
@@ -862,6 +829,7 @@ function initTimer() {
           showInitialVerify();
         }
       } else {
+        // 存储被清除时，同步清除当前倒计时
         clearInterval(timer);
         timerEl.remove();
         log(`多标签页同步：倒计时已清除，触发初始验证`);
@@ -870,16 +838,13 @@ function initTimer() {
       updateTimer();
     }
   });
-
   updateTimer();
   const timer = setInterval(updateTimer, 1000);
 }
-
 // 验证码生成（保留原逻辑）
 function generateCode() {
   return Math.floor(Math.random() * 900000 + 100000).toString();
 }
-
 // 加强验证（新增日志记录）
 function showStrengthenVerify(remainingTimes) {
   let code = generateCode();
@@ -907,11 +872,9 @@ function showStrengthenVerify(remainingTimes) {
   document.body.appendChild(modal);
   setTimeout(() => modal.classList.add('active'), 10);
   log(`加强验证启动：第${STRENGTHEN_COUNT - remainingTimes + 1}轮，验证码已生成`);
-
   const verifyInput = modal.querySelector('.verify-input');
   const verifyError = modal.querySelector('.verify-error');
   const verifyCodeEl = modal.querySelector('.verify-code');
-
   // 确认验证
   modal.querySelector('.confirm-btn').addEventListener('click', () => {
     const inputCode = verifyInput.value.trim();
@@ -932,7 +895,6 @@ function showStrengthenVerify(remainingTimes) {
       log(`加强验证失败（第${STRENGTHEN_COUNT - remainingTimes + 1}轮）：验证码错误，已刷新`);
       return;
     }
-
     // 验证成功
     modal.classList.remove('active');
     log(`加强验证成功（第${STRENGTHEN_COUNT - remainingTimes + 1}轮）：验证码匹配`);
@@ -942,14 +904,14 @@ function showStrengthenVerify(remainingTimes) {
       if (remainingTimes > 0) {
         showStrengthenVerify(remainingTimes);
       } else {
-        // 修复：加强验证完成后重启倒计时
-        localStorage.setItem(STORAGE_KEY, Date.now() + TOTAL_TIME * 1000);
+        // 验证完成后同步更新存储，确保所有网页倒计时一致
+        const newEndTime = Date.now() + TOTAL_TIME * 1000;
+        localStorage.setItem(STORAGE_KEY, newEndTime);
         initTimer();
-        log(`所有加强验证完成：倒计时已重启`);
+        log(`所有加强验证完成：倒计时已重启并同步至所有网页`);
       }
     }, 300);
   });
-
   // 拒绝验证
   modal.querySelector('.cancel-btn').addEventListener('click', () => {
     localStorage.removeItem(STORAGE_KEY);
@@ -963,7 +925,6 @@ function showStrengthenVerify(remainingTimes) {
     }, 300);
   });
 }
-
 // 初始验证（新增日志记录）
 function showInitialVerify() {
   const startTime = Date.now();
@@ -995,11 +956,9 @@ function showInitialVerify() {
   document.body.appendChild(modal);
   setTimeout(() => modal.classList.add('active'), 10);
   log(`初始验证启动：验证码已生成，等待用户输入`);
-
   const verifyInput = modal.querySelector('.verify-input');
   const verifyError = modal.querySelector('.verify-error');
   const verifyCodeEl = modal.querySelector('.verify-code');
-
   // 验证码复制
   verifyCodeEl.addEventListener('click', () => {
     navigator.clipboard.writeText(code).then(() => {
@@ -1014,7 +973,6 @@ function showInitialVerify() {
       log(`初始验证：验证码复制失败`);
     });
   });
-
   // 确认验证
   modal.querySelector('.confirm-btn').addEventListener('click', () => {
     const inputCode = verifyInput.value.trim();
@@ -1035,15 +993,14 @@ function showInitialVerify() {
       log(`初始验证失败：验证码错误，已刷新`);
       return;
     }
-
-    // 验证成功
+    // 验证成功：更新存储，确保所有网页同步重启倒计时
     const elapsed = Date.now() - startTime;
     modal.classList.remove('active');
     log(`初始验证成功：耗时${elapsed}ms，验证码匹配`);
     setTimeout(() => {
       modal.remove();
-      // 修复：验证成功后重启倒计时
-      localStorage.setItem(STORAGE_KEY, Date.now() + TOTAL_TIME * 1000);
+      const newEndTime = Date.now() + TOTAL_TIME * 1000;
+      localStorage.setItem(STORAGE_KEY, newEndTime);
       initTimer();
       // 快速验证检测
       if (elapsed < FAST_VERIFY_THRESHOLD) { 
@@ -1052,7 +1009,6 @@ function showInitialVerify() {
       }
     }, 300);
   });
-
   // 拒绝验证
   modal.querySelector('.cancel-btn').addEventListener('click', () => {
     localStorage.removeItem(STORAGE_KEY);
@@ -1066,11 +1022,10 @@ function showInitialVerify() {
     }, 300);
   });
 }
-
 // 脚本初始化（新增日志）
 (function() {
   'use strict';
-  log('页面安全验证计时器（V4.8）初始化启动');
+  log('页面安全验证计时器（V4.81）初始化启动');
   new NetworkMonitor(); // 网络监测（含本地-网页延迟检测）
-  initTimer(); // 倒计时（含点击导出日志）
+  initTimer(); // 倒计时（隐藏点击提示，支持多网页同步）
 })();
