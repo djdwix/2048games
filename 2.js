@@ -9,7 +9,7 @@
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_addStyle
-// @grant        GM_registerBackgroundScript  // 新增：后台运行权限
+// @grant        GM_registerBackgroundScript
 // @downloadURL  https://raw.githubusercontent.com/djdwix/2048games/main/2.js
 // @updateURL    https://raw.githubusercontent.com/djdwix/2048games/main/2.js
 // ==/UserScript==
