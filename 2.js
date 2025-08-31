@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         安全验证码自动输入助手
 // @namespace    http://tampermonkey.net/
-// @version      1.8
+// @version      1.9
 // @description  自动识别并填写页面安全验证计时器的验证码（配套脚本）- 支持后台运行版
 // @author       You
 // @match        *://*/*
@@ -128,7 +128,7 @@
         log(message);
     }
 
-    // 导出日志
+    // 修复导出日志功能
     function exportLogs() {
         try {
             if (operationLogs.length === 0) {
@@ -142,30 +142,57 @@
 
             const filename = `验证助手日志_${new Date().toISOString().replace(/[:.]/g, '-')}.txt`;
             
+            // 创建Blob对象
+            const blob = new Blob([logContent], { type: 'text/plain;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            
+            // 使用GM_download如果可用
             if (typeof GM_download === 'function') {
-                GM_download({
-                    data: 'data:text/plain;charset=utf-8,' + encodeURIComponent(logContent),
-                    filename: filename,
-                    saveAs: true
-                });
+                try {
+                    GM_download({
+                        url: url,
+                        name: filename,
+                        saveAs: true,
+                        onerror: function(error) {
+                            console.error('GM_download error:', error);
+                            fallbackDownload(blob, filename);
+                        }
+                    });
+                } catch (e) {
+                    console.error('GM_download failed, using fallback:', e);
+                    fallbackDownload(blob, filename);
+                }
             } else {
-                // 备用下载方法
-                const blob = new Blob([logContent], { type: 'text/plain;charset=utf-8' });
-                const url = URL.createObjectURL(blob);
-                const link = document.createElement('a');
-                link.href = url;
-                link.download = filename;
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                URL.revokeObjectURL(url);
+                fallbackDownload(blob, filename);
             }
             
             showNotification('日志导出成功');
             addLog('用户导出了操作日志', 'export');
+            
         } catch (error) {
             console.error('导出日志时出错:', error);
             showNotification('日志导出失败');
+            addLog('导出日志失败: ' + error.message, 'error');
+        }
+    }
+
+    // 备用下载方法
+    function fallbackDownload(blob, filename) {
+        try {
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            link.style.display = 'none';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            // 清理URL
+            setTimeout(() => URL.revokeObjectURL(url), 100);
+        } catch (error) {
+            console.error('备用下载方法失败:', error);
+            throw error;
         }
     }
 
@@ -229,7 +256,6 @@
             backgroundCheckId = setInterval(() => {
                 if (hasVerificationElements()) {
                     addLog('后台检测到验证元素，可能需要用户交互');
-                    // 可以在这里触发通知或其它后台操作
                 }
             }, BACKGROUND_CHECK_INTERVAL);
         }
@@ -254,7 +280,8 @@
                 '[class*="code"][class*="verify"]',
                 '.captcha-img',
                 '.verification-image',
-                '.img-captcha'
+                '.img-captcha',
+                '.logreg-captcha' // 新增LogregCaptcha支持
             ];
 
             for (const selector of codeSelectors) {
@@ -272,19 +299,18 @@
                         }
                         // 图片验证码
                         if (el.tagName === 'IMG' && imageCaptchaEnabled) {
-                            const altText = el.alt || '';
-                            const srcText = el.src || '';
-                            if (altText.length >= 4 && altText.length <= 8 && /^[a-zA-Z0-9]+$/.test(altText)) {
-                                return true;
-                            }
-                            if (srcText.includes('captcha') || srcText.includes('verify') || 
-                                srcText.includes('code') || el.className.includes('captcha')) {
-                                return true;
-                            }
+                            return true;
                         }
                     }
                 }
             }
+            
+            // 检查特定的LogregCaptcha路径
+            if (window.location.pathname.includes('/frame/logreg/LogregCaptcha/') && 
+                window.location.search.includes('id=Register')) {
+                return true;
+            }
+            
             return false;
         } catch (error) {
             return false;
@@ -390,7 +416,7 @@
         
         // 菜单移动到中间偏下位置
         const centerX = window.innerWidth / 2;
-        const centerY = window.innerHeight * 0.6; // 中间偏下
+        const centerY = window.innerHeight * 0.6;
         menu.style.left = Math.min(centerX - 90, window.innerWidth - 180) + 'px';
         menu.style.top = Math.min(centerY, window.innerHeight - 250) + 'px';
 
@@ -546,7 +572,7 @@
                 try {
                     GM_notification({
                         text: message,
-                        title: '验证助手 v1.8',
+                        title: '验证助手 v1.9',
                         timeout: 2500,
                         highlight: true
                     });
@@ -578,9 +604,60 @@
         }
     }
 
+    // 特殊处理LogregCaptcha验证码
+    function handleLogregCaptcha() {
+        try {
+            // 检查是否是LogregCaptcha页面
+            if (window.location.pathname.includes('/frame/logreg/LogregCaptcha/') && 
+                window.location.search.includes('id=Register')) {
+                
+                // 查找验证码图片
+                const captchaImg = document.querySelector('img[src*="captcha"], img[src*="verify"], .logreg-captcha');
+                if (!captchaImg) return null;
+                
+                // 查找输入框
+                const inputElement = document.querySelector('input[type="text"], input[name="captcha"], input[name="verify"]');
+                if (!inputElement) return null;
+                
+                // 尝试从图片的alt属性或data属性获取验证码
+                let captchaCode = captchaImg.alt || '';
+                captchaCode = captchaCode.replace(/\s/g, '');
+                
+                if (captchaCode.length < 4) {
+                    // 尝试从data属性获取
+                    const dataAttributes = ['data-code', 'data-captcha', 'data-verify'];
+                    for (const attr of dataAttributes) {
+                        const dataValue = captchaImg.getAttribute(attr);
+                        if (dataValue) {
+                            captchaCode = dataValue.replace(/\s/g, '');
+                            if (captchaCode.length >= 4) break;
+                        }
+                    }
+                }
+                
+                if (captchaCode.length >= 4 && captchaCode.length <= 8 && /^[a-zA-Z0-9]+$/.test(captchaCode)) {
+                    return {
+                        codeElement: captchaImg,
+                        inputElement: inputElement,
+                        type: 'logreg-image',
+                        code: captchaCode
+                    };
+                }
+            }
+            return null;
+        } catch (error) {
+            console.warn('处理LogregCaptcha时出错:', error);
+            return null;
+        }
+    }
+
     // 查找验证码和输入框
     function findVerificationElements() {
         try {
+            // 先处理特殊的LogregCaptcha
+            const logregCaptcha = handleLogregCaptcha();
+            if (logregCaptcha) return logregCaptcha;
+
             const codeSelectors = [
                 '.verify-code:not(.uncopyable)',
                 '.verify-code',
@@ -593,7 +670,8 @@
                 '.code-text',
                 '.verification-number',
                 '.captcha-code',
-                '.verification-code'
+                '.verification-code',
+                '.logreg-captcha' // LogregCaptcha支持
             ];
 
             // 图片验证码选择器
@@ -619,7 +697,6 @@
                         const text = el.textContent || '';
                         const cleanText = text.replace(/\s/g, '');
                         
-                        // 支持数字和字母验证码
                         if ((cleanText.length === 6 && /^\d{6}$/.test(cleanText)) || 
                             (cleanText.length >= 4 && cleanText.length <= 8 && /^[a-zA-Z0-9]+$/.test(cleanText))) {
                             const inputElement = findInputElement();
@@ -627,7 +704,6 @@
                                 return {
                                     codeElement: el,
                                     inputElement: inputElement,
-                                    modal: el.closest('.verify-modal, .modal, .popup, .dialog'),
                                     type: 'text'
                                 };
                             }
@@ -638,7 +714,7 @@
                 }
             }
 
-            // 如果启用图片验证码支持，查找图片验证码
+            // 查找图片验证码
             if (imageCaptchaEnabled) {
                 for (const selector of imageSelectors) {
                     try {
@@ -654,7 +730,6 @@
                                     return {
                                         codeElement: el,
                                         inputElement: inputElement,
-                                        modal: el.closest('.verify-modal, .modal, .popup, .dialog'),
                                         type: 'image',
                                         code: altText
                                     };
@@ -673,7 +748,6 @@
                                             return {
                                                 codeElement: el,
                                                 inputElement: inputElement,
-                                                modal: el.closest('.verify-modal, .modal, .popup, .dialog'),
                                                 type: 'image',
                                                 code: cleanData
                                             };
@@ -729,50 +803,6 @@
         return null;
     }
 
-    // 提取验证码
-    function extractVerificationCode(codeElement, type = 'text') {
-        if (!codeElement) return null;
-
-        try {
-            if (type === 'image') {
-                // 图片验证码，直接从传入的code中获取
-                return codeElement.code || null;
-            }
-
-            // 文本验证码
-            let code = codeElement.textContent || '';
-            code = code.replace(/\s/g, ''); // 移除所有空白字符
-
-            // 支持数字和字母验证码
-            if ((code.length === 6 && /^\d{6}$/.test(code)) || 
-                (code.length >= 4 && code.length <= 8 && /^[a-zA-Z0-9]+$/.test(code))) {
-                return code;
-            }
-
-            const dataAttributes = ['data-code', 'data-value', 'data-verify', 'data-number', 'data-auth'];
-            for (const attr of dataAttributes) {
-                try {
-                    const dataCode = codeElement.getAttribute(attr);
-                    if (dataCode) {
-                        const cleanCode = dataCode.replace(/\s/g, '');
-                        if ((cleanCode.length === 6 && /^\d{6}$/.test(cleanCode)) || 
-                            (cleanCode.length >= 4 && cleanCode.length <= 8 && /^[a-zA-Z0-9]+$/.test(cleanCode))) {
-                            return cleanCode;
-                        }
-                    }
-                } catch (e) {
-                    continue;
-                }
-            }
-
-            return null;
-        } catch (error) {
-            console.warn('提取验证码时出错:', error);
-            addLog('提取验证码时出错: ' + error.message, 'error');
-            return null;
-        }
-    }
-
     // 自动填写验证码
     function autoFillVerificationCode() {
         if (!autoFillEnabled) return false;
@@ -786,10 +816,13 @@
                 return false;
             }
 
-            const verificationCode = elements.type === 'image' 
-                ? elements.code 
-                : extractVerificationCode(elements.codeElement, elements.type);
-                
+            let verificationCode;
+            if (elements.type === 'text') {
+                verificationCode = extractTextVerificationCode(elements.codeElement);
+            } else {
+                verificationCode = elements.code;
+            }
+            
             if (!verificationCode) return false;
 
             const codeKey = `${currentSession}_${verificationCode}`;
@@ -832,6 +865,40 @@
         }
     }
 
+    // 提取文本验证码
+    function extractTextVerificationCode(codeElement) {
+        try {
+            let code = codeElement.textContent || '';
+            code = code.replace(/\s/g, '');
+
+            if ((code.length === 6 && /^\d{6}$/.test(code)) || 
+                (code.length >= 4 && code.length <= 8 && /^[a-zA-Z0-9]+$/.test(code))) {
+                return code;
+            }
+
+            const dataAttributes = ['data-code', 'data-value', 'data-verify', 'data-number', 'data-auth'];
+            for (const attr of dataAttributes) {
+                try {
+                    const dataCode = codeElement.getAttribute(attr);
+                    if (dataCode) {
+                        const cleanCode = dataCode.replace(/\s/g, '');
+                        if ((cleanCode.length === 6 && /^\d{6}$/.test(cleanCode)) || 
+                            (cleanCode.length >= 4 && cleanCode.length <= 8 && /^[a-zA-Z0-9]+$/.test(cleanCode))) {
+                            return cleanCode;
+                        }
+                    }
+                } catch (e) {
+                    continue;
+                }
+            }
+
+            return null;
+        } catch (error) {
+            console.warn('提取文本验证码时出错:', error);
+            return null;
+        }
+    }
+
     // 尝试自动点击确认按钮
     function tryAutoConfirm() {
         if (!autoConfirmEnabled) return false;
@@ -850,8 +917,7 @@
                     for (const button of buttons) {
                         if (button && button.offsetParent && 
                             !button.disabled && 
-                            window.getComputedStyle(button).display !== 'none' &&
-                            window.getComputedStyle(button).visibility !== 'hidden') {
+                            window.getComputedStyle(button).display !== 'none') {
                             setTimeout(() => {
                                 try {
                                     button.click();
@@ -899,8 +965,8 @@
     function init() {
         if (isInitialized) return;
 
-        console.log('安全验证码自动输入助手 v1.8 (支持后台运行版) 已启动');
-        addLog('脚本已启动 - 检测间隔: 15秒 | 支持后台运行 | 支持字母和图片验证码');
+        console.log('安全验证码自动输入助手 v1.9 (支持后台运行版) 已启动');
+        addLog('脚本已启动 - 支持LogregCaptcha验证码');
 
         try {
             createEnhancedStatusIndicator();
@@ -1002,7 +1068,6 @@
         } catch (error) {
             console.error('初始化过程中出错:', error);
             addLog('初始化过程中出错: ' + error.message, 'error');
-            // 重试初始化
             setTimeout(init, 5000);
         }
     }
