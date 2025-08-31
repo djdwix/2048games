@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         安全验证码自动输入助手
 // @namespace    http://tampermonkey.net/
-// @version      1.6-beta
+// @version      1.6
 // @description  自动识别并填写页面安全验证计时器的验证码（配套脚本）- 支持后台运行版
 // @author       You
 // @match        *://*/*
@@ -37,10 +37,10 @@
     let observer = null;
     let isForeground = document.visibilityState === 'visible';
 
-    // 添加全局样式
+    // 添加全局样式 - 增加 !important 优先级
     GM_addStyle(`
         .auto-fill-menu {
-            position: fixed;
+            position: fixed !important;
             background: rgba(15, 23, 42, 0.98) !important;
             border: 1px solid rgba(76, 201, 240, 0.6) !important;
             border-radius: 8px !important;
@@ -78,41 +78,55 @@
             font-weight: 600 !important;
         }
         .password-prompt {
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: rgba(15, 23, 42, 0.98);
-            border: 1px solid rgba(76, 201, 240, 0.6);
-            border-radius: 10px;
-            padding: 20px;
-            z-index: 10002;
-            box-shadow: 0 5px 25px rgba(0, 0, 0, 0.5);
-            min-width: 300px;
-            backdrop-filter: blur(10px);
+            position: fixed !important;
+            top: 50% !important;
+            left: 50% !important;
+            transform: translate(-50%, -50%) !important;
+            background: rgba(15, 23, 42, 0.98) !important;
+            border: 1px solid rgba(76, 201, 240, 0.6) !important;
+            border-radius: 10px !important;
+            padding: 20px !important;
+            z-index: 10002 !important;
+            box-shadow: 0 5px 25px rgba(0, 0, 0, 0.5) !important;
+            min-width: 300px !important;
+            backdrop-filter: blur(10px) !important;
+        }
+        .password-prompt h3 {
+            color: #4cc9f0 !important;
+            margin-top: 0 !important;
+            text-align: center !important;
+            font-size: 18px !important;
+            margin-bottom: 15px !important;
+        }
+        .password-prompt p {
+            color: #e0f2fe !important;
+            font-size: 14px !important;
+            margin-bottom: 15px !important;
         }
         .password-prompt input {
-            width: 100%;
-            padding: 10px;
-            margin: 10px 0;
-            background: rgba(255, 255, 255, 0.1);
-            border: 1px solid rgba(76, 201, 240, 0.4);
-            border-radius: 5px;
-            color: white;
-            font-size: 16px;
+            width: calc(100% - 20px) !important;
+            padding: 10px !important;
+            margin: 10px 0 !important;
+            background: rgba(255, 255, 255, 0.1) !important;
+            border: 1px solid rgba(76, 201, 240, 0.4) !important;
+            border-radius: 5px !important;
+            color: white !important;
+            font-size: 16px !important;
         }
         .password-prompt button {
-            width: 100%;
-            padding: 10px;
-            background: rgba(76, 201, 240, 0.3);
-            border: 1px solid rgba(76, 201, 240, 0.6);
-            border-radius: 5px;
-            color: #e0f2fe;
-            cursor: pointer;
-            transition: background 0.2s;
+            width: 100% !important;
+            padding: 10px !important;
+            background: rgba(76, 201, 240, 0.3) !important;
+            border: 1px solid rgba(76, 201, 240, 0.6) !important;
+            border-radius: 5px !important;
+            color: #e0f2fe !important;
+            cursor: pointer !important;
+            transition: background 0.2s !important;
+            font-size: 16px !important;
+            margin-top: 10px !important;
         }
         .password-prompt button:hover {
-            background: rgba(76, 201, 240, 0.5);
+            background: rgba(76, 201, 240, 0.5) !important;
         }
         /* 适配文件2的验证弹窗样式 */
         .verify-modal .verify-code {
@@ -138,9 +152,28 @@
         const prompt = document.createElement('div');
         prompt.id = 'auto-fill-password-prompt';
         prompt.className = 'password-prompt';
+        
+        // 使用内联样式确保显示
+        prompt.style.cssText = `
+            position: fixed !important;
+            top: 50% !important;
+            left: 50% !important;
+            transform: translate(-50%, -50%) !important;
+            background: rgba(15, 23, 42, 0.98) !important;
+            border: 1px solid rgba(76, 201, 240, 0.6) !important;
+            border-radius: 10px !important;
+            padding: 20px !important;
+            z-index: 10002 !important;
+            box-shadow: 0 5px 25px rgba(0, 0, 0, 0.5) !important;
+            min-width: 300px !important;
+            backdrop-filter: blur(10px) !important;
+            display: block !important;
+            visibility: visible !important;
+        `;
+
         prompt.innerHTML = `
-            <h3 style="color: #4cc9f0; margin-top: 0; text-align: center;">验证助手解锁</h3>
-            <p style="color: #e0f2fe; font-size: 14px;">自动输入功能已锁定，请输入14位密码解锁</p>
+            <h3>验证助手解锁</h3>
+            <p>自动输入功能已锁定，请输入14位密码解锁</p>
             <input type="password" id="auto-fill-password-input" placeholder="请输入14位解锁密码">
             <button id="auto-fill-password-submit">解锁</button>
         `;
@@ -172,9 +205,11 @@
 
         document.addEventListener('click', closePromptHandler);
 
-        prompt.querySelector('#auto-fill-password-submit').addEventListener('click', function() {
-            const input = prompt.querySelector('#auto-fill-password-input');
-            if (input.value === UNLOCK_PASSWORD) {
+        const submitButton = prompt.querySelector('#auto-fill-password-submit');
+        const passwordInput = prompt.querySelector('#auto-fill-password-input');
+        
+        submitButton.addEventListener('click', function() {
+            if (passwordInput.value === UNLOCK_PASSWORD) {
                 autoFillEnabled = true;
                 isUnlocked = true;
                 GM_setValue('autoFillEnabled', true);
@@ -186,24 +221,41 @@
                 document.removeEventListener('click', closePromptHandler);
             } else {
                 showNotification('密码错误，请重试');
-                input.value = '';
-                input.focus();
+                passwordInput.value = '';
+                passwordInput.focus();
             }
         });
 
         // 添加回车键提交支持
-        prompt.querySelector('#auto-fill-password-input').addEventListener('keypress', function(e) {
+        passwordInput.addEventListener('keypress', function(e) {
             if (e.key === 'Enter') {
-                prompt.querySelector('#auto-fill-password-submit').click();
+                submitButton.click();
             }
         });
 
         try {
             document.body.appendChild(prompt);
+            // 确保对话框在最前面
+            prompt.style.zIndex = '10002';
+            
             // 自动聚焦到输入框
             setTimeout(() => {
-                const input = prompt.querySelector('#auto-fill-password-input');
-                if (input) input.focus();
+                if (passwordInput) {
+                    passwordInput.focus();
+                    // 确保输入框可见
+                    passwordInput.style.cssText = `
+                        width: calc(100% - 20px) !important;
+                        padding: 10px !important;
+                        margin: 10px 0 !important;
+                        background: rgba(255, 255, 255, 0.1) !important;
+                        border: 1px solid rgba(76, 201, 240, 0.4) !important;
+                        border-radius: 5px !important;
+                        color: white !important;
+                        font-size: 16px !important;
+                        display: block !important;
+                        visibility: visible !important;
+                    `;
+                }
             }, 100);
         } catch (error) {
             console.error('添加密码提示失败:', error);
@@ -327,29 +379,34 @@
         }
 
         const indicator = document.createElement('div');
-        indicator.style.position = 'fixed';
-        indicator.style.bottom = '20px';
-        indicator.style.right = '20px';
-        indicator.style.padding = '10px 15px';
-        indicator.style.background = 'rgba(15, 23, 42, 0.95)';
-        indicator.style.border = '1px solid rgba(76, 201, 240, 0.6)';
-        indicator.style.borderRadius = '10px';
-        indicator.style.color = autoFillEnabled ? '#4cc9f0' : '#f72585';
-        indicator.style.fontSize = '14px';
-        indicator.style.fontWeight = '600';
-        indicator.style.zIndex = '10000';
-        indicator.style.cursor = 'pointer';
-        indicator.style.userSelect = 'none';
-        indicator.style.boxShadow = '0 3px 12px rgba(76, 201, 240, 0.4)';
-        indicator.style.display = 'flex';
-        indicator.style.alignItems = 'center';
-        indicator.style.gap = '8px';
-        indicator.style.transition = 'all 0.3s ease';
+        indicator.id = 'auto-fill-status';
+        
+        // 使用内联样式确保显示
+        indicator.style.cssText = `
+            position: fixed !important;
+            bottom: 20px !important;
+            right: 20px !important;
+            padding: 10px 15px !important;
+            background: rgba(15, 23, 42, 0.95) !important;
+            border: 1px solid rgba(76, 201, 240, 0.6) !important;
+            border-radius: 10px !important;
+            color: ${autoFillEnabled ? '#4cc9f0' : '#f72585'} !important;
+            font-size: 14px !important;
+            font-weight: 600 !important;
+            z-index: 10000 !important;
+            cursor: pointer !important;
+            user-select: none !important;
+            box-shadow: 0 3px 12px rgba(76, 201, 240, 0.4) !important;
+            display: flex !important;
+            align-items: center !important;
+            gap: 8px !important;
+            transition: all 0.3s ease !important;
+        `;
+
         indicator.innerHTML = `
-            <span style="font-size:16px">${autoFillEnabled ? '🔓' : '🔒'}</span>
+            <span style="font-size:16px !important">${autoFillEnabled ? '🔓' : '🔒'}</span>
             <span>验证助手: ${autoFillEnabled ? '已解锁' : '已锁定'}</span>
         `;
-        indicator.id = 'auto-fill-status';
 
         // 添加悬停效果
         indicator.addEventListener('mouseenter', function() {
@@ -421,8 +478,22 @@
         const menu = document.createElement('div');
         menu.id = 'auto-fill-menu';
         menu.className = 'auto-fill-menu';
-        menu.style.left = Math.min(x, window.innerWidth - 170) + 'px';
-        menu.style.top = Math.min(y, window.innerHeight - 200) + 'px';
+        
+        // 使用内联样式确保显示
+        menu.style.cssText = `
+            position: fixed !important;
+            left: ${Math.min(x, window.innerWidth - 170)}px !important;
+            top: ${Math.min(y, window.innerHeight - 200)}px !important;
+            background: rgba(15, 23, 42, 0.98) !important;
+            border: 1px solid rgba(76, 201, 240, 0.6) !important;
+            border-radius: 8px !important;
+            padding: 8px 0 !important;
+            z-index: 10001 !important;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3) !important;
+            min-width: 150px !important;
+            backdrop-filter: blur(10px) !important;
+            display: block !important;
+        `;
 
         menu.innerHTML = `
             <div class="menu-item" data-action="toggle-auto">自动输入: ${autoFillEnabled ? '锁定' : '解锁'}</div>
@@ -573,6 +644,23 @@
             const notice = document.createElement('div');
             notice.className = 'auto-fill-notice';
             notice.textContent = message;
+
+            // 使用内联样式确保显示
+            notice.style.cssText = `
+                position: fixed !important;
+                top: 60px !important;
+                right: 20px !important;
+                background: rgba(15, 23, 42, 0.95) !important;
+                border: 1px solid rgba(76, 201, 240, 0.6) !important;
+                border-radius: 8px !important;
+                padding: 10px 15px !important;
+                color: #4cc9f0 !important;
+                z-index: 10000 !important;
+                box-shadow: 0 3px 12px rgba(76, 201, 240, 0.4) !important;
+                font-size: 14px !important;
+                font-weight: 600 !important;
+                display: block !important;
+            `;
 
             document.body.appendChild(notice);
             setTimeout(() => {
