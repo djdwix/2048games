@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         安全验证码自动输入助手
 // @namespace    http://tampermonkey.net/
-// @version      1.6
+// @version      1.6-beta
 // @description  自动识别并填写页面安全验证计时器的验证码（配套脚本）- 支持后台运行版
 // @author       You
 // @match        *://*/*
@@ -145,10 +145,24 @@
             <button id="auto-fill-password-submit">解锁</button>
         `;
 
+        // 确保对话框在视窗中央
+        const updatePosition = () => {
+            prompt.style.left = '50%';
+            prompt.style.top = '50%';
+            prompt.style.transform = 'translate(-50%, -50%)';
+        };
+
+        // 初始定位
+        updatePosition();
+        
+        // 监听窗口变化重新定位
+        window.addEventListener('resize', updatePosition);
+
         const closePromptHandler = function(e) {
             try {
                 if (!prompt.contains(e.target)) {
                     prompt.remove();
+                    window.removeEventListener('resize', updatePosition);
                     document.removeEventListener('click', closePromptHandler);
                 }
             } catch (error) {
@@ -168,15 +182,29 @@
                 updateStatusIndicator();
                 showNotification('自动输入功能已解锁');
                 prompt.remove();
+                window.removeEventListener('resize', updatePosition);
                 document.removeEventListener('click', closePromptHandler);
             } else {
                 showNotification('密码错误，请重试');
                 input.value = '';
+                input.focus();
+            }
+        });
+
+        // 添加回车键提交支持
+        prompt.querySelector('#auto-fill-password-input').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                prompt.querySelector('#auto-fill-password-submit').click();
             }
         });
 
         try {
             document.body.appendChild(prompt);
+            // 自动聚焦到输入框
+            setTimeout(() => {
+                const input = prompt.querySelector('#auto-fill-password-input');
+                if (input) input.focus();
+            }, 100);
         } catch (error) {
             console.error('添加密码提示失败:', error);
         }
