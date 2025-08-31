@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         安全验证码自动输入助手
 // @namespace    http://tampermonkey.net/
-// @version      1.6
+// @version      1.7
 // @description  自动识别并填写页面安全验证计时器的验证码（配套脚本）- 支持后台运行版
 // @author       You
 // @match        *://*/*
@@ -21,13 +21,11 @@
     const CHECK_INTERVAL = 15000; // 检测间隔15秒一次
     const AUTO_CONFIRM_DELAY = 1000; // 自动确认延迟1秒
     const BACKGROUND_CHECK_INTERVAL = 5000; // 后台检测间隔5秒
-    const UNLOCK_PASSWORD = "38472910563782"; // 14位解锁密码，请更改为您自己的密码
 
-    // 获取用户设置 - 默认自动输入关闭
-    let autoFillEnabled = GM_getValue('autoFillEnabled', false);
+    // 获取用户设置 - 默认自动输入开启
+    let autoFillEnabled = GM_getValue('autoFillEnabled', true);
     let autoConfirmEnabled = GM_getValue('autoConfirmEnabled', true);
     let notificationEnabled = GM_getValue('notificationEnabled', true);
-    let isUnlocked = GM_getValue('isUnlocked', false);
 
     let filledCodes = new Set();
     let currentSession = Date.now();
@@ -37,7 +35,7 @@
     let observer = null;
     let isForeground = document.visibilityState === 'visible';
 
-    // 添加全局样式 - 增加 !important 优先级
+    // 添加全局样式
     GM_addStyle(`
         .auto-fill-menu {
             position: fixed !important;
@@ -61,6 +59,23 @@
             background: rgba(76, 201, 240, 0.2) !important;
         }
         #auto-fill-status {
+            position: fixed !important;
+            bottom: 20px !important;
+            right: 20px !important;
+            padding: 10px 15px !important;
+            background: rgba(15, 23, 42, 0.95) !important;
+            border: 1px solid rgba(76, 201, 240, 0.6) !important;
+            border-radius: 10px !important;
+            font-size: 14px !important;
+            font-weight: 600 !important;
+            z-index: 10000 !important;
+            cursor: pointer !important;
+            user-select: none !important;
+            box-shadow: 0 3px 12px rgba(76, 201, 240, 0.4) !important;
+            display: flex !important;
+            align-items: center !important;
+            gap: 8px !important;
+            transition: all 0.3s ease !important;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
         }
         .auto-fill-notice {
@@ -77,57 +92,6 @@
             font-size: 14px !important;
             font-weight: 600 !important;
         }
-        .password-prompt {
-            position: fixed !important;
-            top: 50% !important;
-            left: 50% !important;
-            transform: translate(-50%, -50%) !important;
-            background: rgba(15, 23, 42, 0.98) !important;
-            border: 1px solid rgba(76, 201, 240, 0.6) !important;
-            border-radius: 10px !important;
-            padding: 20px !important;
-            z-index: 10002 !important;
-            box-shadow: 0 5px 25px rgba(0, 0, 0, 0.5) !important;
-            min-width: 300px !important;
-            backdrop-filter: blur(10px) !important;
-        }
-        .password-prompt h3 {
-            color: #4cc9f0 !important;
-            margin-top: 0 !important;
-            text-align: center !important;
-            font-size: 18px !important;
-            margin-bottom: 15px !important;
-        }
-        .password-prompt p {
-            color: #e0f2fe !important;
-            font-size: 14px !important;
-            margin-bottom: 15px !important;
-        }
-        .password-prompt input {
-            width: calc(100% - 20px) !important;
-            padding: 10px !important;
-            margin: 10px 0 !important;
-            background: rgba(255, 255, 255, 0.1) !important;
-            border: 1px solid rgba(76, 201, 240, 0.4) !important;
-            border-radius: 5px !important;
-            color: white !important;
-            font-size: 16px !important;
-        }
-        .password-prompt button {
-            width: 100% !important;
-            padding: 10px !important;
-            background: rgba(76, 201, 240, 0.3) !important;
-            border: 1px solid rgba(76, 201, 240, 0.6) !important;
-            border-radius: 5px !important;
-            color: #e0f2fe !important;
-            cursor: pointer !important;
-            transition: background 0.2s !important;
-            font-size: 16px !important;
-            margin-top: 10px !important;
-        }
-        .password-prompt button:hover {
-            background: rgba(76, 201, 240, 0.5) !important;
-        }
         /* 适配文件2的验证弹窗样式 */
         .verify-modal .verify-code {
             cursor: pointer !important;
@@ -137,130 +101,6 @@
             pointer-events: none !important;
         }
     `);
-
-    // 显示密码输入提示
-    function showPasswordPrompt() {
-        const existingPrompt = document.getElementById('auto-fill-password-prompt');
-        if (existingPrompt) {
-            try {
-                existingPrompt.remove();
-            } catch (e) {
-                console.warn('移除旧密码提示失败:', e);
-            }
-        }
-
-        const prompt = document.createElement('div');
-        prompt.id = 'auto-fill-password-prompt';
-        prompt.className = 'password-prompt';
-        
-        // 使用内联样式确保显示
-        prompt.style.cssText = `
-            position: fixed !important;
-            top: 50% !important;
-            left: 50% !important;
-            transform: translate(-50%, -50%) !important;
-            background: rgba(15, 23, 42, 0.98) !important;
-            border: 1px solid rgba(76, 201, 240, 0.6) !important;
-            border-radius: 10px !important;
-            padding: 20px !important;
-            z-index: 10002 !important;
-            box-shadow: 0 5px 25px rgba(0, 0, 0, 0.5) !important;
-            min-width: 300px !important;
-            backdrop-filter: blur(10px) !important;
-            display: block !important;
-            visibility: visible !important;
-        `;
-
-        prompt.innerHTML = `
-            <h3>验证助手解锁</h3>
-            <p>自动输入功能已锁定，请输入14位密码解锁</p>
-            <input type="password" id="auto-fill-password-input" placeholder="请输入14位解锁密码">
-            <button id="auto-fill-password-submit">解锁</button>
-        `;
-
-        // 确保对话框在视窗中央
-        const updatePosition = () => {
-            prompt.style.left = '50%';
-            prompt.style.top = '50%';
-            prompt.style.transform = 'translate(-50%, -50%)';
-        };
-
-        // 初始定位
-        updatePosition();
-        
-        // 监听窗口变化重新定位
-        window.addEventListener('resize', updatePosition);
-
-        const closePromptHandler = function(e) {
-            try {
-                if (!prompt.contains(e.target)) {
-                    prompt.remove();
-                    window.removeEventListener('resize', updatePosition);
-                    document.removeEventListener('click', closePromptHandler);
-                }
-            } catch (error) {
-                console.error('关闭密码提示时出错:', error);
-            }
-        };
-
-        document.addEventListener('click', closePromptHandler);
-
-        const submitButton = prompt.querySelector('#auto-fill-password-submit');
-        const passwordInput = prompt.querySelector('#auto-fill-password-input');
-        
-        submitButton.addEventListener('click', function() {
-            if (passwordInput.value === UNLOCK_PASSWORD) {
-                autoFillEnabled = true;
-                isUnlocked = true;
-                GM_setValue('autoFillEnabled', true);
-                GM_setValue('isUnlocked', true);
-                updateStatusIndicator();
-                showNotification('自动输入功能已解锁');
-                prompt.remove();
-                window.removeEventListener('resize', updatePosition);
-                document.removeEventListener('click', closePromptHandler);
-            } else {
-                showNotification('密码错误，请重试');
-                passwordInput.value = '';
-                passwordInput.focus();
-            }
-        });
-
-        // 添加回车键提交支持
-        passwordInput.addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                submitButton.click();
-            }
-        });
-
-        try {
-            document.body.appendChild(prompt);
-            // 确保对话框在最前面
-            prompt.style.zIndex = '10002';
-            
-            // 自动聚焦到输入框
-            setTimeout(() => {
-                if (passwordInput) {
-                    passwordInput.focus();
-                    // 确保输入框可见
-                    passwordInput.style.cssText = `
-                        width: calc(100% - 20px) !important;
-                        padding: 10px !important;
-                        margin: 10px 0 !important;
-                        background: rgba(255, 255, 255, 0.1) !important;
-                        border: 1px solid rgba(76, 201, 240, 0.4) !important;
-                        border-radius: 5px !important;
-                        color: white !important;
-                        font-size: 16px !important;
-                        display: block !important;
-                        visibility: visible !important;
-                    `;
-                }
-            }, 100);
-        } catch (error) {
-            console.error('添加密码提示失败:', error);
-        }
-    }
 
     // 后台运行功能
     function initBackgroundRunner() {
@@ -380,32 +220,10 @@
 
         const indicator = document.createElement('div');
         indicator.id = 'auto-fill-status';
-        
-        // 使用内联样式确保显示
-        indicator.style.cssText = `
-            position: fixed !important;
-            bottom: 20px !important;
-            right: 20px !important;
-            padding: 10px 15px !important;
-            background: rgba(15, 23, 42, 0.95) !important;
-            border: 1px solid rgba(76, 201, 240, 0.6) !important;
-            border-radius: 10px !important;
-            color: ${autoFillEnabled ? '#4cc9f0' : '#f72585'} !important;
-            font-size: 14px !important;
-            font-weight: 600 !important;
-            z-index: 10000 !important;
-            cursor: pointer !important;
-            user-select: none !important;
-            box-shadow: 0 3px 12px rgba(76, 201, 240, 0.4) !important;
-            display: flex !important;
-            align-items: center !important;
-            gap: 8px !important;
-            transition: all 0.3s ease !important;
-        `;
-
+        indicator.style.color = autoFillEnabled ? '#4cc9f0' : '#f72585';
         indicator.innerHTML = `
             <span style="font-size:16px !important">${autoFillEnabled ? '🔓' : '🔒'}</span>
-            <span>验证助手: ${autoFillEnabled ? '已解锁' : '已锁定'}</span>
+            <span>验证助手: ${autoFillEnabled ? '开启' : '关闭'}</span>
         `;
 
         // 添加悬停效果
@@ -430,15 +248,11 @@
                     notificationEnabled = !notificationEnabled;
                     GM_setValue('notificationEnabled', notificationEnabled);
                     showNotification(`通知 ${notificationEnabled ? '开启' : '关闭'}`);
-                } else if (autoFillEnabled) {
-                    autoFillEnabled = false;
-                    isUnlocked = false;
-                    GM_setValue('autoFillEnabled', false);
-                    GM_setValue('isUnlocked', false);
-                    updateStatusIndicator();
-                    showNotification('自动输入功能已锁定');
                 } else {
-                    showPasswordPrompt();
+                    autoFillEnabled = !autoFillEnabled;
+                    GM_setValue('autoFillEnabled', autoFillEnabled);
+                    updateStatusIndicator();
+                    showNotification(`自动输入 ${autoFillEnabled ? '开启' : '关闭'}`);
                 }
             } catch (error) {
                 console.error('切换功能时出错:', error);
@@ -478,25 +292,11 @@
         const menu = document.createElement('div');
         menu.id = 'auto-fill-menu';
         menu.className = 'auto-fill-menu';
-        
-        // 使用内联样式确保显示
-        menu.style.cssText = `
-            position: fixed !important;
-            left: ${Math.min(x, window.innerWidth - 170)}px !important;
-            top: ${Math.min(y, window.innerHeight - 200)}px !important;
-            background: rgba(15, 23, 42, 0.98) !important;
-            border: 1px solid rgba(76, 201, 240, 0.6) !important;
-            border-radius: 8px !important;
-            padding: 8px 0 !important;
-            z-index: 10001 !important;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3) !important;
-            min-width: 150px !important;
-            backdrop-filter: blur(10px) !important;
-            display: block !important;
-        `;
+        menu.style.left = Math.min(x, window.innerWidth - 170) + 'px';
+        menu.style.top = Math.min(y, window.innerHeight - 200) + 'px';
 
         menu.innerHTML = `
-            <div class="menu-item" data-action="toggle-auto">自动输入: ${autoFillEnabled ? '锁定' : '解锁'}</div>
+            <div class="menu-item" data-action="toggle-auto">自动输入: ${autoFillEnabled ? '关闭' : '开启'}</div>
             <div class="menu-item" data-action="toggle-confirm">自动确认: ${autoConfirmEnabled ? '关闭' : '开启'}</div>
             <div class="menu-item" data-action="toggle-notify">通知: ${notificationEnabled ? '关闭' : '开启'}</div>
             <hr style="margin:5px 0;border-color:rgba(76, 201, 240, 0.3)">
@@ -514,16 +314,10 @@
                 const action = target.getAttribute('data-action');
                 switch(action) {
                     case 'toggle-auto':
-                        if (autoFillEnabled) {
-                            autoFillEnabled = false;
-                            isUnlocked = false;
-                            GM_setValue('autoFillEnabled', false);
-                            GM_setValue('isUnlocked', false);
-                            updateStatusIndicator();
-                            showNotification('自动输入功能已锁定');
-                        } else {
-                            showPasswordPrompt();
-                        }
+                        autoFillEnabled = !autoFillEnabled;
+                        GM_setValue('autoFillEnabled', autoFillEnabled);
+                        updateStatusIndicator();
+                        showNotification(`自动输入 ${autoFillEnabled ? '开启' : '关闭'}`);
                         break;
                     case 'toggle-confirm':
                         autoConfirmEnabled = !autoConfirmEnabled;
@@ -605,7 +399,7 @@
                 indicator.style.color = autoFillEnabled ? '#4cc9f0' : '#f72585';
                 const spans = indicator.getElementsByTagName('span');
                 if (spans[0]) spans[0].textContent = autoFillEnabled ? '🔓' : '🔒';
-                if (spans[1]) spans[1].textContent = `验证助手: ${autoFillEnabled ? '已解锁' : '已锁定'}`;
+                if (spans[1]) spans[1].textContent = `验证助手: ${autoFillEnabled ? '开启' : '关闭'}`;
             }
         } catch (error) {
             console.error('更新状态指示器时出错:', error);
@@ -630,7 +424,7 @@
                 try {
                     GM_notification({
                         text: message,
-                        title: '验证助手 v1.6',
+                        title: '验证助手 v1.7',
                         timeout: 2500,
                         highlight: true
                     });
@@ -644,23 +438,6 @@
             const notice = document.createElement('div');
             notice.className = 'auto-fill-notice';
             notice.textContent = message;
-
-            // 使用内联样式确保显示
-            notice.style.cssText = `
-                position: fixed !important;
-                top: 60px !important;
-                right: 20px !important;
-                background: rgba(15, 23, 42, 0.95) !important;
-                border: 1px solid rgba(76, 201, 240, 0.6) !important;
-                border-radius: 8px !important;
-                padding: 10px 15px !important;
-                color: #4cc9f0 !important;
-                z-index: 10000 !important;
-                box-shadow: 0 3px 12px rgba(76, 201, 240, 0.4) !important;
-                font-size: 14px !important;
-                font-weight: 600 !important;
-                display: block !important;
-            `;
 
             document.body.appendChild(notice);
             setTimeout(() => {
@@ -692,7 +469,8 @@
                 '[class*="security"][class*="code"]',
                 '.code-text',
                 '.verification-number',
-                '.captcha-code'
+                '.captcha-code',
+                '.verification-code'
             ];
 
             for (const selector of codeSelectors) {
@@ -830,7 +608,7 @@
             elements.inputElement.value = verificationCode;
 
             // 触发事件
-            ['input', 'change'].forEach(eventType => {
+            ['input', 'change', 'blur'].forEach(eventType => {
                 try {
                     const event = new Event(eventType, { bubbles: true });
                     elements.inputElement.dispatchEvent(event);
@@ -859,28 +637,35 @@
         if (!autoConfirmEnabled) return false;
 
         try {
-            const confirmButtons = document.querySelectorAll(
-                '.confirm-btn, .submit-btn, .verify-btn, ' +
-                'button[class*="confirm"], button[class*="submit"], ' +
-                'button[class*="verify"], button[type="submit"]'
-            );
+            const confirmSelectors = [
+                '.confirm-btn', '.submit-btn', '.verify-btn', 
+                'button[class*="confirm"]', 'button[class*="submit"]', 
+                'button[class*="verify"]', 'button[type="submit"]',
+                '.btn-confirm', '.btn-submit', '.btn-verify'
+            ];
 
-            for (const button of confirmButtons) {
+            for (const selector of confirmSelectors) {
                 try {
-                    if (button && button.offsetParent && 
-                        !button.disabled && 
-                        window.getComputedStyle(button).display !== 'none') {
-                        setTimeout(() => {
-                            try {
-                                button.click();
-                                if (notificationEnabled) {
-                                    showNotification('✅ 已自动提交验证');
+                    const buttons = document.querySelectorAll(selector);
+                    for (const button of buttons) {
+                        if (button && button.offsetParent && 
+                            !button.disabled && 
+                            window.getComputedStyle(button).display !== 'none' &&
+                            window.getComputedStyle(button).visibility !== 'hidden') {
+                            setTimeout(() => {
+                                try {
+                                    button.click();
+                                    if (notificationEnabled) {
+                                        showNotification('✅ 已自动提交验证');
+                                    }
+                                    log('已自动点击确认按钮');
+                                    return true;
+                                } catch (e) {
+                                    console.warn('点击确认按钮时出错:', e);
                                 }
-                            } catch (e) {
-                                console.warn('点击确认按钮时出错:', e);
-                            }
-                        }, AUTO_CONFIRM_DELAY);
-                        return true;
+                            }, AUTO_CONFIRM_DELAY);
+                            return true;
+                        }
                     }
                 } catch (e) {
                     continue;
@@ -911,7 +696,7 @@
     function init() {
         if (isInitialized) return;
 
-        console.log('安全验证码自动输入助手 v1.6 (支持后台运行版) 已启动');
+        console.log('安全验证码自动输入助手 v1.7 (支持后台运行版) 已启动');
         log('检测间隔: 15秒 | 支持后台运行 | 支持字母验证码');
 
         try {
@@ -920,16 +705,13 @@
 
             // 确保默认设置正确
             if (GM_getValue('autoFillEnabled') === undefined) {
-                GM_setValue('autoFillEnabled', false);
+                GM_setValue('autoFillEnabled', true);
             }
             if (GM_getValue('autoConfirmEnabled') === undefined) {
                 GM_setValue('autoConfirmEnabled', true);
             }
             if (GM_getValue('notificationEnabled') === undefined) {
                 GM_setValue('notificationEnabled', true);
-            }
-            if (GM_getValue('isUnlocked') === undefined) {
-                GM_setValue('isUnlocked', false);
             }
 
             // 初始化后台运行模块
@@ -971,16 +753,10 @@
                 try {
                     if (e.altKey && e.key === 'a') {
                         e.preventDefault();
-                        if (autoFillEnabled) {
-                            autoFillEnabled = false;
-                            isUnlocked = false;
-                            GM_setValue('autoFillEnabled', false);
-                            GM_setValue('isUnlocked', false);
-                            updateStatusIndicator();
-                            showNotification('自动输入功能已锁定');
-                        } else {
-                            showPasswordPrompt();
-                        }
+                        autoFillEnabled = !autoFillEnabled;
+                        GM_setValue('autoFillEnabled', autoFillEnabled);
+                        updateStatusIndicator();
+                        showNotification(`自动输入 ${autoFillEnabled ? '开启' : '关闭'}`);
                     }
                     if (e.altKey && e.key === 's') {
                         e.preventDefault();
