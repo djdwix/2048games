@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         安全验证码自动输入助手
 // @namespace    http://tampermonkey.net/
-// @version      1.7
+// @version      1.8
 // @description  自动识别并填写页面安全验证计时器的验证码（配套脚本）- 支持后台运行版
 // @author       You
 // @match        *://*/*
@@ -10,6 +10,7 @@
 // @grant        GM_getValue
 // @grant        GM_addStyle
 // @grant        GM_registerBackgroundScript
+// @grant        GM_download
 // @downloadURL  https://raw.githubusercontent.com/djdwix/2048games/main/2.js
 // @updateURL    https://raw.githubusercontent.com/djdwix/2048games/main/2.js
 // ==/UserScript==
@@ -26,6 +27,7 @@
     let autoFillEnabled = GM_getValue('autoFillEnabled', true);
     let autoConfirmEnabled = GM_getValue('autoConfirmEnabled', true);
     let notificationEnabled = GM_getValue('notificationEnabled', true);
+    let imageCaptchaEnabled = GM_getValue('imageCaptchaEnabled', true);
 
     let filledCodes = new Set();
     let currentSession = Date.now();
@@ -34,6 +36,7 @@
     let backgroundCheckId = null;
     let observer = null;
     let isForeground = document.visibilityState === 'visible';
+    let operationLogs = [];
 
     // 添加全局样式
     GM_addStyle(`
@@ -45,7 +48,7 @@
             padding: 8px 0 !important;
             z-index: 10001 !important;
             box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3) !important;
-            min-width: 150px !important;
+            min-width: 180px !important;
             backdrop-filter: blur(10px) !important;
         }
         .menu-item {
@@ -102,21 +105,85 @@
         }
     `);
 
+    // 添加日志记录
+    function addLog(message, type = 'info') {
+        const timestamp = new Date().toLocaleString('zh-CN', {
+            year: 'numeric', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', second: '2-digit'
+        }).replace(/\//g, '-');
+        
+        const logEntry = {
+            timestamp,
+            type,
+            message
+        };
+        
+        operationLogs.push(logEntry);
+        
+        // 保持日志数量在合理范围内
+        if (operationLogs.length > 1000) {
+            operationLogs = operationLogs.slice(-500);
+        }
+        
+        log(message);
+    }
+
+    // 导出日志
+    function exportLogs() {
+        try {
+            if (operationLogs.length === 0) {
+                showNotification('暂无日志可导出');
+                return;
+            }
+
+            const logContent = operationLogs.map(log => 
+                `[${log.timestamp}] [${log.type.toUpperCase()}] ${log.message}`
+            ).join('\n');
+
+            const filename = `验证助手日志_${new Date().toISOString().replace(/[:.]/g, '-')}.txt`;
+            
+            if (typeof GM_download === 'function') {
+                GM_download({
+                    data: 'data:text/plain;charset=utf-8,' + encodeURIComponent(logContent),
+                    filename: filename,
+                    saveAs: true
+                });
+            } else {
+                // 备用下载方法
+                const blob = new Blob([logContent], { type: 'text/plain;charset=utf-8' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = filename;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url);
+            }
+            
+            showNotification('日志导出成功');
+            addLog('用户导出了操作日志', 'export');
+        } catch (error) {
+            console.error('导出日志时出错:', error);
+            showNotification('日志导出失败');
+        }
+    }
+
     // 后台运行功能
     function initBackgroundRunner() {
         // 监听页面可见性变化
         document.addEventListener('visibilitychange', () => {
             isForeground = document.visibilityState === 'visible';
             if (isForeground) {
-                log('页面切换到前台，恢复正常检测');
+                addLog('页面切换到前台，恢复正常检测');
                 startForegroundMonitoring();
             } else {
-                log('页面切换到后台，启用后台检测');
+                addLog('页面切换到后台，启用后台检测');
                 startBackgroundMonitoring();
             }
         });
 
-        log('后台运行模块初始化完成');
+        addLog('后台运行模块初始化完成');
     }
 
     // 前台监控
@@ -161,7 +228,7 @@
         if (!backgroundCheckId) {
             backgroundCheckId = setInterval(() => {
                 if (hasVerificationElements()) {
-                    log('后台检测到验证元素，可能需要用户交互');
+                    addLog('后台检测到验证元素，可能需要用户交互');
                     // 可以在这里触发通知或其它后台操作
                 }
             }, BACKGROUND_CHECK_INTERVAL);
@@ -184,19 +251,36 @@
                 '.verify-code',
                 '.security-code',
                 '.auth-code',
-                '[class*="code"][class*="verify"]'
+                '[class*="code"][class*="verify"]',
+                '.captcha-img',
+                '.verification-image',
+                '.img-captcha'
             ];
 
             for (const selector of codeSelectors) {
                 const elements = document.querySelectorAll(selector);
                 for (const el of elements) {
                     if (el && el.offsetParent) {
-                        const text = el.textContent || '';
-                        // 支持数字和字母验证码
-                        const codeText = text.replace(/\s/g, '');
-                        if ((codeText.length === 6 && /^\d{6}$/.test(codeText)) || 
-                            (codeText.length >= 4 && codeText.length <= 8 && /^[a-zA-Z0-9]+$/.test(codeText))) {
-                            return true;
+                        // 文本验证码
+                        if (el.textContent) {
+                            const text = el.textContent || '';
+                            const codeText = text.replace(/\s/g, '');
+                            if ((codeText.length === 6 && /^\d{6}$/.test(codeText)) || 
+                                (codeText.length >= 4 && codeText.length <= 8 && /^[a-zA-Z0-9]+$/.test(codeText))) {
+                                return true;
+                            }
+                        }
+                        // 图片验证码
+                        if (el.tagName === 'IMG' && imageCaptchaEnabled) {
+                            const altText = el.alt || '';
+                            const srcText = el.src || '';
+                            if (altText.length >= 4 && altText.length <= 8 && /^[a-zA-Z0-9]+$/.test(altText)) {
+                                return true;
+                            }
+                            if (srcText.includes('captcha') || srcText.includes('verify') || 
+                                srcText.includes('code') || el.className.includes('captcha')) {
+                                return true;
+                            }
                         }
                     }
                 }
@@ -244,18 +328,27 @@
                     autoConfirmEnabled = !autoConfirmEnabled;
                     GM_setValue('autoConfirmEnabled', autoConfirmEnabled);
                     showNotification(`自动确认 ${autoConfirmEnabled ? '开启' : '关闭'}`);
+                    addLog(`自动确认 ${autoConfirmEnabled ? '开启' : '关闭'}`);
                 } else if (e.ctrlKey) {
                     notificationEnabled = !notificationEnabled;
                     GM_setValue('notificationEnabled', notificationEnabled);
                     showNotification(`通知 ${notificationEnabled ? '开启' : '关闭'}`);
+                    addLog(`通知 ${notificationEnabled ? '开启' : '关闭'}`);
+                } else if (e.altKey) {
+                    imageCaptchaEnabled = !imageCaptchaEnabled;
+                    GM_setValue('imageCaptchaEnabled', imageCaptchaEnabled);
+                    showNotification(`图片验证码 ${imageCaptchaEnabled ? '开启' : '关闭'}`);
+                    addLog(`图片验证码 ${imageCaptchaEnabled ? '开启' : '关闭'}`);
                 } else {
                     autoFillEnabled = !autoFillEnabled;
                     GM_setValue('autoFillEnabled', autoFillEnabled);
                     updateStatusIndicator();
                     showNotification(`自动输入 ${autoFillEnabled ? '开启' : '关闭'}`);
+                    addLog(`自动输入 ${autoFillEnabled ? '开启' : '关闭'}`);
                 }
             } catch (error) {
                 console.error('切换功能时出错:', error);
+                addLog('切换功能时出错: ' + error.message, 'error');
             }
         });
 
@@ -266,6 +359,7 @@
                 showQuickMenu(e.clientX, e.clientY);
             } catch (error) {
                 console.error('显示右键菜单时出错:', error);
+                addLog('显示右键菜单时出错: ' + error.message, 'error');
             }
         });
 
@@ -273,6 +367,7 @@
             document.body.appendChild(indicator);
         } catch (error) {
             console.error('添加状态指示器失败:', error);
+            addLog('添加状态指示器失败: ' + error.message, 'error');
         }
 
         return indicator;
@@ -292,18 +387,25 @@
         const menu = document.createElement('div');
         menu.id = 'auto-fill-menu';
         menu.className = 'auto-fill-menu';
-        menu.style.left = Math.min(x, window.innerWidth - 170) + 'px';
-        menu.style.top = Math.min(y, window.innerHeight - 200) + 'px';
+        
+        // 菜单移动到中间偏下位置
+        const centerX = window.innerWidth / 2;
+        const centerY = window.innerHeight * 0.6; // 中间偏下
+        menu.style.left = Math.min(centerX - 90, window.innerWidth - 180) + 'px';
+        menu.style.top = Math.min(centerY, window.innerHeight - 250) + 'px';
 
         menu.innerHTML = `
             <div class="menu-item" data-action="toggle-auto">自动输入: ${autoFillEnabled ? '关闭' : '开启'}</div>
             <div class="menu-item" data-action="toggle-confirm">自动确认: ${autoConfirmEnabled ? '关闭' : '开启'}</div>
             <div class="menu-item" data-action="toggle-notify">通知: ${notificationEnabled ? '关闭' : '开启'}</div>
+            <div class="menu-item" data-action="toggle-image-captcha">图片验证码: ${imageCaptchaEnabled ? '关闭' : '开启'}</div>
             <hr style="margin:5px 0;border-color:rgba(76, 201, 240, 0.3)">
             <div class="menu-item" data-action="manual-trigger">立即检测验证码</div>
             <div class="menu-item" data-action="reset-session">重置当前会话</div>
             <div class="menu-item" data-action="check-now">强制立即检测</div>
             <div class="menu-item" data-action="toggle-background">后台模式: ${isForeground ? '关闭' : '开启'}</div>
+            <hr style="margin:5px 0;border-color:rgba(76, 201, 240, 0.3)">
+            <div class="menu-item" data-action="export-logs">导出操作日志</div>
         `;
 
         menu.addEventListener('click', function(e) {
@@ -318,44 +420,59 @@
                         GM_setValue('autoFillEnabled', autoFillEnabled);
                         updateStatusIndicator();
                         showNotification(`自动输入 ${autoFillEnabled ? '开启' : '关闭'}`);
+                        addLog(`自动输入 ${autoFillEnabled ? '开启' : '关闭'}`);
                         break;
                     case 'toggle-confirm':
                         autoConfirmEnabled = !autoConfirmEnabled;
                         GM_setValue('autoConfirmEnabled', autoConfirmEnabled);
                         showNotification(`自动确认 ${autoConfirmEnabled ? '开启' : '关闭'}`);
+                        addLog(`自动确认 ${autoConfirmEnabled ? '开启' : '关闭'}`);
                         break;
                     case 'toggle-notify':
                         notificationEnabled = !notificationEnabled;
                         GM_setValue('notificationEnabled', notificationEnabled);
                         showNotification(`通知 ${notificationEnabled ? '开启' : '关闭'}`);
+                        addLog(`通知 ${notificationEnabled ? '开启' : '关闭'}`);
+                        break;
+                    case 'toggle-image-captcha':
+                        imageCaptchaEnabled = !imageCaptchaEnabled;
+                        GM_setValue('imageCaptchaEnabled', imageCaptchaEnabled);
+                        showNotification(`图片验证码 ${imageCaptchaEnabled ? '开启' : '关闭'}`);
+                        addLog(`图片验证码 ${imageCaptchaEnabled ? '开启' : '关闭'}`);
                         break;
                     case 'manual-trigger':
                         monitorVerification();
                         showNotification('正在检测验证码...');
+                        addLog('手动触发验证码检测');
                         break;
                     case 'reset-session':
                         currentSession = Date.now();
                         filledCodes.clear();
                         showNotification('会话已重置');
+                        addLog('会话已重置');
                         break;
                     case 'check-now':
                         checkForVerificationImmediately();
                         break;
                     case 'toggle-background':
                         if (isForeground) {
-                            // 模拟切换到后台
                             startBackgroundMonitoring();
                             showNotification('已启用后台检测模式');
+                            addLog('已启用后台检测模式');
                         } else {
-                            // 模拟切换到前台
                             startForegroundMonitoring();
                             showNotification('已启用前台检测模式');
+                            addLog('已启用前台检测模式');
                         }
+                        break;
+                    case 'export-logs':
+                        exportLogs();
                         break;
                 }
                 menu.remove();
             } catch (error) {
                 console.error('菜单操作时出错:', error);
+                addLog('菜单操作时出错: ' + error.message, 'error');
             }
         });
 
@@ -367,6 +484,7 @@
                 }
             } catch (error) {
                 console.error('关闭菜单时出错:', error);
+                addLog('关闭菜单时出错: ' + error.message, 'error');
             }
         };
 
@@ -375,6 +493,7 @@
                 document.addEventListener('click', closeMenuHandler);
             } catch (error) {
                 console.error('添加菜单关闭监听器失败:', error);
+                addLog('添加菜单关闭监听器失败: ' + error.message, 'error');
             }
         }, 100);
 
@@ -382,12 +501,14 @@
             document.body.appendChild(menu);
         } catch (error) {
             console.error('添加菜单失败:', error);
+            addLog('添加菜单失败: ' + error.message, 'error');
         }
     }
 
     // 立即检测验证码
     function checkForVerificationImmediately() {
         showNotification('强制检测中...');
+        addLog('强制检测验证码');
         monitorVerification();
     }
 
@@ -403,6 +524,7 @@
             }
         } catch (error) {
             console.error('更新状态指示器时出错:', error);
+            addLog('更新状态指示器时出错: ' + error.message, 'error');
         }
     }
 
@@ -424,7 +546,7 @@
                 try {
                     GM_notification({
                         text: message,
-                        title: '验证助手 v1.7',
+                        title: '验证助手 v1.8',
                         timeout: 2500,
                         highlight: true
                     });
@@ -452,6 +574,7 @@
 
         } catch (error) {
             console.error('显示通知时出错:', error);
+            addLog('显示通知时出错: ' + error.message, 'error');
         }
     }
 
@@ -473,6 +596,20 @@
                 '.verification-code'
             ];
 
+            // 图片验证码选择器
+            const imageSelectors = [
+                '.captcha-img',
+                '.verification-image',
+                '.img-captcha',
+                '.image-code',
+                'img[src*="captcha"]',
+                'img[src*="verify"]',
+                'img[src*="code"]',
+                'img[alt*="验证码"]',
+                'img[alt*="captcha"]'
+            ];
+
+            // 先查找文本验证码
             for (const selector of codeSelectors) {
                 try {
                     const elements = document.querySelectorAll(selector);
@@ -490,7 +627,8 @@
                                 return {
                                     codeElement: el,
                                     inputElement: inputElement,
-                                    modal: el.closest('.verify-modal, .modal, .popup, .dialog')
+                                    modal: el.closest('.verify-modal, .modal, .popup, .dialog'),
+                                    type: 'text'
                                 };
                             }
                         }
@@ -500,9 +638,60 @@
                 }
             }
 
+            // 如果启用图片验证码支持，查找图片验证码
+            if (imageCaptchaEnabled) {
+                for (const selector of imageSelectors) {
+                    try {
+                        const elements = document.querySelectorAll(selector);
+                        for (const el of elements) {
+                            if (!el || !el.offsetParent || el.tagName !== 'IMG') continue;
+
+                            // 尝试从alt属性获取验证码
+                            const altText = (el.alt || '').replace(/\s/g, '');
+                            if (altText.length >= 4 && altText.length <= 8 && /^[a-zA-Z0-9]+$/.test(altText)) {
+                                const inputElement = findInputElement();
+                                if (inputElement) {
+                                    return {
+                                        codeElement: el,
+                                        inputElement: inputElement,
+                                        modal: el.closest('.verify-modal, .modal, .popup, .dialog'),
+                                        type: 'image',
+                                        code: altText
+                                    };
+                                }
+                            }
+
+                            // 尝试从data属性获取验证码
+                            const dataAttributes = ['data-code', 'data-value', 'data-captcha', 'data-verify'];
+                            for (const attr of dataAttributes) {
+                                const dataValue = el.getAttribute(attr);
+                                if (dataValue) {
+                                    const cleanData = dataValue.replace(/\s/g, '');
+                                    if (cleanData.length >= 4 && cleanData.length <= 8 && /^[a-zA-Z0-9]+$/.test(cleanData)) {
+                                        const inputElement = findInputElement();
+                                        if (inputElement) {
+                                            return {
+                                                codeElement: el,
+                                                inputElement: inputElement,
+                                                modal: el.closest('.verify-modal, .modal, .popup, .dialog'),
+                                                type: 'image',
+                                                code: cleanData
+                                            };
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        continue;
+                    }
+                }
+            }
+
             return null;
         } catch (error) {
             console.warn('查找验证元素时出错:', error);
+            addLog('查找验证元素时出错: ' + error.message, 'error');
             return null;
         }
     }
@@ -541,10 +730,16 @@
     }
 
     // 提取验证码
-    function extractVerificationCode(codeElement) {
+    function extractVerificationCode(codeElement, type = 'text') {
         if (!codeElement) return null;
 
         try {
+            if (type === 'image') {
+                // 图片验证码，直接从传入的code中获取
+                return codeElement.code || null;
+            }
+
+            // 文本验证码
             let code = codeElement.textContent || '';
             code = code.replace(/\s/g, ''); // 移除所有空白字符
 
@@ -573,6 +768,7 @@
             return null;
         } catch (error) {
             console.warn('提取验证码时出错:', error);
+            addLog('提取验证码时出错: ' + error.message, 'error');
             return null;
         }
     }
@@ -590,7 +786,10 @@
                 return false;
             }
 
-            const verificationCode = extractVerificationCode(elements.codeElement);
+            const verificationCode = elements.type === 'image' 
+                ? elements.code 
+                : extractVerificationCode(elements.codeElement, elements.type);
+                
             if (!verificationCode) return false;
 
             const codeKey = `${currentSession}_${verificationCode}`;
@@ -623,11 +822,12 @@
                 showNotification(`✅ 验证码已自动填写: ${verificationCode}`);
             }
 
-            log(`安全验证码已自动填写: ${verificationCode}`);
+            addLog(`安全验证码已自动填写: ${verificationCode} (类型: ${elements.type})`);
             return true;
 
         } catch (error) {
             console.error('自动填写过程中出错:', error);
+            addLog('自动填写过程中出错: ' + error.message, 'error');
             return false;
         }
     }
@@ -658,10 +858,11 @@
                                     if (notificationEnabled) {
                                         showNotification('✅ 已自动提交验证');
                                     }
-                                    log('已自动点击确认按钮');
+                                    addLog('已自动点击确认按钮');
                                     return true;
                                 } catch (e) {
                                     console.warn('点击确认按钮时出错:', e);
+                                    addLog('点击确认按钮时出错: ' + e.message, 'error');
                                 }
                             }, AUTO_CONFIRM_DELAY);
                             return true;
@@ -674,6 +875,7 @@
             return false;
         } catch (error) {
             console.warn('查找确认按钮时出错:', error);
+            addLog('查找确认按钮时出错: ' + error.message, 'error');
             return false;
         }
     }
@@ -689,6 +891,7 @@
             }
         } catch (error) {
             console.error('监控过程中出错:', error);
+            addLog('监控过程中出错: ' + error.message, 'error');
         }
     }
 
@@ -696,8 +899,8 @@
     function init() {
         if (isInitialized) return;
 
-        console.log('安全验证码自动输入助手 v1.7 (支持后台运行版) 已启动');
-        log('检测间隔: 15秒 | 支持后台运行 | 支持字母验证码');
+        console.log('安全验证码自动输入助手 v1.8 (支持后台运行版) 已启动');
+        addLog('脚本已启动 - 检测间隔: 15秒 | 支持后台运行 | 支持字母和图片验证码');
 
         try {
             createEnhancedStatusIndicator();
@@ -712,6 +915,9 @@
             }
             if (GM_getValue('notificationEnabled') === undefined) {
                 GM_setValue('notificationEnabled', true);
+            }
+            if (GM_getValue('imageCaptchaEnabled') === undefined) {
+                GM_setValue('imageCaptchaEnabled', true);
             }
 
             // 初始化后台运行模块
@@ -757,11 +963,13 @@
                         GM_setValue('autoFillEnabled', autoFillEnabled);
                         updateStatusIndicator();
                         showNotification(`自动输入 ${autoFillEnabled ? '开启' : '关闭'}`);
+                        addLog(`自动输入 ${autoFillEnabled ? '开启' : '关闭'}`);
                     }
                     if (e.altKey && e.key === 's') {
                         e.preventDefault();
                         monitorVerification();
                         showNotification('手动触发检测');
+                        addLog('手动触发验证码检测');
                     }
                     if (e.altKey && e.key === 'd') {
                         e.preventDefault();
@@ -772,13 +980,20 @@
                         if (isForeground) {
                             startBackgroundMonitoring();
                             showNotification('已启用后台检测模式');
+                            addLog('已启用后台检测模式');
                         } else {
                             startForegroundMonitoring();
                             showNotification('已启用前台检测模式');
+                            addLog('已启用前台检测模式');
                         }
+                    }
+                    if (e.altKey && e.key === 'l') {
+                        e.preventDefault();
+                        exportLogs();
                     }
                 } catch (error) {
                     console.error('快捷键处理错误:', error);
+                    addLog('快捷键处理错误: ' + error.message, 'error');
                 }
             });
 
@@ -786,6 +1001,7 @@
 
         } catch (error) {
             console.error('初始化过程中出错:', error);
+            addLog('初始化过程中出错: ' + error.message, 'error');
             // 重试初始化
             setTimeout(init, 5000);
         }
@@ -801,6 +1017,7 @@
             }
         } catch (error) {
             console.error('安全初始化失败:', error);
+            addLog('安全初始化失败: ' + error.message, 'error');
             setTimeout(init, 3000);
         }
     }
