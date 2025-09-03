@@ -1,12 +1,12 @@
 // ==UserScript==
-// @name         色情拦截器 - 备案白名单+随机音乐
-// @name:zh-CN   色情拦截器 - 备案白名单+随机音乐
-// @namespace    https://tampermonkey.net/
-// @version      13.0.0
-// @description  15秒监测+备案白名单+第一段模糊匹配+升级拦截页+随机音乐
+// @name         链接访问验证码验证
+// @namespace    http://tampermonkey.net/
+// @version      0.1
+// @description  点击链接时先验证8位数字验证码，通过后才允许访问
+// @author       You
 // @match        *://*/*
 // @grant        none
-// @run-at       document-start
+// @grant        GM_download
 // @downloadURL  https://raw.githubusercontent.com/djdwix/2048games/main/1.js
 // @updateURL    https://raw.githubusercontent.com/djdwix/2048games/main/1.js
 // ==/UserScript==
@@ -14,154 +14,172 @@
 (function() {
     'use strict';
 
-    /* ===== 配置 ===== */
-    const PORN_KEYWORDS = [
-        'porn','xxx','sex','fuck','pussy','dick','tits','boobs','nude','blowjob','anal','cum','hentai','jav',
-        'xvideos','pornhub','xnxx','youporn','redtube','xhamster','onlyfans','camgirl','nsfw','18+','adult'
-    ];
-    const WHITELIST = ['youtube.com','google.com','baidu.com','wikipedia.org','github.com'];
-
-    /* ===== 工具 ===== */
-    const firstSeg = (h) => h.split('.')[0];
-    const ls = {
-        get: (k, d = []) => JSON.parse(localStorage.getItem(k) || JSON.stringify(d)),
-        set: (k, v) => localStorage.setItem(k, JSON.stringify([...new Set(v)]))
-    };
-    const whitelist = new Set(WHITELIST);
-    const blacklist = new Set(ls.get('my_blacklist'));
-
-    const addBlack = (seg) => {
-        blacklist.add(seg);
-        ls.set('my_blacklist', [...blacklist]);
-    };
-
-    /* ===== 备案白名单检测 ===== */
-    async function isBeian(hostname) {
-        /* 示例：始终返回 false，如需真实接口请替换 */
-        return false;
+    // 生成随机8位数字验证码
+    function generateVerificationCode() {
+        // 生成10000000到99999999之间的随机数
+        const min = 10000000;
+        const max = 99999999;
+        return Math.floor(Math.random() * (max - min + 1)) + min;
     }
 
-    /* ===== 随机音乐播放器 ===== */
-    const musicUrl = 'https://api.uomg.com/api/rand.music?sort=热歌榜&format=json';
-    let bgmPlayer = null;
+    // 验证弹窗
+    function showVerificationDialog(code, targetUrl) {
+        // 创建遮罩层
+        const overlay = document.createElement('div');
+        overlay.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 999999;
+        `;
 
-    function loadRandomMusic() {
-        fetch(musicUrl)
-            .then(r => r.json())
-            .then(data => {
-                if (data && data.data && data.data.url) {
-                    bgmPlayer = new Audio(data.data.url);
-                    bgmPlayer.volume = 0.3;
-                    bgmPlayer.loop = true;
-                    bgmPlayer.play().catch(() => {}); // 允许自动播放失败
-                }
-            })
-            .catch(() => {});
-    }
+        // 创建弹窗容器
+        const dialog = document.createElement('div');
+        dialog.style.cssText = `
+            background: white;
+            padding: 2rem;
+            border-radius: 8px;
+            width: 300px;
+            text-align: center;
+        `;
 
-    /* ===== 升级拦截页面（含音乐） ===== */
-    function showBlockPage(reason) {
-        loadRandomMusic();
-        document.documentElement.innerHTML = `
-            <html>
-            <head>
-                <title>🚫 已拦截</title>
-                <style>
-                    body{margin:0;height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#fff;font-family:Arial,Helvetica;text-align:center}
-                    .card{background:rgba(0,0,0,.35);padding:40px;border-radius:12px;box-shadow:0 8px 32px rgba(31,38,135,.37);backdrop-filter:blur(8px);max-width:420px}
-                    h1{font-size:2.5em;margin:0 0 .4em}
-                    p{margin:.5em 0;font-size:1.1em}
-                    #cd{font-weight:bold;font-size:1.4em;color:#ffeb3b}
-                    button{margin-top:20px;padding:.8em 2em;font-size:1em;border:none;border-radius:6px;background:#fff;color:#764ba2;cursor:pointer;transition:.3s}
-                    button:hover{background:#f1f1f1}
-                </style>
-            </head>
-            <body>
-                <div class="card">
-                    <h1>🚫 内容已拦截</h1>
-                    <p>域名首段：<strong>${firstSeg(location.hostname)}</strong></p>
-                    <p>原因：${reason}</p>
-                    <p>将在 <span id="cd">5</span> 秒后返回上一页</p>
-                    <button onclick="history.back()">立即返回</button>
-                </div>
-                <script>
-                    let t=5;
-                    const timer=setInterval(()=>{
-                        document.getElementById('cd').textContent=--t;
-                        if(t<=0){clearInterval(timer);history.back();}
-                    },1000);
-                </script>
-            </body>
-            </html>`;
-        window.stop();
-    }
+        // 弹窗内容
+        dialog.innerHTML = `
+            <h3>请输入验证码以继续访问</h3>
+            <p>验证码: <strong>${code}</strong></p>
+            <input type="text" id="verificationInput" placeholder="请输入上方验证码" style="
+                width: 100%;
+                padding: 8px;
+                margin: 15px 0;
+                box-sizing: border-box;
+            ">
+            <div style="display: flex; gap: 10px; margin-top: 15px;">
+                <button id="verifyBtn" style="
+                    flex: 1;
+                    padding: 8px;
+                    background: #4CAF50;
+                    color: white;
+                    border: none;
+                    border-radius: 4px;
+                    cursor: pointer;
+                ">验证</button>
+                <button id="cancelBtn" style="
+                    flex: 1;
+                    padding: 8px;
+                    background: #f44336;
+                    color: white;
+                    border: none;
+                    border-radius: 4px;
+                    cursor: pointer;
+                ">取消</button>
+            </div>
+            <p id="errorMsg" style="color: red; margin-top: 10px; display: none;">验证码错误，请重新输入</p>
+        `;
 
-    /* ===== 15 秒监测器 ===== */
-    function start15sMonitor() {
-        const scan = async () => {
-            const seg = firstSeg(location.hostname);
-            if (blacklist.has(seg)) { showBlockPage('黑名单首段匹配（15s监测）'); return; }
-            if (await isBeian(location.hostname)) return;
+        overlay.appendChild(dialog);
+        document.body.appendChild(overlay);
 
-            const text = [
-                document.title,
-                document.body?.innerText || '',
-                ...Array.from(document.images).map(i => i.alt || ''),
-                ...Array.from(document.querySelectorAll('meta[name="keywords"], meta[name="description"]')).map(m => m.content || '')
-            ].join(' ').toLowerCase();
+        // 获取元素
+        const input = dialog.querySelector('#verificationInput');
+        const verifyBtn = dialog.querySelector('#verifyBtn');
+        const cancelBtn = dialog.querySelector('#cancelBtn');
+        const errorMsg = dialog.querySelector('#errorMsg');
 
-            if (PORN_KEYWORDS.some(kw => text.includes(kw))) {
-                addBlack(seg);
-                showBlockPage('监测到色情关键词（15s监测）');
+        // 验证按钮点击事件
+        verifyBtn.addEventListener('click', () => {
+            if (input.value === code.toString()) {
+                document.body.removeChild(overlay);
+                // 验证通过，跳转到目标URL
+                window.location.href = targetUrl;
+            } else {
+                errorMsg.style.display = 'block';
+                input.value = '';
+                input.focus();
             }
-        };
+        });
 
-        scan();
-        setInterval(scan, 15000);
+        // 取消按钮点击事件
+        cancelBtn.addEventListener('click', () => {
+            document.body.removeChild(overlay);
+        });
+
+        // 回车键验证
+        input.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                verifyBtn.click();
+            }
+        });
+
+        // 自动聚焦输入框
+        input.focus();
     }
 
-    /* ===== 控件 ===== */
-    function addUI() {
-        const box = document.createElement('div');
-        box.innerHTML = `
-            <div id="pb-btn" style="position:fixed;top:10px;left:10px;z-index:9999;background:#222;color:#fff;padding:6px 8px;border-radius:6px;font-size:13px;cursor:pointer">⚙️</div>
-            <div id="pb-menu" style="display:none;position:fixed;top:40px;left:10px;z-index:10000;background:#333;color:#fff;padding:8px;border-radius:6px;font-size:12px;">
-                <div id="pb-ban" style="padding:4px 0;cursor:pointer;">➕ 加入当前首段</div>
-                <div id="pb-input" style="padding:4px 0;cursor:pointer;">📝 手动输入首段</div>
-                <div id="pb-clear" style="padding:4px 0;cursor:pointer;">🔄 清空本地黑名单</div>
-            </div>`;
-        document.documentElement.appendChild(box);
+    // 处理链接点击事件
+    function handleLinkClicks() {
+        // 为所有现有链接添加事件监听
+        document.querySelectorAll('a').forEach(link => {
+            addLinkListener(link);
+        });
 
-        document.getElementById('pb-btn').onclick = () => {
-            const m = document.getElementById('pb-menu');
-            m.style.display = m.style.display === 'block' ? 'none' : 'block';
-        };
-        document.getElementById('pb-ban').onclick = () => {
-            addBlack(firstSeg(location.hostname));
-            showBlockPage('手动加入黑名单');
-        };
-        document.getElementById('pb-input').onclick = () => {
-            const seg = prompt('输入要拦截的首段：', 'example');
-            if (seg) { addBlack(seg.trim()); alert(`已加入黑名单：${seg.trim()}.*`); }
-        };
-        document.getElementById('pb-clear').onclick = () => {
-            if (confirm('确定清空本地黑名单？')) { localStorage.removeItem('my_blacklist'); location.reload(); }
-        };
-        document.addEventListener('click', e => {
-            const b=document.getElementById('pb-btn'), m=document.getElementById('pb-menu');
-            if (!b.contains(e.target) && !m.contains(e.target)) m.style.display='none';
+        // 监听页面动态添加的链接
+        const observer = new MutationObserver(mutations => {
+            mutations.forEach(mutation => {
+                mutation.addedNodes.forEach(node => {
+                    if (node.tagName === 'A') {
+                        addLinkListener(node);
+                    } else if (node.querySelectorAll) {
+                        node.querySelectorAll('a').forEach(link => {
+                            addLinkListener(link);
+                        });
+                    }
+                });
+            });
+        });
+
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true
         });
     }
 
-    /* ===== 主流程 ===== */
-    (async function main() {
-        const seg = firstSeg(location.hostname);
-        if (await isBeian(location.hostname)) return;
-        if (blacklist.has(seg)) {
-            showBlockPage('本地黑名单首段匹配');
-        } else {
-            addUI();
-            start15sMonitor();
-        }
-    })();
+    // 为单个链接添加事件监听
+    function addLinkListener(link) {
+        // 避免重复添加事件
+        if (link.hasAttribute('data-verified-link')) return;
+        link.setAttribute('data-verified-link', 'true');
+
+        link.addEventListener('click', function(e) {
+            // 忽略锚点链接和空链接
+            if (!this.href || this.href === '#' || this.href === window.location.href) {
+                return;
+            }
+
+            // 忽略内部锚点
+            const url = new URL(this.href);
+            if (url.origin === window.location.origin && url.pathname === window.location.pathname) {
+                return;
+            }
+
+            // 阻止默认跳转行为
+            e.preventDefault();
+            e.stopPropagation();
+
+            // 生成验证码并显示弹窗
+            const code = generateVerificationCode();
+            showVerificationDialog(code, this.href);
+        });
+    }
+
+    // 页面加载完成后初始化
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', handleLinkClicks);
+    } else {
+        handleLinkClicks();
+    }
 })();
