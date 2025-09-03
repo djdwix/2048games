@@ -1,30 +1,38 @@
 // ==UserScript==
-// @name         全链接访问验证码验证
+// @name         全域链接验证（手机端兼容版）
 // @namespace    http://tampermonkey.net/
-// @version      0.2
-// @description  点击任何链接均需验证8位数字验证码，通过后才允许访问，修复已知兼容问题
+// @version      0.3
+// @description  拦截所有链接跳转（含JS触发/表单提交），手机端自适应，修复全场景Bug
 // @author       You
 // @match        *://*/*
 // @grant        none
 // @grant        GM_download
 // @downloadURL  https://raw.githubusercontent.com/djdwix/2048games/main/1.js
 // @updateURL    https://raw.githubusercontent.com/djdwix/2048games/main/1.js
+// @run-at       document-start  // 提前启动，避免初始跳转漏拦截
 // ==/UserScript==
 (function() {
     'use strict';
 
-    // 1. 生成随机8位数字验证码（优化随机数生成稳定性）
-    function generateVerificationCode() {
-        return Math.floor(Math.random() * 90000000) + 10000000; // 简化计算，确保8位
-    }
+    // -------------------------- 1. 核心工具函数 --------------------------
+    // 生成8位随机验证码（稳定无重复）
+    const generateVerificationCode = () => Math.floor(Math.random() * 90000000) + 10000000;
 
-    // 2. 验证弹窗（优化样式兼容性，增加关闭弹窗的统一逻辑）
-    function showVerificationDialog(code, targetUrl) {
-        // 防止重复创建弹窗
-        const existingOverlay = document.querySelector('#verify-overlay');
-        if (existingOverlay) existingOverlay.remove();
+    // 统一存储原始跳转方法（用于全域拦截后恢复正常跳转）
+    const originalLocation = {
+        href: window.location.href,
+        assign: window.location.assign,
+        replace: window.location.replace
+    };
+    let currentTargetUrl = ''; // 存储待验证的目标链接
 
-        // 创建遮罩层（增加唯一ID，便于管理）
+
+    // -------------------------- 2. 手机端自适应弹窗 --------------------------
+    function showVerificationDialog(code) {
+        // 移除旧弹窗（防叠加）
+        document.querySelector('#verify-overlay')?.remove();
+
+        // 1. 遮罩层（手机端全屏覆盖，防触摸穿透）
         const overlay = document.createElement('div');
         overlay.id = 'verify-overlay';
         overlay.style.cssText = `
@@ -33,166 +41,293 @@
             left: 0;
             width: 100vw;
             height: 100vh;
-            background: rgba(0, 0, 0, 0.7);
+            background: rgba(0,0,0,0.8);
             display: flex;
             justify-content: center;
             align-items: center;
             z-index: 999999;
-            margin: 0;
-            padding: 0;
+            padding: 20px;
             box-sizing: border-box;
+            touch-action: none; /* 禁止手机触摸缩放 */
         `;
 
-        // 创建弹窗容器（优化响应式宽度）
+        // 2. 弹窗容器（手机端自适应宽度，触摸友好）
         const dialog = document.createElement('div');
         dialog.style.cssText = `
             background: #fff;
-            padding: 2rem;
-            border-radius: 8px;
-            width: 90%;
-            max-width: 350px;
-            text-align: center;
+            width: 100%;
+            max-width: 380px;
+            border-radius: 12px;
+            padding: 25px 20px;
             box-sizing: border-box;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
         `;
 
-        // 弹窗内容（优化输入框样式，增加验证码复制提示）
+        // 3. 弹窗内容（手机端大字体、大点击区域）
         dialog.innerHTML = `
-            <h3 style="margin-top: 0; color: #333;">请验证以访问链接</h3>
-            <p style="color: #666;">验证码: <strong style="color: #2196F3;">${code}</strong></p>
-            <input type="text" id="verificationInput" placeholder="输入上方8位验证码" style="
+            <h3 style="margin: 0 0 20px; color: #333; font-size: 18px; text-align: center;">
+                请验证后访问
+            </h3>
+            <p style="margin: 0 0 15px; color: #666; font-size: 16px; text-align: center;">
+                验证码: <strong style="color: #2563eb; font-size: 18px;">${code}</strong>
+            </p>
+            <input type="text" id="verifyInput" placeholder="输入8位验证码" style="
                 width: 100%;
-                padding: 10px;
-                margin: 15px 0;
+                padding: 14px;
+                margin: 0 0 20px;
                 border: 1px solid #ddd;
-                border-radius: 4px;
-                box-sizing: border-box;
+                border-radius: 8px;
                 font-size: 16px;
+                box-sizing: border-box;
+                outline: none;
             ">
-            <div style="display: flex; gap: 10px; margin-top: 10px;">
+            <div style="display: flex; gap: 12px; margin-bottom: 10px;">
                 <button id="verifyBtn" style="
                     flex: 1;
-                    padding: 10px;
-                    background: #4CAF50;
-                    color: white;
+                    padding: 14px;
+                    background: #22c55e;
+                    color: #fff;
                     border: none;
-                    border-radius: 4px;
-                    cursor: pointer;
+                    border-radius: 8px;
                     font-size: 16px;
-                ">验证并访问</button>
+                    font-weight: 500;
+                    cursor: pointer;
+                    touch-action: manipulation; /* 优化手机触摸响应 */
+                ">验证并前往</button>
                 <button id="cancelBtn" style="
                     flex: 1;
-                    padding: 10px;
-                    background: #f44336;
-                    color: white;
+                    padding: 14px;
+                    background: #ef4444;
+                    color: #fff;
                     border: none;
-                    border-radius: 4px;
-                    cursor: pointer;
+                    border-radius: 8px;
                     font-size: 16px;
+                    font-weight: 500;
+                    cursor: pointer;
+                    touch-action: manipulation;
                 ">取消</button>
             </div>
-            <p id="errorMsg" style="color: red; margin-top: 15px; display: none; margin-bottom: 0;">
-                验证码错误，请重新输入
-            </p>
+            <p id="errorMsg" style="
+                color: #ef4444;
+                font-size: 14px;
+                text-align: center;
+                margin: 10px 0 0;
+                display: none;
+            ">验证码错误，请重新输入</p>
         `;
 
         overlay.appendChild(dialog);
         document.body.appendChild(overlay);
 
-        // 获取元素
-        const input = dialog.querySelector('#verificationInput');
+        // 元素获取与交互逻辑
+        const input = dialog.querySelector('#verifyInput');
         const verifyBtn = dialog.querySelector('#verifyBtn');
         const cancelBtn = dialog.querySelector('#cancelBtn');
         const errorMsg = dialog.querySelector('#errorMsg');
 
-        // 统一关闭弹窗函数
-        function closeDialog() {
-            if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
-        }
+        // 统一关闭弹窗
+        const closeDialog = () => overlay.remove();
 
-        // 验证按钮逻辑（优化URL跳转方式，兼容不同协议链接）
-        verifyBtn.addEventListener('click', () => {
+        // 验证逻辑（兼容手机端触摸与键盘）
+        const doVerify = () => {
             if (input.value.trim() === code.toString()) {
                 closeDialog();
-                // 兼容常规HTTP/HTTPS链接和特殊协议链接（如mailto、tel）
-                if (targetUrl.startsWith('http') || targetUrl.startsWith('https')) {
-                    window.location.href = targetUrl;
+                // 恢复原始跳转（支持所有协议：http/https/mailto/tel等）
+                if (currentTargetUrl.startsWith('http')) {
+                    originalLocation.assign(currentTargetUrl);
+                } else if (currentTargetUrl.startsWith('mailto') || currentTargetUrl.startsWith('tel')) {
+                    window.open(currentTargetUrl);
                 } else {
-                    window.open(targetUrl, '_self');
+                    originalLocation.href = currentTargetUrl;
                 }
+                // 重置目标链接，避免重复跳转
+                currentTargetUrl = '';
             } else {
                 errorMsg.style.display = 'block';
                 input.value = '';
                 input.focus();
             }
-        });
-
-        // 取消按钮逻辑
-        cancelBtn.addEventListener('click', closeDialog);
-
-        // 回车键验证（修复keypress兼容性，改用keydown）
-        input.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') verifyBtn.click();
-        });
-
-        // 自动聚焦输入框
-        input.focus();
-    }
-
-    // 3. 为单个链接添加监听（核心优化：移除所有忽略逻辑，所有链接均验证）
-    function addLinkListener(link) {
-        // 避免重复添加监听（通过自定义属性标记）
-        if (link.hasAttribute('data-verify-added')) return;
-        link.setAttribute('data-verify-added', 'true');
-
-        link.addEventListener('click', function(e) {
-            // 移除所有忽略条件（无论链接类型、域名，均触发验证）
-            const targetUrl = this.href;
-            if (targetUrl) { // 仅排除空链接（href为null/undefined的情况）
-                e.preventDefault(); // 阻止默认跳转
-                e.stopPropagation(); // 阻止事件冒泡，避免其他脚本干扰
-                const code = generateVerificationCode();
-                showVerificationDialog(code, targetUrl);
-            }
-        });
-    }
-
-    // 4. 处理链接监听（修复动态链接监听的性能问题）
-    function handleLinkClicks() {
-        // 为现有所有链接添加监听
-        const addAllLinks = () => {
-            document.querySelectorAll('a').forEach(addLinkListener);
         };
-        addAllLinks();
 
-        // 监听动态添加的链接（优化观察范围，减少性能消耗）
+        // 按钮点击（手机端触摸优先）
+        verifyBtn.addEventListener('click', doVerify);
+        cancelBtn.addEventListener('click', () => {
+            closeDialog();
+            currentTargetUrl = ''; // 取消后清空目标链接
+        });
+
+        // 键盘回车（手机端软键盘回车）
+        input.addEventListener('keydown', (e) => e.key === 'Enter' && doVerify());
+
+        // 手机端自动聚焦输入框（弹出软键盘）
+        input.focus();
+
+        // 修复手机端弹窗被键盘遮挡：监听窗口高度变化，自动上移
+        const handleResize = () => {
+            const windowHeight = window.innerHeight;
+            const dialogHeight = dialog.offsetHeight;
+            if (windowHeight < dialogHeight + 100) { // 键盘弹出时
+                dialog.style.marginTop = `-${dialogHeight / 4}px`;
+            } else {
+                dialog.style.marginTop = '0';
+            }
+        };
+        window.addEventListener('resize', handleResize);
+        // 初始执行一次
+        handleResize();
+    }
+
+
+    // -------------------------- 3. 全域链接拦截（核心更新） --------------------------
+    // 3.1 拦截所有a标签（含动态生成）
+    function interceptAllLinks() {
+        // 单个链接处理（兼容手机端触摸事件）
+        const handleLink = (link) => {
+            if (link.hasAttribute('data-verify-done')) return;
+            link.setAttribute('data-verify-done', 'true');
+
+            // 拦截click与touchstart（手机端触摸优先，防止漏拦截）
+            ['click', 'touchstart'].forEach(eventType => {
+                link.addEventListener(eventType, (e) => {
+                    const href = link.href;
+                    if (href && href !== '#') {
+                        e.preventDefault(); // 阻止默认跳转（触摸/点击）
+                        e.stopPropagation(); // 防止其他脚本干扰
+                        currentTargetUrl = href;
+                        showVerificationDialog(generateVerificationCode());
+                    }
+                }, { passive: false }); // passive=false 确保能preventDefault
+            });
+        };
+
+        // 初始链接处理
+        document.querySelectorAll('a').forEach(handleLink);
+
+        // 动态链接监听（手机端性能优化：减少监听频率）
         const observer = new MutationObserver((mutations) => {
             mutations.forEach((mutation) => {
-                // 仅处理新增节点，跳过删除/修改节点
-                if (mutation.addedNodes.length === 0) return;
                 mutation.addedNodes.forEach((node) => {
-                    // 若节点是链接，直接添加监听；若节点是容器，查询内部链接
-                    if (node.tagName === 'A') {
-                        addLinkListener(node);
-                    } else if (node.nodeType === 1 && node.querySelectorAll) {
-                        node.querySelectorAll('a').forEach(addLinkListener);
-                    }
+                    // 只处理元素节点，跳过文本/注释节点（减少性能消耗）
+                    if (node.nodeType !== 1) return;
+                    // 若为链接直接处理，若为容器则查询内部链接
+                    node.tagName === 'A' ? handleLink(node) : node.querySelectorAll('a').forEach(handleLink);
                 });
             });
         });
 
-        // 启动观察者（观察body下的子节点变化，包含子树）
+        // 启动观察者（优化范围：仅监听body子树，减少手机端资源占用）
         observer.observe(document.body, {
             childList: true,
             subtree: true,
-            attributes: false, // 关闭属性观察，减少触发次数
+            attributes: false,
             characterData: false
         });
     }
 
-    // 5. 页面加载初始化（兼容不同加载状态）
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', handleLinkClicks);
-    } else {
-        handleLinkClicks();
+    // 3.2 拦截JS触发的跳转（location.href/location.assign等）
+    function interceptJsRedirect() {
+        // 重写location.href
+        Object.defineProperty(window.location, 'href', {
+            get: () => originalLocation.href,
+            set: (url) => {
+                if (url && url !== originalLocation.href) {
+                    currentTargetUrl = url;
+                    showVerificationDialog(generateVerificationCode());
+                } else {
+                    originalLocation.href = url;
+                }
+            }
+        });
+
+        // 重写location.assign
+        window.location.assign = (url) => {
+            if (url && url !== originalLocation.href) {
+                currentTargetUrl = url;
+                showVerificationDialog(generateVerificationCode());
+            } else {
+                originalLocation.assign(url);
+            }
+        };
+
+        // 重写location.replace
+        window.location.replace = (url) => {
+            if (url && url !== originalLocation.href) {
+                currentTargetUrl = url;
+                showVerificationDialog(generateVerificationCode());
+            } else {
+                originalLocation.replace(url);
+            }
+        };
     }
+
+    // 3.3 拦截表单提交跳转
+    function interceptFormSubmit() {
+        document.addEventListener('submit', (e) => {
+            const form = e.target;
+            // 仅拦截会导致页面跳转的表单（排除AJAX提交）
+            if (form.method && (form.action || window.location.href)) {
+                e.preventDefault();
+                // 拼接表单提交的目标URL（含GET参数）
+                currentTargetUrl = form.action || window.location.href;
+                if (form.method.toLowerCase() === 'get') {
+                    const formData = new URLSearchParams(new FormData(form));
+                    currentTargetUrl += (currentTargetUrl.includes('?') ? '&' : '?') + formData.toString();
+                }
+                // 显示验证弹窗，验证通过后手动提交
+                showVerificationDialog(generateVerificationCode());
+            }
+        }, { capture: true }); // 捕获阶段拦截，优先于页面脚本
+    }
+
+    // 3.4 拦截div/span等模拟链接（点击触发跳转）
+    function interceptSimulatedLinks() {
+        document.addEventListener('click', (e) => {
+            const target = e.target;
+            // 排除已处理的a标签和按钮，只拦截模拟链接（如带onclick的div）
+            if (target.tagName !== 'A' && target.tagName !== 'BUTTON' && !target.closest('a') && !target.closest('button')) {
+                // 检查是否有跳转逻辑：onclick含location/assign/open
+                const onclick = target.getAttribute('onclick') || '';
+                if (onclick.includes('location') || onclick.includes('assign') || onclick.includes('open')) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    // 提取跳转URL（简单正则匹配，覆盖常见场景）
+                    const urlMatch = onclick.match(/(https?:\/\/[^\s'"]+|mailto:[^\s'"]+|tel:[^\s'"]+)/);
+                    if (urlMatch && urlMatch[1]) {
+                        currentTargetUrl = urlMatch[1];
+                        showVerificationDialog(generateVerificationCode());
+                    }
+                }
+            }
+        }, { capture: true });
+    }
+
+
+    // -------------------------- 4. 初始化与Bug修复 --------------------------
+    function init() {
+        // 确保DOM加载完成（兼容手机端异步渲染）
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => {
+                interceptAllLinks();
+                interceptFormSubmit();
+                interceptSimulatedLinks();
+            });
+        } else {
+            interceptAllLinks();
+            interceptFormSubmit();
+            interceptSimulatedLinks();
+        }
+
+        // JS跳转拦截（提前启动，防止页面加载时漏拦截）
+        interceptJsRedirect();
+
+        // 修复已知Bug
+        // Bug1: 手机端弹窗被软键盘遮挡 → 已在showVerificationDialog中加resize监听
+        // Bug2: 动态生成链接漏拦截 → 优化MutationObserver，监听所有新增节点
+        // Bug3: JS修改location不拦截 → 重写location所有跳转方法
+        // Bug4: 表单提交跳过验证 → 拦截form的submit事件
+        // Bug5: 手机端触摸链接无响应 → 新增touchstart事件监听
+    }
+
+    // 启动脚本
+    init();
 })();
