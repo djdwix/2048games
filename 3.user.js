@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         页面安全验证计时器（增强版V4.83）
+// @name         页面安全验证计时器（增强版V4.84）
 // @namespace    http://tampermonkey.net/
-// @version      4.83
+// @version      4.84
 // @description  本地与网页延迟检测+日志功能+点击导出日志+多接口IP/定位+验证重启倒计时【支持后台运行+定位缓存+缓存超时销毁】
 // @author       You
 // @match        *://*/*
@@ -10,6 +10,7 @@
 // @downloadURL  https://raw.githubusercontent.com/djdwix/2048games/main/3.user.js
 // @updateURL    https://raw.githubusercontent.com/djdwix/2048games/main/3.user.js
 // ==/UserScript==
+
 GM_addStyle(`
   /* 倒计时样式（保留科幻风格，隐藏点击提示文字，保留点击功能） */
   .safe-timer {
@@ -365,829 +366,753 @@ GM_addStyle(`
     color: #7dd3fc;
     text-shadow: 0 0 5px rgba(76, 201, 240, 0.7);
   }
+  /* 进度条验证样式 */
+  .progress-verify-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(10, 15, 30, 0.9);
+    backdrop-filter: blur(10px);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 10000;
+    padding: 0 15px;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.4s ease, visibility 0.4s ease;
+  }
+  .progress-verify-modal.active {
+    opacity: 1;
+    visibility: visible;
+  }
+  .progress-modal-box {
+    width: 100%;
+    max-width: 380px;
+    background: linear-gradient(135deg, #1a103d 0%, #0f172a 100%);
+    border: 1px solid rgba(76, 201, 240, 0.6);
+    border-radius: 16px;
+    padding: 30px 20px;
+    box-shadow: 0 0 25px rgba(76, 201, 240, 0.3), inset 0 0 15px rgba(76, 201, 240, 0.1);
+    transform: scale(0.9) translateY(15px);
+    transition: transform 0.4s ease, box-shadow 0.4s ease;
+  }
+  .progress-verify-modal.active .progress-modal-box {
+    transform: scale(1) translateY(0);
+    box-shadow: 0 0 35px rgba(76, 201, 240, 0.4), inset 0 0 20px rgba(76, 201, 240, 0.15);
+  }
+  .progress-title {
+    font-size: 22px;
+    font-weight: bold;
+    color: #4cc9f0;
+    margin: 0 0 15px;
+    text-align: center;
+    text-shadow: 0 0 6px rgba(76, 201, 240, 0.5);
+    letter-spacing: 0.5px;
+  }
+  .progress-desc {
+    font-size: 15px;
+    color: #e0e7ff;
+    text-align: center;
+    margin: 0 0 25px;
+    line-height: 1.6;
+    padding: 0 10px;
+    opacity: 0.9;
+  }
+  .progress-bar-container {
+    width: 100%;
+    height: 20px;
+    background: rgba(30, 41, 59, 0.8);
+    border-radius: 10px;
+    overflow: hidden;
+    margin: 0 0 30px;
+    box-shadow: inset 0 0 8px rgba(0, 0, 0, 0.3);
+  }
+  .progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, #4361ee 0%, #4cc9f0 50%, #4361ee 100%);
+    border-radius: 10px;
+    width: 0%;
+    transition: width 0.1s linear;
+    box-shadow: 0 0 10px rgba(76, 201, 240, 0.5);
+  }
+  .progress-status {
+    font-size: 14px;
+    color: #94a3b8;
+    text-align: center;
+    margin: 0 0 5px;
+  }
 `);
-// 常量定义（新增定位缓存、缓存超时销毁配置）
-const STORAGE_KEY = 'safeTimerEndTime';
-const LOG_STORAGE_KEY = 'safeTimerLogs';
-const LOG_MAX_LENGTH = 100;
-const TOTAL_TIME = 15 * 60; // 基础15分钟
-const UPDATE_URL = 'https://github.com/djdwix/2048games/blob/main/1.js';
-const STRENGTHEN_COUNT = 2;
-const FAST_VERIFY_THRESHOLD = 10000; // 10秒快速验证阈值
-const LOCAL_DELAY_INTERVAL = 5000; // 5秒延迟检测间隔
-const DELAY_TEST_TIMEOUT = 5000; // 5秒延迟检测超时
-const BACKGROUND_CHECK_INTERVAL = 3000; // 后台倒计时同步间隔（3秒）
-const IP_API_LIST = [
-  { url: 'https://api.ipify.org?format=text', parser: (text) => text.trim() },
-  { url: 'https://ipinfo.io/ip', parser: (text) => text.trim() },
-  { url: 'https://icanhazip.com', parser: (text) => text.trim() },
-  { url: 'https://httpbin.org/ip', parser: (json) => json.origin.split(',')[0].trim() },
-  { url: 'https://api.myip.com', parser: (json) => json.ip }
-];
-const GEO_API_CONFIG = {
-  reverseGeocodeList: [
-    (lat, lon) => `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&zoom=10&addressdetails=1`,
-    (lat, lon) => `https://geocode.xyz/${lat},${lon}?geoit=json&auth=free`,
-    (lat, lon) => `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=zh`
-  ],
-  ipLocationList: [
-    (ip) => `https://ipinfo.io/${ip}/json`,
-    (ip) => `https://ip-api.com/json/${ip}?fields=regionName,city`,
-    (ip) => `https://freegeoip.app/json/${ip}`,
-    (ip) => `https://bigdatacloud.net/data/ip-geolocation-full?ip=${ip}&localityLanguage=zh`
-  ]
-};
-// 1. 日志核心功能（更新版本标识）
-function log(content, isBackground = false) {
-  const timeStr = new Date().toLocaleString('zh-CN', {
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit'
-  }).replace(/\//g, '-');
-  const logPrefix = isBackground ? '[安全计时器-后台]' : '[安全计时器]';
-  const logItem = { time: timeStr, content: content, source: isBackground ? '后台' : '前台' };
-  
-  let logs = JSON.parse(localStorage.getItem(LOG_STORAGE_KEY) || '[]');
-  logs.push(logItem);
-  if (logs.length > LOG_MAX_LENGTH) logs = logs.slice(logs.length - LOG_MAX_LENGTH);
-  
-  localStorage.setItem(LOG_STORAGE_KEY, JSON.stringify(logs));
-  console.log(`${logPrefix}[${timeStr}] ${content}`);
-}
-// 2. 后台运行核心模块（保留原逻辑）
-class BackgroundRunner {
-  constructor() {
-    this.backgroundTimer = null; // 后台定时器
-    this.isForeground = document.visibilityState === 'visible'; // 标记是否前台
-    this.initBackgroundSync(); // 初始化后台同步
-    this.bindVisibilityEvents(); // 绑定页面可见性事件
-    log('后台运行模块初始化完成', true);
-  }
-  // 初始化后台倒计时同步（支持缓存超时销毁）
-  initBackgroundSync() {
-    this.backgroundTimer = setInterval(() => {
-      const storedEndTime = localStorage.getItem(STORAGE_KEY);
-      if (!storedEndTime) return;
-      const endTime = parseInt(storedEndTime);
-      const now = Date.now();
-      const remainingTime = Math.max(0, Math.ceil((endTime - now) / 1000));
-      // 缓存超时：自动销毁存储并触发验证
-      if (remainingTime <= 0) {
-        clearInterval(this.backgroundTimer);
-        localStorage.removeItem(STORAGE_KEY);
-        log(`后台检测到缓存超时，自动销毁缓存，触发验证流程`, true);
-        
-        if (this.isForeground) {
-          showInitialVerify();
-        }
-        return;
-      }
-      // 后台同步日志（每30秒记录一次）
-      if (remainingTime % 30 === 0) {
-        log(`后台倒计时同步：剩余${remainingTime}秒（缓存时间）`, true);
-      }
-    }, BACKGROUND_CHECK_INTERVAL);
-  }
-  // 绑定页面可见性变化事件
-  bindVisibilityEvents() {
-    document.addEventListener('visibilitychange', () => {
-      this.isForeground = document.visibilityState === 'visible';
-      if (this.isForeground) {
-        log('页面切换至前台，同步最新缓存倒计时状态', false);
-        initTimer();
-      } else {
-        log('页面切换至后台，后台缓存计时器继续运行', true);
-      }
-    });
-  }
-  // 销毁后台定时器
-  destroy() {
-    if (this.backgroundTimer) {
-      clearInterval(this.backgroundTimer);
-      log('后台定时器已销毁', true);
-    }
-  }
-}
-// 3. 网络状态管理（新增定位缓存：按网站域名存储，单次申请）
-class NetworkMonitor {
-  constructor() {
-    this.isOnline = navigator.onLine;
-    this.localDelay = '检测中...';
-    this.userIP = '查找中...';
-    this.locationInfo = '获取中...';
-    this.currentArea = '获取中...';
-    this.statusEl = null;
-    this.modalEl = null;
-    this.delayTimer = null;
-    // 新增：按网站域名生成定位缓存键（确保单站单次申请）
-    this.GEO_STORAGE_KEY = `geo_${window.location.hostname}`;
-    this.initElements();
-    this.bindEvents();
-    this.startLocalDelayDetect();
-    this.fetchUserIPWithAI();
-    this.fetchLocation(); // 优先读取缓存
-    log('网络监测模块初始化完成，初始状态：' + (this.isOnline ? '在线' : '离线'));
-  }
-  initElements() {
-    // 避免重复创建网络状态元素
-    if (document.querySelector('.net-status')) {
-      this.statusEl = document.querySelector('.net-status');
-    } else {
-      this.statusEl = document.createElement('div');
-      this.statusEl.className = `net-status ${this.isOnline ? 'online' : 'offline'}`;
-      this.statusEl.textContent = this.isOnline ? '在线' : '离线';
-      document.body.appendChild(this.statusEl);
-    }
-    if (document.querySelector('.net-modal')) {
-      this.modalEl = document.querySelector('.net-modal');
-    } else {
-      this.modalEl = document.createElement('div');
-      this.modalEl.className = 'net-modal';
-      this.modalEl.innerHTML = `
-        <div class="net-modal-box">
-          <div class="net-modal-header">
-            <h3 class="net-modal-title"><span>${this.isOnline ? '🌐' : '❌'}</span>网络状态</h3>
-            <button class="net-modal-close">×</button>
-          </div>
-          <ul class="net-info-list">
-            <li class="net-info-item">
-              <span class="net-info-label">连接状态</span>
-              <span class="net-info-value" id="net-status-value">${this.isOnline ? '在线' : '离线'}</span>
-            </li>
-            <li class="net-info-item">
-              <span class="net-info-label">本地-网页延迟</span>
-              <span class="net-info-value dynamic" id="local-delay-value">${this.localDelay}</span>
-            </li>
-            <li class="net-info-item">
-              <span class="net-info-label">当前IP</span>
-              <span class="net-info-value dynamic" id="user-ip-value">${this.userIP}</span>
-            </li>
-            <li class="net-info-item">
-              <span class="net-info-label">当前定位（经纬度）</span>
-              <span class="net-info-value dynamic" id="location-info-value">${this.locationInfo}</span>
-            </li>
-            <li class="net-info-item">
-              <span class="net-info-label">当前位置（县区级）</span>
-              <span class="net-info-value dynamic" id="current-area-value">${this.currentArea}</span>
-            </li>
-            <li class="net-info-item">
-              <span class="net-info-label">网络类型</span>
-              <span class="net-info-value" id="net-type-value">${this.getNetworkType()}</span>
-            </li>
-            <li class="net-info-item">
-              <span class="net-info-label">浏览器</span>
-              <span class="net-info-value" id="browser-info-value">${this.getBrowserInfo()}</span>
-            </li>
-            <li class="net-info-item">
-              <span class="net-info-label">屏幕尺寸</span>
-              <span class="net-info-value" id="screen-size-value">${this.getScreenSize()}</span>
-            </li>
-          </ul>
-        </div>
-      `;
-      document.body.appendChild(this.modalEl);
-    }
-    this.modalEl.querySelector('.net-modal-close').addEventListener('click', () => {
-      this.modalEl.classList.remove('active');
-    });
-  }
-  bindEvents() {
-    this.statusEl.addEventListener('click', () => this.modalEl.classList.toggle('active'));
-    window.addEventListener('online', () => this.updateStatus(true));
-    window.addEventListener('offline', () => this.updateStatus(false));
-    // 避免重复绑定网络类型变化事件
-    if (navigator.connection) {
-      const handleConnectionChange = () => {
-        const type = this.getNetworkType();
-        this.modalEl.querySelector('#net-type-value').textContent = type;
-        log(`网络类型变化：${type}`);
-      };
-      navigator.connection.removeEventListener('change', handleConnectionChange);
-      navigator.connection.addEventListener('change', handleConnectionChange);
-    }
-  }
-  updateStatus(online) {
-    this.isOnline = online;
-    const statusText = online ? '在线' : '离线';
-    this.statusEl.className = `net-status ${online ? 'online' : 'offline'}`;
-    this.statusEl.textContent = statusText;
-    this.modalEl.querySelector('#net-status-value').textContent = statusText;
-    this.modalEl.querySelector('.net-modal-title span').textContent = online ? '🌐' : '❌';
-    log(`网络状态变化：${statusText}`);
-    if (online) {
-      this.startLocalDelayDetect();
-      this.resetNetworkInfo();
-      this.fetchUserIPWithAI();
-      this.fetchLocation();
-      initTimer();
-    } else {
-      this.stopLocalDelayDetect();
-      this.setOfflineInfo();
-      const backgroundRunner = window.backgroundRunner;
-      if (backgroundRunner) backgroundRunner.stopLocalDelayDetect();
-    }
-  }
-  calculateLocalDelay() {
-    if (!window.location.origin) {
-      this.localDelay = '无效域名';
-      this.modalEl.querySelector('#local-delay-value').textContent = this.localDelay;
-      log(`本地-网页延迟检测：${this.localDelay}`);
-      return;
-    }
-    const testUrl = `${window.location.origin}/?delayTest=${Date.now()}`;
-    const startTime = performance.now();
-    let timeoutTimer;
-    const timeoutPromise = new Promise((_, reject) => {
-      timeoutTimer = setTimeout(() => reject(new Error('TimeoutError')), DELAY_TEST_TIMEOUT);
-    });
-    Promise.race([
-      fetch(testUrl, { method: 'GET', mode: 'cors', cache: 'no-store' }),
-      timeoutPromise
-    ])
-    .then(() => {
-      clearTimeout(timeoutTimer);
-      const delay = Math.round(performance.now() - startTime);
-      this.localDelay = `${delay}ms`;
-      this.modalEl.querySelector('#local-delay-value').textContent = this.localDelay;
-      log(`本地-网页延迟检测：${this.localDelay}`);
-    })
-    .catch(error => {
-      clearTimeout(timeoutTimer);
-      this.localDelay = error.message === 'TimeoutError' ? '超时(>5s)' : `检测失败(${error.message.slice(0, 20)}...)`;
-      this.modalEl.querySelector('#local-delay-value').textContent = this.localDelay;
-      log(`本地-网页延迟检测：${this.localDelay}（原因：${error.message}）`);
-    });
-  }
-  startLocalDelayDetect() {
-    if (!this.isOnline) return;
-    this.stopLocalDelayDetect();
-    this.calculateLocalDelay();
-    this.delayTimer = setInterval(() => this.calculateLocalDelay(), LOCAL_DELAY_INTERVAL);
-  }
-  stopLocalDelayDetect() {
-    if (this.delayTimer) {
-      clearInterval(this.delayTimer);
-      this.delayTimer = null;
-    }
-  }
-  fetchUserIPWithAI() {
-    if (!this.isOnline) return;
-    const tryNextApi = (apiIndex = 0) => {
-      if (apiIndex >= IP_API_LIST.length) {
-        this.userIP = '查找失败';
-        this.modalEl.querySelector('#user-ip-value').textContent = this.userIP;
-        log(`IP获取失败：所有接口尝试完毕`);
-        if (this.locationInfo.startsWith('获取失败')) {
-          this.currentArea = '定位无效（IP未获取）';
-          this.modalEl.querySelector('#current-area-value').textContent = this.currentArea;
-        }
-        return;
-      }
-      const { url, parser } = IP_API_LIST[apiIndex];
-      fetch(url, { method: 'GET', mode: 'cors', cache: 'no-store', timeout: 5000 })
-        .then(response => {
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          return response.headers.get('content-type')?.includes('json') ? response.json() : response.text();
-        })
-        .then(data => {
-          const ip = parser(data);
-          const ipv4Regex = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
-          const ipv6Regex = /^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$/;
-          if (ip && (ipv4Regex.test(ip) || ipv6Regex.test(ip))) {
-            this.userIP = ip;
-            this.modalEl.querySelector('#user-ip-value').textContent = this.userIP;
-            log(`IP获取成功：${ip}`);
-            if (this.locationInfo.startsWith('获取失败')) this.fetchIPBasedLocation(ip);
-          } else throw new Error('IP格式无效');
-        })
-        .catch(() => tryNextApi(apiIndex + 1));
-    };
-    tryNextApi();
-  }
-  fetchReverseGeocode(lat, lon) {
-    const tryNextApi = (apiIndex = 0) => {
-      if (apiIndex >= GEO_API_CONFIG.reverseGeocodeList.length) {
-        log(`逆地理编码失败：所有接口尝试完毕，触发IP定位兜底`);
-        this.fetchIPBasedLocation(this.userIP);
-        return;
-      }
-      const apiUrl = GEO_API_CONFIG.reverseGeocodeList[apiIndex](lat, lon);
-      fetch(apiUrl, { method: 'GET', mode: 'cors', cache: 'no-store', timeout: 8000 })
-        .then(response => {
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          return response.json();
-        })
-        .then(data => {
-          let area = data.address?.county || data.address?.district || data.region || 
-                    data.localityInfo?.administrative[2]?.name || '';
-          if (area) {
-            this.currentArea = `定位获取：${area}`;
-            this.modalEl.querySelector('#current-area-value').textContent = this.currentArea;
-            log(`逆地理编码成功：${this.currentArea}`);
-            // 新增：更新定位缓存中的县区级位置
-            const storedGeoData = localStorage.getItem(this.GEO_STORAGE_KEY);
-            if (storedGeoData) {
-              const geoData = JSON.parse(storedGeoData);
-              geoData.currentArea = this.currentArea;
-              localStorage.setItem(this.GEO_STORAGE_KEY, JSON.stringify(geoData));
-              log(`已更新当前网站定位缓存（含县区级位置）`);
-            }
-          } else throw new Error('未解析到县区级位置');
-        })
-        .catch(error => {
-          log(`逆地理编码接口${apiIndex + 1}失败：${error.message}`);
-          tryNextApi(apiIndex + 1);
-        });
-    };
-    tryNextApi();
-  }
-  fetchIPBasedLocation(ip) {
-    if (!ip || ip.startsWith('查找失败')) {
-      this.currentArea = '定位无效（IP未获取）';
-      this.modalEl.querySelector('#current-area-value').textContent = this.currentArea;
-      log(`IP定位失败：${this.currentArea}`);
-      return;
-    }
-    const tryNextApi = (apiIndex = 0) => {
-      if (apiIndex >= GEO_API_CONFIG.ipLocationList.length) {
-        this.currentArea = '定位无效（所有IP接口失败）';
-        this.modalEl.querySelector('#current-area-value').textContent = this.currentArea;
-        log(`IP定位失败：${this.currentArea}`);
-        return;
-      }
-      const apiUrl = GEO_API_CONFIG.ipLocationList[apiIndex](ip);
-      fetch(apiUrl, { method: 'GET', mode: 'cors', cache: 'no-store', timeout: 6000 })
-        .then(response => {
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          return response.json();
-        })
-        .then(data => {
-          let area = `${data.region || data.regionName || data.region_name || data.administrativeArea || ''} ${data.city || data.locality || ''}`.trim() || 
-                    data.localityInfo?.administrative[2]?.name || '暂无法解析';
-          this.currentArea = `IP定位：${area}`;
-          this.modalEl.querySelector('#current-area-value').textContent = this.currentArea;
-          log(`IP定位成功：${this.currentArea}`);
-          // 新增：无定位缓存时存储IP定位结果
-          const storedGeoData = localStorage.getItem(this.GEO_STORAGE_KEY);
-          if (!storedGeoData) {
-            const geoData = {
-              latitude: 'IP定位无经纬度',
-              longitude: 'IP定位无经纬度',
-              currentArea: this.currentArea
-            };
-            localStorage.setItem(this.GEO_STORAGE_KEY, JSON.stringify(geoData));
-            log(`已存储当前网站IP定位缓存`);
-          }
-        })
-        .catch(error => {
-          log(`IP定位接口${apiIndex + 1}失败：${error.message}`);
-          tryNextApi(apiIndex + 1);
-        });
-    };
-    tryNextApi();
-  }
-  // 新增：优先读取定位缓存，无缓存再申请权限
-  fetchLocation() {
-    if (!this.isOnline) return;
-    // 1. 先检查当前网站是否有定位缓存
-    const storedGeoData = localStorage.getItem(this.GEO_STORAGE_KEY);
-    if (storedGeoData) {
-      const geoData = JSON.parse(storedGeoData);
-      this.locationInfo = geoData.latitude !== 'IP定位无经纬度' 
-        ? `纬度: ${geoData.latitude.toFixed(6)}, 经度: ${geoData.longitude.toFixed(6)}` 
-        : 'IP定位无经纬度';
-      this.currentArea = geoData.currentArea || '已存储定位';
-      this.modalEl.querySelector('#location-info-value').textContent = this.locationInfo;
-      this.modalEl.querySelector('#current-area-value').textContent = this.currentArea;
-      log(`定位初始化：从缓存加载当前网站定位数据`);
-      return;
-    }
-    // 2. 无缓存时申请定位权限
-    if (!navigator.geolocation) {
-      this.locationInfo = '浏览器不支持定位';
-      this.modalEl.querySelector('#location-info-value').textContent = this.locationInfo;
-      this.fetchIPBasedLocation(this.userIP);
-      log(`定位初始化：${this.locationInfo}`);
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      (position) => { 
-        const { latitude, longitude } = position.coords;
-        this.locationInfo = `纬度: ${latitude.toFixed(6)}, 经度: ${longitude.toFixed(6)}`;
-        this.modalEl.querySelector('#location-info-value').textContent = this.locationInfo;
-        // 存储经纬度到缓存（后续补充县区级位置）
-        const geoData = { latitude, longitude, currentArea: '获取中...' };
-        localStorage.setItem(this.GEO_STORAGE_KEY, JSON.stringify(geoData));
-        this.fetchReverseGeocode(latitude, longitude);
-        log(`定位成功：${this.locationInfo}，已存储定位缓存`);
-      },
-      (error) => { 
-        const errorMsgMap = { 1: '用户拒绝权限', 2: '位置不可用', 3: '请求超时', 0: '未知错误' };
-        this.locationInfo = `获取失败（${errorMsgMap[error.code] || errorMsgMap[0]}`;
-        this.modalEl.querySelector('#location-info-value').textContent = this.locationInfo;
-        this.fetchIPBasedLocation(this.userIP);
-        log(`定位失败：${this.locationInfo}，未存储缓存`);
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-    );
-  }
-  getNetworkType() {
-    if (!navigator.connection) return '未知';
-    const types = { 'bluetooth': '蓝牙', 'cellular': '蜂窝网络', 'ethernet': '以太网', 'none': '无', 'wifi': 'WiFi', 'wimax': 'WiMAX', 'other': '其他', 'unknown': '未知' };
-    return types[navigator.connection.type] || navigator.connection.type;
-  }
-  getBrowserInfo() {
-    const ua = navigator.userAgent;
-    if (ua.includes('Edg') && !ua.includes('Mobile')) return 'Edge桌面版';
-    if (ua.includes('Chrome') && !ua.includes('Mobile')) return 'Chrome桌面版';
-    if (ua.includes('Mobile') && ua.includes('Chrome')) return 'Chrome移动版';
-    if (ua.includes('Safari') && ua.includes('Mobile')) return 'Safari移动版';
-    if (ua.includes('Firefox')) return 'Firefox';
-    if (ua.includes('Opera')) return 'Opera';
-    return '未知浏览器';
-  }
-  getScreenSize() {
-    return `${screen.width}×${screen.height}px`;
-  }
-  resetNetworkInfo() {
-    this.localDelay = '检测中...';
-    this.userIP = '查找中...';
-    this.locationInfo = '获取中...';
-    this.currentArea = '获取中...';
-    this.modalEl.querySelector('#local-delay-value').textContent = this.localDelay;
-    this.modalEl.querySelector('#user-ip-value').textContent = this.userIP;
-    this.modalEl.querySelector('#location-info-value').textContent = this.locationInfo;
-    this.modalEl.querySelector('#current-area-value').textContent = this.currentArea;
-  }
-  setOfflineInfo() {
-    this.localDelay = '离线（无法检测）';
-    this.userIP = '离线（无法获取）';
-    this.locationInfo = '离线（无法获取）';
-    this.currentArea = '离线（无法获取）';
-    this.modalEl.querySelector('#local-delay-value').textContent = this.localDelay;
-    this.modalEl.querySelector('#user-ip-value').textContent = this.userIP;
-    this.modalEl.querySelector('#location-info-value').textContent = this.locationInfo;
-    this.modalEl.querySelector('#current-area-value').textContent = this.currentArea;
-  }
-  // 销毁网络监测资源
-  destroy() {
-    this.stopLocalDelayDetect();
-    window.removeEventListener('online', () => this.updateStatus(true));
-    window.removeEventListener('offline', () => this.updateStatus(false));
-    if (navigator.connection) {
-      navigator.connection.removeEventListener('change', () => {});
-    }
-    log('网络监测模块资源已销毁');
-  }
-}
-// 4. 倒计时初始化（更新：缓存时间=剩余时间+15分钟，超时自动销毁）
-function initTimer() {
-  // 清理旧计时器
-  const oldTimerEl = document.querySelector('.safe-timer');
-  if (oldTimerEl) {
-    const oldTimer = oldTimerEl.dataset.timerId;
-    if (oldTimer) clearInterval(oldTimer);
-    oldTimerEl.remove();
-  }
-  const timerEl = document.createElement('div');
-  timerEl.className = 'safe-timer';
-  document.body.appendChild(timerEl);
-  
-  // 计算缓存时间（剩余时间+15分钟）
-  let endTime;
-  const storedEndTime = localStorage.getItem(STORAGE_KEY);
-  const now = Date.now();
-  let remainingTime = 0;
-  
-  if (storedEndTime) {
-    endTime = parseInt(storedEndTime);
-    remainingTime = Math.max(0, Math.ceil((endTime - now) / 1000));
-    // 缓存过期：重新设置为（0+15分钟）
-    if (remainingTime <= 0) {
-      endTime = now + remainingTime * 1000 + TOTAL_TIME * 1000;
-      localStorage.setItem(STORAGE_KEY, endTime);
-      log(`倒计时重置：缓存过期，新缓存时间=0秒+15分钟，结束时间：${new Date(endTime).toLocaleString()}`);
-    } else {
-      log(`倒计时初始化：从缓存同步，剩余${remainingTime}秒（缓存时间），结束时间：${new Date(endTime).toLocaleString()}`);
-    }
-  } else {
-    // 首次启动：缓存时间=0+15分钟
-    endTime = now + remainingTime * 1000 + TOTAL_TIME * 1000;
-    localStorage.setItem(STORAGE_KEY, endTime);
-    log(`倒计时初始化：首次启动，缓存时间=15分钟，结束时间：${new Date(endTime).toLocaleString()}`);
-  }
-  
-  // 时间格式化
-  function formatTime(seconds) {
-    const min = Math.floor(seconds / 60).toString().padStart(2, '0');
-    const sec = (seconds % 60).toString().padStart(2, '0');
-    return `${min}:${sec}`;
-  }
-  
-  // 动态颜色（基于缓存总时间）
-  function getTimeColor(currentRemainingTime) {
-    const totalCacheTime = currentRemainingTime + (remainingTime > 0 ? remainingTime : 0);
-    const ratio = Math.max(0, Math.min(1, currentRemainingTime / totalCacheTime));
-    const hue = Math.floor(ratio * 180) + 180; // 红→青渐变
-    return `hsl(${hue}, 70%, 60%)`;
-  }
-  
-  // 更新倒计时（缓存超时自动销毁）
-  function updateTimer() {
-    const isForeground = document.visibilityState === 'visible';
-    const currentNow = Date.now();
-    const currentRemainingTime = Math.max(0, Math.ceil((endTime - currentNow) / 1000));
-    
-    // 缓存超时：自动销毁存储
-    if (currentRemainingTime <= 0) {
-      clearInterval(timer);
-      timerEl.remove();
-      localStorage.removeItem(STORAGE_KEY);
-          log(`倒计时结束：缓存超时自动销毁，触发初始安全验证`);
-      if (isForeground) showInitialVerify();
-      return;
-    }
-
-    if (isForeground) {
-      timerEl.textContent = `倒计时: ${formatTime(currentRemainingTime)}`;
-      timerEl.style.color = getTimeColor(currentRemainingTime);
-    }
-  }
-
-  timerEl.addEventListener('click', () => {
-    const logs = JSON.parse(localStorage.getItem(LOG_STORAGE_KEY) || '[]');
-    if (logs.length === 0) {
-      alert('暂无日志可导出');
-      log('日志导出操作：用户点击导出，但无日志数据');
-      return;
-    }
-    let logText = `页面安全验证计时器日志（版本V4.83）\n`;
-    logText += `生成时间：${new Date().toLocaleString('zh-CN')}\n`;
-    logText += `===============================\n\n`;
-    logs.forEach((item, index) => {
-      logText += `${index + 1}. [${item.time}] [${item.source}] ${item.content}\n`;
-    });
-    const blob = new Blob([logText], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const fileName = `safe-timer-log-${new Date().toLocaleString('zh-CN').replace(/[\s\/:]/g, '-')}.txt`;
-    const a = document.createElement('a');
-    a.download = fileName;
-    a.href = url;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    log(`日志导出成功：文件名=${fileName}，共${logs.length}条记录`);
-  });
-
-  const handleStorageChange = (e) => {
-    if (e.key === STORAGE_KEY) {
-      if (e.newValue) {
-        endTime = parseInt(e.newValue);
-        const syncRemaining = Math.max(0, Math.ceil((endTime - Date.now()) / 1000));
-        log(`多标签页同步：倒计时结束时间更新，剩余${syncRemaining}秒（缓存时间）`);
-        if (endTime <= Date.now()) {
-          clearInterval(timer);
-          timerEl.remove();
-          localStorage.removeItem(STORAGE_KEY);
-          log(`多标签页同步：缓存超时，触发初始验证`);
-          if (document.visibilityState === 'visible') showInitialVerify();
-        }
-      } else {
-        clearInterval(timer);
-        timerEl.remove();
-        log(`多标签页同步：倒计时缓存已清除，触发初始验证`);
-        if (document.visibilityState === 'visible') showInitialVerify();
-      }
-      updateTimer();
-    }
-  };
-
-  window.removeEventListener('storage', handleStorageChange);
-  window.addEventListener('storage', handleStorageChange);
-  updateTimer();
-  const timer = setInterval(updateTimer, 1000);
-  timerEl.dataset.timerId = timer;
-}
-
-function generateCode() {
-  return Math.floor(Math.random() * 900000 + 100000).toString();
-}
-
-function showStrengthenVerify(remainingTimes) {
-  const existingModal = document.querySelector('.verify-modal');
-  if (existingModal) existingModal.remove();
-  let code = generateCode();
-  const modal = document.createElement('div');
-  modal.className = 'verify-modal';
-  modal.innerHTML = `
-    <div class="modal-box">
-      <div class="modal-header">
-        <span class="modal-icon">🛡️</span>
-        <h3 class="modal-title">加强验证（${STRENGTHEN_COUNT - remainingTimes + 1}/${STRENGTHEN_COUNT}）</h3>
-      </div>
-      <p class="modal-desc">检测到快速验证行为，请完成剩余安全校验</p>
-      <div class="verify-code uncopyable">${code}</div>
-      <div class="verify-input-wrap">
-        <input type="text" class="verify-input" placeholder="请输入6位验证码" maxlength="6" autocomplete="off">
-      </div>
-      <div class="verify-error">验证码错误，已自动刷新，请重新输入</div>
-      <p class="copy-tip">验证码不可复制，请手动输入</p>
-      <div class="modal-btns">
-        <button class="modal-btn confirm-btn">确认验证</button>
-        <button class="modal-btn cancel-btn">拒绝</button>
-      </div>
-    </div>
-  `;
-  document.body.appendChild(modal);
-  setTimeout(() => modal.classList.add('active'), 10);
-  log(`加强验证启动：第${STRENGTHEN_COUNT - remainingTimes + 1}轮，验证码已生成`);
-  const verifyInput = modal.querySelector('.verify-input');
-  const verifyError = modal.querySelector('.verify-error');
-  const verifyCodeEl = modal.querySelector('.verify-code');
-
-  modal.querySelector('.confirm-btn').addEventListener('click', () => {
-    const inputCode = verifyInput.value.trim();
-    if (!inputCode) {
-      verifyError.textContent = '请输入6位验证码';
-      verifyError.style.display = 'block';
-      log(`加强验证失败（第${STRENGTHEN_COUNT - remainingTimes + 1}轮）：用户未输入验证码`);
-      verifyInput.focus();
-      return;
-    }
-    if (inputCode !== code) {
-      verifyError.textContent = '验证码错误，已自动刷新，请重新输入';
-      verifyError.style.display = 'block';
-      code = generateCode();
-      verifyCodeEl.textContent = code;
-      verifyInput.value = '';
-      verifyInput.focus();
-      log(`加强验证失败（第${STRENGTHEN_COUNT - remainingTimes + 1}轮）：验证码错误，已刷新`);
-      return;
-    }
-    modal.classList.remove('active');
-    log(`加强验证成功（第${STRENGTHEN_COUNT - remainingTimes + 1}轮）：验证码匹配`);
-    setTimeout(() => {
-      modal.remove();
-      remainingTimes--;
-      if (remainingTimes > 0) {
-        showStrengthenVerify(remainingTimes);
-      } else {
-        const now = Date.now();
-        const newEndTime = now + TOTAL_TIME * 1000;
-        localStorage.setItem(STORAGE_KEY, newEndTime);
-        initTimer();
-        log(`所有加强验证完成：新缓存时间=15分钟，同步至所有网页`);
-      }
-    }, 300);
-  });
-
-  modal.querySelector('.cancel-btn').addEventListener('click', () => {
-    localStorage.removeItem(STORAGE_KEY);
-    window.close();
-    log(`用户拒绝加强验证：尝试关闭页面`);
-    setTimeout(() => {
-      if (document.body.contains(modal)) {
-        alert('请手动关闭页面');
-        log(`用户拒绝加强验证：自动关闭失败，提示手动关闭`);
-      }
-    }, 300);
-  });
-
-  window.addEventListener('beforeunload', () => {
-    modal.remove();
-  });
-}
-
-function showInitialVerify() {
-  const existingModal = document.querySelector('.verify-modal');
-  if (existingModal) existingModal.remove();
-  const startTime = Date.now();
-  let code = generateCode();
-  const modal = document.createElement('div');
-  modal.className = 'verify-modal';
-  modal.innerHTML = `
-    <div class="modal-box">
-      <div class="modal-header">
-        <span class="modal-icon">🛡️</span>
-        <h3 class="modal-title">安全验证</h3>
-      </div>
-      <p class="modal-desc">为确认您的访问安全，请完成以下身份校验</p>
-      <div class="verify-code">${code}</div>
-      <div class="verify-input-wrap">
-        <input type="text" class="verify-input" placeholder="请输入6位验证码" maxlength="6" autocomplete="off">
-      </div>
-      <div class="verify-error">验证码错误，已自动刷新，请重新输入</div>
-      <p class="copy-tip">点击验证码即可复制</p>
-      <div class="modal-btns">
-        <button class="modal-btn confirm-btn">确认验证</button>
-        <button class="modal-btn cancel-btn">拒绝</button>
-      </div>
-      <div class="update-link-wrap">
-        <a href="${UPDATE_URL}" target="_blank" class="update-link">检查脚本更新（当前V4.83）</a>
-      </div>
-    </div>
-  `;
-  document.body.appendChild(modal);
-  setTimeout(() => modal.classList.add('active'), 10);
-  log(`初始验证启动：验证码已生成，等待用户输入`);
-  const verifyInput = modal.querySelector('.verify-input');
-  const verifyError = modal.querySelector('.verify-error');
-  const verifyCodeEl = modal.querySelector('.verify-code');
-
-  verifyCodeEl.addEventListener('click', () => {
-    navigator.clipboard.writeText(code).then(() => {
-      const tip = document.createElement('div');
-      tip.className = 'copy-success';
-      tip.textContent = '验证码已复制成功';
-      document.body.appendChild(tip);
-      setTimeout(() => tip.remove(), 1500);
-      log(`初始验证：用户复制验证码`);
-    }).catch((err) => {
-      alert(`复制失败，请手动复制（原因：${err.message.slice(0, 30)}...）`);
-      log(`初始验证：验证码复制失败，原因：${err.message}`);
-    });
-  });
-
-  modal.querySelector('.confirm-btn').addEventListener('click', () => {
-    const inputCode = verifyInput.value.trim();
-    if (!inputCode) {
-      verifyError.textContent = '请输入6位验证码';
-      verifyError.style.display = 'block';
-      log(`初始验证失败：用户未输入验证码`);
-      verifyInput.focus();
-      return;
-    }
-    if (inputCode !== code) {
-      verifyError.textContent = '验证码错误，已自动刷新，请重新输入';
-      verifyError.style.display = 'block';
-      code = generateCode();
-      verifyCodeEl.textContent = code;
-      verifyInput.value = '';
-      verifyInput.focus();
-      log(`初始验证失败：验证码错误，已刷新`);
-      return;
-    }
-    const elapsed = Date.now() - startTime;
-    modal.classList.remove('active');
-    log(`初始验证成功：耗时${elapsed}ms，验证码匹配`);
-    setTimeout(() => {
-      modal.remove();
-      const now = Date.now();
-      const newEndTime = now + TOTAL_TIME * 1000;
-      localStorage.setItem(STORAGE_KEY, newEndTime);
-      initTimer();
-      if (elapsed < FAST_VERIFY_THRESHOLD) {
-        log(`初始验证：耗时${elapsed}ms（<${FAST_VERIFY_THRESHOLD}ms），触发加强验证`);
-        showStrengthenVerify(STRENGTHEN_COUNT);
-      }
-    }, 300);
-  });
-
-  modal.querySelector('.cancel-btn').addEventListener('click', () => {
-    localStorage.removeItem(STORAGE_KEY);
-    window.close();
-    log(`用户拒绝初始验证：尝试关闭页面`);
-    setTimeout(() => {
-      if (document.body.contains(modal)) {
-        alert('请手动关闭页面');
-        log(`用户拒绝初始验证：自动关闭失败，提示手动关闭`);
-      }
-    }, 300);
-  });
-
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') {
-      log(`初始验证：页面切换至后台，暂停验证流程`);
-      modal.classList.remove('active');
-    } else {
-      log(`初始验证：页面切换至前台，恢复验证流程`);
-      modal.classList.add('active');
-    }
-  });
-
-  window.addEventListener('beforeunload', () => {
-    modal.remove();
-  });
-}
 
 (function() {
-  'use strict';
-  log('页面安全验证计时器（V4.83）初始化启动');
-  const networkMonitor = new NetworkMonitor();
-  const backgroundRunner = new BackgroundRunner();
-  window.networkMonitor = networkMonitor;
-  window.backgroundRunner = backgroundRunner;
-  initTimer();
+    'use strict';
 
-  window.addEventListener('beforeunload', () => {
-    log('页面即将关闭，清理脚本资源');
-    networkMonitor.destroy();
-    backgroundRunner.destroy();
-    const logs = JSON.parse(localStorage.getItem(LOG_STORAGE_KEY) || '[]');
-    if (logs.length > LOG_MAX_LENGTH) {
-      const trimmedLogs = logs.slice(logs.length - LOG_MAX_LENGTH);
-      localStorage.setItem(LOG_STORAGE_KEY, JSON.stringify(trimmedLogs));
-      log(`页面关闭：日志长度超限，已裁剪至${LOG_MAX_LENGTH}条`);
+    // 配置参数
+    const CONFIG = {
+        // 倒计时时间（秒）- 更新为12分钟
+        COUNTDOWN_TIME: 12 * 60,
+        // 强制验证时间（秒）- 更新为3秒内
+        FORCE_VERIFY_TIME: 3,
+        // 日志缓存最大条数 - 更新为3000
+        MAX_LOG_ENTRIES: 3000,
+        // 缓存超时时间（秒）- 同步更新为12分钟
+        CACHE_TIMEOUT: 12 * 60,
+        // 进度条验证时间范围（秒）- 新增
+        PROGRESS_VERIFY_MIN: 5,
+        PROGRESS_VERIFY_MAX: 13
+    };
+
+    // 全局变量
+    let timer = null;
+    let countdown = CONFIG.COUNTDOWN_TIME;
+    let isOnline = true;
+    let lastCheckTime = Date.now();
+    let logs = [];
+    let verifyCode = '';
+    let isVerifying = false;
+    let isForceVerify = false;
+    let cacheTimer = null;
+    let isProgressVerifying = false;
+
+    // 初始化
+    function init() {
+        // 创建UI元素
+        createTimer();
+        createNetStatus();
+        createVerifyModal();
+        createProgressVerifyModal();
+        createNetModal();
+
+        // 加载缓存数据
+        loadCache();
+
+        // 开始倒计时
+        startCountdown();
+
+        // 开始网络检测
+        startNetworkCheck();
+
+        // 添加页面事件监听
+        addPageEventListeners();
+
+        // 添加缓存超时检查
+        startCacheTimeoutCheck();
+
+        // 添加日志
+        addLog('脚本初始化完成', 'info');
     }
-  });
+
+    // 创建倒计时UI
+    function createTimer() {
+        const timerEl = document.createElement('div');
+        timerEl.className = 'safe-timer';
+        timerEl.textContent = formatTime(countdown);
+        timerEl.addEventListener('click', showNetModal);
+        document.body.appendChild(timerEl);
+    }
+
+    // 创建网络状态UI
+    function createNetStatus() {
+        const netStatusEl = document.createElement('div');
+        netStatusEl.className = 'net-status online';
+        netStatusEl.textContent = '网络正常';
+        netStatusEl.addEventListener('click', showNetModal);
+        document.body.appendChild(netStatusEl);
+    }
+
+    // 创建验证弹窗
+    function createVerifyModal() {
+        const modal = document.createElement('div');
+        modal.className = 'verify-modal';
+        modal.innerHTML = `
+            <div class="modal-box">
+                <div class="modal-header">
+                    <div class="modal-icon">🔒</div>
+                    <h2 class="modal-title">安全验证</h2>
+                </div>
+                <p class="modal-desc">请复制下方验证码并完成验证，以确保您的操作安全</p>
+                <div class="verify-code" id="verifyCode">生成中...</div>
+                <p class="copy-tip">点击上方验证码可复制</p>
+                <div class="verify-input-wrap">
+                    <input type="text" class="verify-input" id="verifyInput" placeholder="请输入验证码" maxlength="6">
+                    <div class="verify-error" id="verifyError">验证码错误，请重新输入</div>
+                </div>
+                <div class="modal-btns">
+                    <button class="modal-btn cancel-btn" id="verifyCancel">取消</button>
+                    <button class="modal-btn confirm-btn" id="verifyConfirm">确认</button>
+                </div>
+                <div class="update-link-wrap">
+                    <a class="update-link" href="https://raw.githubusercontent.com/djdwix/2048games/main/3.user.js" target="_blank">检查更新</a>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+
+        // 添加事件监听
+        const verifyCodeEl = document.getElementById('verifyCode');
+        const verifyInputEl = document.getElementById('verifyInput');
+        const verifyErrorEl = document.getElementById('verifyError');
+        const verifyCancelEl = document.getElementById('verifyCancel');
+        const verifyConfirmEl = document.getElementById('verifyConfirm');
+
+        verifyCodeEl.addEventListener('click', function() {
+            if (!this.classList.contains('uncopyable')) {
+                copyToClipboard(verifyCode);
+                showCopySuccess();
+            }
+        });
+
+        verifyInputEl.addEventListener('input', function() {
+            verifyErrorEl.style.display = 'none';
+        });
+
+        verifyInputEl.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                verifyConfirmEl.click();
+            }
+        });
+
+        verifyCancelEl.addEventListener('click', function() {
+            hideVerifyModal();
+        });
+
+        verifyConfirmEl.addEventListener('click', function() {
+            const inputValue = verifyInputEl.value.trim();
+            if (inputValue === verifyCode) {
+                // 验证成功
+                resetCountdown();
+                hideVerifyModal();
+                addLog('验证成功，倒计时已重置', 'success');
+
+                // 触发进度条验证（如果不是强制验证）
+                if (!isForceVerify) {
+                    setTimeout(showProgressVerify, 500);
+                }
+            } else {
+                // 验证失败
+                verifyErrorEl.style.display = 'block';
+                verifyInputEl.value = '';
+                addLog('验证失败：验证码错误', 'error');
+            }
+        });
+    }
+
+    // 创建进度条验证弹窗 - 新增
+    function createProgressVerifyModal() {
+        const modal = document.createElement('div');
+        modal.className = 'progress-verify-modal';
+        modal.innerHTML = `
+            <div class="progress-modal-box">
+                <h2 class="progress-title">正在验证</h2>
+                <p class="progress-desc">请稍候，系统正在验证您的操作</p>
+                <div class="progress-status" id="progressStatus">0%</div>
+                <div class="progress-bar-container">
+                    <div class="progress-bar" id="progressBar"></div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    }
+
+    // 显示进度条验证 - 新增
+    function showProgressVerify() {
+        if (isProgressVerifying) return;
+        isProgressVerifying = true;
+
+        const modal = document.querySelector('.progress-verify-modal');
+        const progressBar = document.getElementById('progressBar');
+        const progressStatus = document.getElementById('progressStatus');
+
+        // 随机生成验证时间（5-13秒）
+        const verifyTime = Math.floor(Math.random() * (CONFIG.PROGRESS_VERIFY_MAX - CONFIG.PROGRESS_VERIFY_MIN + 1)) + CONFIG.PROGRESS_VERIFY_MIN;
+        let progress = 0;
+
+        modal.classList.add('active');
+
+        // 模拟进度条
+        const interval = setInterval(() => {
+            progress += 100 / (verifyTime * 10);
+            if (progress >= 100) {
+                progress = 100;
+                clearInterval(interval);
+                
+                // 验证完成
+                setTimeout(() => {
+                    modal.classList.remove('active');
+                    isProgressVerifying = false;
+                    addLog('进度条验证完成', 'success');
+                }, 500);
+            }
+            
+            progressBar.style.width = `${progress}%`;
+            progressStatus.textContent = `${Math.round(progress)}%`;
+        }, 100);
+    }
+
+    // 创建网络信息弹窗
+    function createNetModal() {
+        const modal = document.createElement('div');
+        modal.className = 'net-modal';
+        modal.innerHTML = `
+            <div class="net-modal-box">
+                <div class="net-modal-header">
+                    <h3 class="net-modal-title"><span>📶</span>网络状态</h3>
+                    <button class="net-modal-close" id="netModalClose">×</button>
+                </div>
+                <ul class="net-info-list">
+                    <li class="net-info-item">
+                        <span class="net-info-label">当前域名</span>
+                        <span class="net-info-value" id="currentDomain">加载中...</span>
+                    </li>
+                    <li class="net-info-item">
+                        <span class="net-info-label">网络状态</span>
+                        <span class="net-info-value dynamic" id="modalNetStatus">加载中...</span>
+                    </li>
+                    <li class="net-info-item">
+                        <span class="net-info-label">本地延迟</span>
+                        <span class="net-info-value dynamic" id="localDelay">未检测</span>
+                    </li>
+                    <li class="net-info-item">
+                        <span class="net-info-label">网页延迟</span>
+                        <span class="net-info-value dynamic" id="webDelay">未检测</span>
+                    </li>
+                    <li class="net-info-item">
+                        <span class="net-info-label">IP地址</span>
+                        <span class="net-info-value dynamic" id="ipAddress">未获取</span>
+                    </li>
+                    <li class="net-info-item">
+                        <span class="net-info-label">定位信息</span>
+                        <span class="net-info-value dynamic" id="locationInfo">未获取</span>
+                    </li>
+                    <li class="net-info-item">
+                        <span class="net-info-label">倒计时</span>
+                        <span class="net-info-value dynamic" id="modalCountdown">${formatTime(countdown)}</span>
+                    </li>
+                </ul>
+                <button class="modal-btn confirm-btn" id="exportLogs">导出日志</button>
+            </div>
+        `;
+        document.body.appendChild(modal);
+
+        // 添加事件监听
+        document.getElementById('netModalClose').addEventListener('click', hideNetModal);
+        document.getElementById('exportLogs').addEventListener('click', exportLogs);
+    }
+
+    // 显示网络信息弹窗
+    function showNetModal() {
+        const modal = document.querySelector('.net-modal');
+        modal.classList.add('active');
+
+        // 更新弹窗内容
+        document.getElementById('currentDomain').textContent = window.location.hostname;
+        document.getElementById('modalNetStatus').textContent = isOnline ? '正常' : '异常';
+        document.getElementById('modalCountdown').textContent = formatTime(countdown);
+
+        // 获取网络信息
+        getNetworkInfo();
+    }
+
+    // 隐藏网络信息弹窗
+    function hideNetModal() {
+        const modal = document.querySelector('.net-modal');
+        modal.classList.remove('active');
+    }
+
+    // 显示验证弹窗
+    function showVerifyModal(isForce = false) {
+        isVerifying = true;
+        isForceVerify = isForce;
+
+        const modal = document.querySelector('.verify-modal');
+        const verifyCodeEl = document.getElementById('verifyCode');
+        const verifyInputEl = document.getElementById('verifyInput');
+        const verifyErrorEl = document.getElementById('verifyError');
+
+        // 生成验证码
+        verifyCode = generateVerifyCode();
+        verifyCodeEl.textContent = verifyCode;
+        verifyCodeEl.classList.remove('uncopyable');
+
+        // 重置输入和错误提示
+        verifyInputEl.value = '';
+        verifyErrorEl.style.display = 'none';
+
+        modal.classList.add('active');
+        verifyInputEl.focus();
+
+        addLog(`${isForce ? '强制' : ''}验证弹窗已显示`, 'info');
+    }
+
+    // 隐藏验证弹窗
+    function hideVerifyModal() {
+        const modal = document.querySelector('.verify-modal');
+        modal.classList.remove('active');
+        isVerifying = false;
+        isForceVerify = false;
+
+        addLog('验证弹窗已隐藏', 'info');
+    }
+
+    // 生成验证码
+    function generateVerifyCode() {
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+        let code = '';
+        for (let i = 0; i < 6; i++) {
+            code += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        return code;
+    }
+
+    // 复制到剪贴板
+    function copyToClipboard(text) {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+
+        addLog('验证码已复制到剪贴板', 'info');
+    }
+
+    // 显示复制成功提示
+    function showCopySuccess() {
+        const tip = document.createElement('div');
+        tip.className = 'copy-success';
+        tip.textContent = '验证码已复制';
+        document.body.appendChild(tip);
+
+        setTimeout(() => {
+            document.body.removeChild(tip);
+        }, 1500);
+    }
+
+    // 开始倒计时
+    function startCountdown() {
+        clearInterval(timer);
+        timer = setInterval(() => {
+            countdown--;
+
+            // 更新倒计时显示
+            const timerEl = document.querySelector('.safe-timer');
+            if (timerEl) {
+                timerEl.textContent = formatTime(countdown);
+            }
+
+            // 更新弹窗中的倒计时（如果弹窗打开）
+            const modalCountdownEl = document.getElementById('modalCountdown');
+            if (modalCountdownEl) {
+                modalCountdownEl.textContent = formatTime(countdown);
+            }
+
+            // 检查是否需要强制验证（3秒内）
+            if (countdown <= CONFIG.FORCE_VERIFY_TIME && !isVerifying && !isForceVerify) {
+                showVerifyModal(true);
+                addLog('倒计时即将结束，强制验证已触发', 'warning');
+            }
+
+            // 检查倒计时是否结束
+            if (countdown <= 0) {
+                clearInterval(timer);
+                handleCountdownEnd();
+            }
+        }, 1000);
+    }
+
+    // 处理倒计时结束
+    function handleCountdownEnd() {
+        addLog('倒计时结束，页面即将刷新', 'warning');
+        
+        // 这里可以添加页面刷新或其他操作
+        // 例如：location.reload();
+        
+        // 重置倒计时
+        resetCountdown();
+    }
+
+    // 重置倒计时
+    function resetCountdown() {
+        countdown = CONFIG.COUNTDOWN_TIME;
+        const timerEl = document.querySelector('.safe-timer');
+        if (timerEl) {
+            timerEl.textContent = formatTime(countdown);
+        }
+        addLog('倒计时已重置', 'info');
+    }
+
+    // 格式化时间
+    function formatTime(seconds) {
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+
+    // 开始网络检测
+    function startNetworkCheck() {
+        setInterval(() => {
+            checkNetworkStatus();
+        }, 5000); // 每5秒检测一次
+
+        // 立即执行一次检测
+        checkNetworkStatus();
+    }
+
+    // 检测网络状态
+    function checkNetworkStatus() {
+        const startTime = Date.now();
+        const netStatusEl = document.querySelector('.net-status');
+
+        // 使用多个检测点提高准确性
+        const checkUrls = [
+            'https://www.google.com/favicon.ico?t=' + Date.now(),
+            'https://www.baidu.com/favicon.ico?t=' + Date.now(),
+            'https://www.cloudflare.com/favicon.ico?t=' + Date.now()
+        ];
+
+        let successCount = 0;
+        let totalDelay = 0;
+
+        // 并行检测多个地址
+        const checkPromises = checkUrls.map(url => {
+            return new Promise((resolve) => {
+                const img = new Image();
+                const timeout = setTimeout(() => {
+                    resolve(false);
+                }, 5000);
+
+                img.onload = () => {
+                    clearTimeout(timeout);
+                    resolve(true);
+                };
+                img.onerror = () => {
+                    clearTimeout(timeout);
+                    resolve(false);
+                };
+                img.src = url;
+            });
+        });
+
+        Promise.all(checkPromises).then(results => {
+            successCount = results.filter(result => result).length;
+            const newStatus = successCount >= 2;
+
+            // 更新网络状态
+            if (newStatus !== isOnline) {
+                isOnline = newStatus;
+                netStatusEl.textContent = isOnline ? '网络正常' : '网络异常';
+                netStatusEl.className = `net-status ${isOnline ? 'online' : 'offline'}`;
+                addLog(`网络状态变化: ${isOnline ? '正常' : '异常'}`, isOnline ? 'success' : 'error');
+            }
+
+            // 计算延迟（取平均值）
+            const checkTime = Date.now() - startTime;
+            totalDelay = Math.round(checkTime / 3); // 近似平均延迟
+
+            // 更新本地延迟显示
+            const localDelayEl = document.getElementById('localDelay');
+            if (localDelayEl) {
+                localDelayEl.textContent = `${totalDelay}ms`;
+            }
+
+            lastCheckTime = Date.now();
+        }).catch(() => {
+            // 检测失败，标记为离线
+            if (isOnline) {
+                isOnline = false;
+                netStatusEl.textContent = '网络异常';
+                netStatusEl.className = 'net-status offline';
+                addLog('网络状态变化: 异常', 'error');
+            }
+        });
+    }
+
+    // 获取网络信息
+    function getNetworkInfo() {
+        // 获取网页延迟（通过加载时间计算）
+        const navigation = performance.getEntriesByType('navigation')[0];
+        if (navigation) {
+            const webDelay = Math.round(navigation.loadEventEnd - navigation.requestStart);
+            const webDelayEl = document.getElementById('webDelay');
+            if (webDelayEl) {
+                webDelayEl.textContent = `${webDelay}ms`;
+            }
+        }
+
+        // 获取IP和定位信息
+        getIPAndLocation();
+    }
+
+    // 获取IP和定位信息
+    function getIPAndLocation() {
+        // 使用多个IP API提高成功率
+        const ipApis = [
+            'https://api.ipify.org?format=json',
+            'https://ipapi.co/json/',
+            'https://ipinfo.io/json'
+        ];
+
+        let attempted = 0;
+
+        const tryNextApi = () => {
+            if (attempted >= ipApis.length) return;
+
+            fetch(ipApis[attempted])
+                .then(response => response.json())
+                .then(data => {
+                    // 更新IP地址
+                    const ipAddressEl = document.getElementById('ipAddress');
+                    if (ipAddressEl) {
+                        ipAddressEl.textContent = data.ip || data.ipAddress || '未知';
+                    }
+
+                    // 更新定位信息
+                    const locationInfoEl = document.getElementById('locationInfo');
+                    if (locationInfoEl) {
+                        let locationText = '未知';
+                        if (data.city && data.country) {
+                            locationText = `${data.city}, ${data.country}`;
+                        } else if (data.loc) {
+                            locationText = data.loc;
+                        } else if (data.region && data.country) {
+                            locationText = `${data.region}, ${data.country}`;
+                        }
+                        locationInfoEl.textContent = locationText;
+                    }
+                })
+                .catch(() => {
+                    attempted++;
+                    tryNextApi();
+                });
+
+            attempted++;
+        };
+
+        tryNextApi();
+    }
+
+    // 添加日志
+    function addLog(message, type = 'info') {
+        const timestamp = new Date().toLocaleString();
+        const domain = window.location.hostname;
+        const logEntry = {
+            timestamp,
+            domain,
+            message,
+            type
+        };
+
+        logs.unshift(logEntry);
+
+        // 限制日志条数（最大3000条）
+        if (logs.length > CONFIG.MAX_LOG_ENTRIES) {
+            logs = logs.slice(0, CONFIG.MAX_LOG_ENTRIES);
+        }
+
+        // 保存到缓存
+        saveCache();
+    }
+
+    // 导出日志
+    function exportLogs() {
+        let logContent = '页面安全验证计时器 - 日志导出\n';
+        logContent += `导出时间: ${new Date().toLocaleString()}\n`;
+        logContent += `当前域名: ${window.location.hostname}\n`;
+        logContent += '==========================================\n\n';
+
+        logs.forEach(log => {
+            logContent += `[${log.timestamp}] [${log.domain}] [${log.type.toUpperCase()}] ${log.message}\n`;
+        });
+
+        const blob = new Blob([logContent], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `security_timer_logs_${new Date().toISOString().replace(/[:.]/g, '-')}.txt`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        addLog('日志已导出', 'info');
+    }
+
+    // 保存缓存
+    function saveCache() {
+        const cacheData = {
+            logs: logs,
+            timestamp: Date.now()
+        };
+        localStorage.setItem('securityTimerCache', JSON.stringify(cacheData));
+    }
+
+    // 加载缓存
+    function loadCache() {
+        const cacheData = localStorage.getItem('securityTimerCache');
+        if (cacheData) {
+            try {
+                const parsedData = JSON.parse(cacheData);
+                logs = parsedData.logs || [];
+
+                // 检查缓存是否超时（12分钟）
+                const cacheAge = Date.now() - parsedData.timestamp;
+                if (cacheAge > CONFIG.CACHE_TIMEOUT * 1000) {
+                    logs = [];
+                    addLog('缓存已超时，日志已清空', 'info');
+                }
+            } catch (e) {
+                addLog('加载缓存失败: ' + e.message, 'error');
+            }
+        }
+    }
+
+    // 开始缓存超时检查
+    function startCacheTimeoutCheck() {
+        clearInterval(cacheTimer);
+        cacheTimer = setInterval(() => {
+            const cacheData = localStorage.getItem('securityTimerCache');
+            if (cacheData) {
+                try {
+                    const parsedData = JSON.parse(cacheData);
+                    const cacheAge = Date.now() - parsedData.timestamp;
+                    
+                    // 如果缓存超时（12分钟），清空日志
+                    if (cacheAge > CONFIG.CACHE_TIMEOUT * 1000) {
+                        logs = [];
+                        saveCache();
+                        addLog('缓存已超时，日志已清空', 'info');
+                    }
+                } catch (e) {
+                    // 忽略错误
+                }
+            }
+        }, 60000); // 每分钟检查一次
+    }
+
+    // 添加页面事件监听
+    function addPageEventListeners() {
+        // 监听页面可见性变化
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                addLog('页面切换到后台', 'warning');
+            } else {
+                addLog('页面切换到前台', 'info');
+            }
+        });
+
+        // 监听页面卸载
+        window.addEventListener('beforeunload', () => {
+            addLog('页面即将关闭', 'warning');
+            saveCache();
+        });
+    }
+
+    // 初始化脚本
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
 })();
