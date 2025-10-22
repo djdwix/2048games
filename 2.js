@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         网页安全拦截器
 // @namespace    http://tampermonkey.net/
-// @version      1.0
+// @version      1.1
 // @description  拦截未备案网站和隐藏跳转页面，提升网页浏览安全性
 // @author       You
 // @match        *://*/*
@@ -36,6 +36,94 @@
         GM_setValue('checkedDomains', domains);
     }
 
+    // 显示安全检查弹窗
+    function showSecurityCheckPopup(domain, isSafe) {
+        const popup = document.createElement('div');
+        popup.style.cssText = `
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            z-index: 1000000;
+            font-family: Arial, sans-serif;
+            max-width: 400px;
+            text-align: center;
+            border: 3px solid ${isSafe ? '#4CAF50' : '#ff4444'};
+            animation: fadeIn 0.3s ease-in-out;
+        `;
+
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes fadeIn {
+                from { opacity: 0; transform: translate(-50%, -60%); }
+                to { opacity: 1; transform: translate(-50%, -50%); }
+            }
+            .security-overlay {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0,0,0,0.5);
+                z-index: 999999;
+            }
+        `;
+        document.head.appendChild(style);
+
+        const overlay = document.createElement('div');
+        overlay.className = 'security-overlay';
+        overlay.style.animation = 'fadeIn 0.3s ease-in-out';
+
+        const title = document.createElement('h3');
+        title.textContent = '网页安全检查';
+        title.style.cssText = 'margin: 0 0 15px 0; color: #333;';
+
+        const message = document.createElement('p');
+        message.textContent = isSafe ? 
+            `网站 ${domain} 已通过安全检查，可以正常访问。` : 
+            `警告：网站 ${domain} 可能存在安全风险，请谨慎访问！`;
+        message.style.cssText = 'margin: 0 0 20px 0; color: #666; line-height: 1.5;';
+
+        const closeBtn = document.createElement('button');
+        closeBtn.textContent = '确认';
+        closeBtn.style.cssText = `
+            background: ${isSafe ? '#4CAF50' : '#ff4444'};
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.3s;
+        `;
+
+        closeBtn.onmouseover = function() {
+            this.style.background = isSafe ? '#45a049' : '#cc0000';
+        };
+        closeBtn.onmouseout = function() {
+            this.style.background = isSafe ? '#4CAF50' : '#ff4444';
+        };
+
+        closeBtn.onclick = function() {
+            document.body.removeChild(popup);
+            document.body.removeChild(overlay);
+            document.head.removeChild(style);
+        };
+
+        popup.appendChild(title);
+        popup.appendChild(message);
+        popup.appendChild(closeBtn);
+
+        document.addEventListener('DOMContentLoaded', function() {
+            document.body.appendChild(overlay);
+            document.body.appendChild(popup);
+        });
+    }
+
     // 拦截可疑跳转
     function interceptSuspiciousRedirects() {
         const originalWindowOpen = window.open;
@@ -52,24 +140,30 @@
             return originalWindowOpen.apply(this, args);
         };
 
-        // 拦截location.href跳转
-        const originalDescriptor = Object.getOwnPropertyDescriptor(window.Location.prototype, 'href');
-        Object.defineProperty(window.Location.prototype, 'href', {
-            get: function() {
-                return originalDescriptor.get.call(this);
-            },
-            set: function(value) {
-                if (isSuspiciousURL(value)) {
-                    GM_notification({
-                        title: '安全拦截',
-                        text: '已拦截可疑的页面跳转: ' + value,
-                        timeout: 3000
-                    });
-                    return;
-                }
-                originalDescriptor.set.call(this, value);
+        // 安全地拦截location.href跳转
+        try {
+            const originalDescriptor = Object.getOwnPropertyDescriptor(window.Location.prototype, 'href');
+            if (originalDescriptor) {
+                Object.defineProperty(window.Location.prototype, 'href', {
+                    get: function() {
+                        return originalDescriptor.get.call(this);
+                    },
+                    set: function(value) {
+                        if (isSuspiciousURL(value)) {
+                            GM_notification({
+                                title: '安全拦截',
+                                text: '已拦截可疑的页面跳转: ' + value,
+                                timeout: 3000
+                            });
+                            return;
+                        }
+                        originalDescriptor.set.call(this, value);
+                    }
+                });
             }
-        });
+        } catch (error) {
+            console.warn('Location拦截失败:', error);
+        }
 
         // 拦截replace方法
         const originalReplace = window.location.replace;
@@ -107,29 +201,36 @@
     // 检查网站备案信息
     function checkSiteRecord(domain) {
         const domains = getCheckedDomains();
-        if (domains[domain] && (Date.now() - domains[domain].timestamp) < 86400000) {
-            return;
-        }
+        const currentTime = Date.now();
+        const cacheTime = 86400000; // 24小时缓存
 
+        // 无论是否缓存，都进行检查并弹窗提示
         GM_xmlhttpRequest({
             method: 'GET',
             url: `${RECORD_CHECK_API}?domain=${encodeURIComponent(domain)}`,
             timeout: 5000,
             onload: function(response) {
+                let isSafe = false;
                 if (response.status === 200) {
                     try {
                         const result = JSON.parse(response.responseText);
+                        isSafe = result.hasRecord;
                         saveCheckedDomain(domain, result.hasRecord);
-                        if (!result.hasRecord) {
-                            showWarning('该网站未备案，请注意安全风险: ' + domain);
-                        }
                     } catch (e) {
                         console.error('备案信息解析失败:', e);
+                        isSafe = false;
                     }
+                } else {
+                    isSafe = false;
                 }
+                
+                // 无论是否安全都显示弹窗
+                showSecurityCheckPopup(domain, isSafe);
             },
             onerror: function() {
                 console.warn('备案信息查询失败: ' + domain);
+                // 查询失败时也显示弹窗
+                showSecurityCheckPopup(domain, false);
             }
         });
     }
@@ -153,14 +254,25 @@
             width: 100%;
             background: #ff4444;
             color: white;
-            padding: 10px;
+            padding: 12px;
             text-align: center;
             z-index: 999999;
             font-family: Arial, sans-serif;
             font-size: 14px;
             font-weight: bold;
             border-bottom: 2px solid #cc0000;
+            animation: slideDown 0.3s ease-out;
         `;
+
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes slideDown {
+                from { transform: translateY(-100%); }
+                to { transform: translateY(0); }
+            }
+        `;
+        document.head.appendChild(style);
+
         warningBanner.textContent = '⚠ ' + message;
         document.addEventListener('DOMContentLoaded', function() {
             document.body.appendChild(warningBanner);
@@ -200,6 +312,7 @@
         if (href && isSuspiciousURL(href)) {
             link.style.border = '2px solid red';
             link.style.padding = '2px';
+            link.style.borderRadius = '3px';
             link.title = '可疑链接: ' + href;
             
             const originalClick = link.onclick;
@@ -213,7 +326,7 @@
                 if (originalClick) {
                     return originalClick.call(this, e);
                 }
-            });
+            }, true);
         }
     }
 
@@ -222,6 +335,7 @@
         const src = iframe.getAttribute('src');
         if (src && isSuspiciousURL(src)) {
             iframe.style.border = '3px solid orange';
+            iframe.style.borderRadius = '5px';
             console.log('检测到可疑iframe: ', src);
         }
     }
@@ -279,10 +393,10 @@
     function initSecurityInterceptor() {
         const currentDomain = window.location.hostname;
         
-        // 延迟执行备案检查
+        // 每次访问都进行检查并弹窗
         setTimeout(() => {
             checkSiteRecord(currentDomain);
-        }, 1000);
+        }, 500);
 
         interceptSuspiciousRedirects();
         interceptXHR();
