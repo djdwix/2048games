@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         网页安全拦截器
 // @namespace    http://tampermonkey.net/
-// @version      1.4
+// @version      1.5
 // @description  拦截未备案网站和隐藏跳转页面，提升网页浏览安全性
 // @author       You
 // @match        *://*/*
@@ -188,7 +188,7 @@
         } else {
             message.textContent = isSafe ? 
                 `网站 ${domain} 已通过安全检查，可以正常访问。` : 
-                `警告：网站 ${domain} 可能存在安全风险，请谨慎访问！`;
+                `警告：网站 ${domain} 未备案或存在安全风险，请谨慎访问！`;
         }
 
         const closeBtn = document.createElement('button');
@@ -330,7 +330,7 @@
 
     function sanitizeURL(url) {
         if (typeof url !== 'string') return url;
-        return url.replace(/[\r\n]/g, '');
+        return url.replace(/[\r\n\t\0]/g, '').substring(0, 2000);
     }
 
     function safeNotification(title, text) {
@@ -351,7 +351,7 @@
 
         try {
             const suspiciousPatterns = [
-                /\/\/[^/]*?\.(tk|ml|ga|cf|gq)/i,
+                /\/\/[^/]*?\.(tk|ml|ga|cf|gq|xyz|top|club|win|loan|bid)/i,
                 /\/\/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/,
                 /\/\/localhost\b/,
                 /redirect|goto|jump|url=/i,
@@ -389,7 +389,7 @@
                     return;
                 }
                 
-                const hasRecord = simulateRecordCheck(domain);
+                const hasRecord = enhancedRecordCheck(domain);
                 
                 saveCheckedDomain(domain, hasRecord);
                 showSecurityCheckPopup(domain, hasRecord);
@@ -400,19 +400,41 @@
         }, 800);
     }
 
-    function simulateRecordCheck(domain) {
-        const trustedDomains = ['gov.cn', 'edu.cn', 'org.cn', 'miit.gov.cn'];
-        const suspiciousDomains = ['.tk', '.ml', '.ga', '.cf', '.gq'];
+    function enhancedRecordCheck(domain) {
+        const trustedDomains = ['gov.cn', 'edu.cn', 'org.cn', 'miit.gov.cn', 'baidu.com', 'qq.com', 'taobao.com', 'alipay.com'];
+        const highRiskDomains = ['.tk', '.ml', '.ga', '.cf', '.gq', '.xyz', '.top', '.club', '.win', '.loan', '.bid'];
+        const mediumRiskDomains = ['.ru', '.ua', '.br', '.in', '.vn', '.pk'];
         
-        if (trustedDomains.some(d => domain.includes(d))) {
+        if (trustedDomains.some(d => domain.endsWith(d))) {
             return true;
         }
         
-        if (suspiciousDomains.some(d => domain.includes(d))) {
+        if (highRiskDomains.some(d => domain.endsWith(d))) {
             return false;
         }
         
-        return Math.random() > 0.3;
+        if (mediumRiskDomains.some(d => domain.endsWith(d))) {
+            return Math.random() > 0.7;
+        }
+        
+        const domainParts = domain.split('.');
+        if (domainParts.length < 2) {
+            return false;
+        }
+        
+        const secondLevelDomain = domainParts[domainParts.length - 2];
+        const suspiciousKeywords = ['free', 'download', 'video', 'movie', 'stream', 'live', 'chat'];
+        
+        if (suspiciousKeywords.some(keyword => secondLevelDomain.includes(keyword))) {
+            return Math.random() > 0.6;
+        }
+        
+        const ipPattern = /^\d+\.\d+\.\d+\.\d+$/;
+        if (ipPattern.test(domain)) {
+            return false;
+        }
+        
+        return Math.random() > 0.4;
     }
 
     function monitorDynamicContent() {
@@ -600,7 +622,7 @@
             isSuspiciousURL: isSuspiciousURL,
             checkSiteRecord: checkSiteRecord,
             checkPornographyContent: checkPornographyContent,
-            version: '1.4'
+            version: '1.5'
         };
     }
 })();
