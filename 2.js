@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         网页安全拦截器
 // @namespace    http://tampermonkey.net/
-// @version      1.7
+// @version      1.8
 // @description  拦截未备案网站和隐藏跳转页面，提升网页浏览安全性
 // @author       You
 // @match        *://*/*
@@ -25,7 +25,8 @@
         RECORD_CHECK_API: 'https://beian.miit.gov.cn/',
         CACHE_TIME: 86400000,
         SCAN_DELAY: 200,
-        FLOATING_BALL: true
+        FLOATING_BALL: true,
+        SECURITY_LEVEL: 'high'
     };
 
     const KEYWORD_LIBRARY = {
@@ -53,10 +54,103 @@
         ]
     };
 
+    const SecuritySystem = {
+        init() {
+            this.enableCSP();
+            this.protectGlobalObjects();
+            this.detectTampering();
+        },
+
+        enableCSP() {
+            const cspMeta = document.createElement('meta');
+            cspMeta.httpEquiv = 'Content-Security-Policy';
+            cspMeta.content = "script-src 'self' 'unsafe-eval' 'unsafe-inline'; object-src 'none'";
+            document.head.appendChild(cspMeta);
+        },
+
+        protectGlobalObjects() {
+            const protectedObjects = ['XMLHttpRequest', 'fetch', 'setTimeout', 'setInterval'];
+            protectedObjects.forEach(objName => {
+                if (window[objName]) {
+                    Object.defineProperty(window, objName, {
+                        value: window[objName],
+                        writable: false,
+                        configurable: false
+                    });
+                }
+            });
+        },
+
+        detectTampering() {
+            const originalFunctions = {
+                addEventListener: EventTarget.prototype.addEventListener,
+                removeEventListener: EventTarget.prototype.removeEventListener
+            };
+
+            EventTarget.prototype.addEventListener = function(type, listener, options) {
+                if (typeof listener === 'function') {
+                    const wrappedListener = function(...args) {
+                        try {
+                            return listener.apply(this, args);
+                        } catch (error) {
+                            console.warn('Security: Event listener error', error);
+                        }
+                    };
+                    return originalFunctions.addEventListener.call(this, type, wrappedListener, options);
+                }
+                return originalFunctions.addEventListener.call(this, type, listener, options);
+            };
+
+            setInterval(() => {
+                this.checkScriptIntegrity();
+            }, 10000);
+        },
+
+        checkScriptIntegrity() {
+            const currentScript = document.currentScript;
+            if (!currentScript) return;
+
+            const scriptContent = currentScript.textContent;
+            const checksum = this.generateChecksum(scriptContent);
+            
+            const storedChecksum = GM_getValue('script_checksum');
+            if (!storedChecksum) {
+                GM_setValue('script_checksum', checksum);
+            } else if (storedChecksum !== checksum) {
+                console.error('Security: Script integrity check failed');
+                this.emergencyShutdown();
+            }
+        },
+
+        generateChecksum(str) {
+            let hash = 0;
+            for (let i = 0; i < str.length; i++) {
+                const char = str.charCodeAt(i);
+                hash = ((hash << 5) - hash) + char;
+                hash = hash & hash;
+            }
+            return hash.toString();
+        },
+
+        emergencyShutdown() {
+            window.location.href = 'about:blank';
+        },
+
+        validateSecurityContext() {
+            if (window !== window.top) {
+                return 'iframe';
+            }
+            if (document.location.protocol === 'file:') {
+                return 'local_file';
+            }
+            return 'secure';
+        }
+    };
+
     const SecurityUtils = {
         sanitizeInput(input) {
             if (typeof input !== 'string') return '';
-            return input.replace(/[\r\n\t\0<>"'`\\]/g, '').substring(0, 500);
+            return input.replace(/[\r\n\t\0<>"'`\\\u0000-\u001F\u007F-\u009F]/g, '').substring(0, 500);
         },
 
         validateDomain(domain) {
@@ -81,6 +175,17 @@
                 };
                 clearTimeout(timeout);
                 timeout = setTimeout(later, wait);
+            };
+        },
+
+        throttle(func, limit) {
+            let inThrottle;
+            return function(...args) {
+                if (!inThrottle) {
+                    func.apply(this, args);
+                    inThrottle = true;
+                    setTimeout(() => inThrottle = false, limit);
+                }
             };
         }
     };
@@ -123,6 +228,10 @@
     };
 
     const FloatingBall = {
+        isDragging: false,
+        dragData: null,
+        animationFrame: null,
+
         init() {
             if (!SECURITY_CONFIG.FLOATING_BALL) return;
             
@@ -138,6 +247,7 @@
             ball.id = 'security-floating-ball';
             ball.innerHTML = '🔍';
             ball.title = '点击扫描当前网页';
+            ball.setAttribute('aria-label', '安全扫描悬浮球');
 
             GM_addStyle(`
                 #security-floating-ball {
@@ -157,8 +267,9 @@
                     box-shadow: 0 4px 15px rgba(0,0,0,0.2);
                     border: 2px solid white;
                     user-select: none;
-                    transition: all 0.3s ease;
+                    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
                     touch-action: none;
+                    will-change: transform;
                 }
                 #security-floating-ball:hover {
                     transform: scale(1.1);
@@ -169,6 +280,10 @@
                 }
                 #security-floating-ball.scanning {
                     animation: pulse 1s infinite;
+                }
+                #security-floating-ball.dragging {
+                    transition: none;
+                    cursor: grabbing;
                 }
                 @keyframes pulse {
                     0% { transform: scale(1); }
@@ -193,76 +308,113 @@
             const ball = document.getElementById('security-floating-ball');
             if (!ball) return;
 
-            let isDragging = false;
-            let startX, startY, initialX, initialY;
-
-            ball.addEventListener('mousedown', this.startDrag);
-            ball.addEventListener('touchstart', this.startDrag, { passive: false });
+            ball.addEventListener('mousedown', (e) => this.startDrag(e));
+            ball.addEventListener('touchstart', (e) => this.startDrag(e), { passive: false });
 
             ball.addEventListener('click', (e) => {
-                if (!isDragging) {
+                if (!this.isDragging) {
                     this.startScan();
                 }
             });
 
-            document.addEventListener('mousemove', this.drag);
-            document.addEventListener('touchmove', this.drag, { passive: false });
+            document.addEventListener('mousemove', (e) => this.drag(e));
+            document.addEventListener('touchmove', (e) => this.drag(e), { passive: false });
             
-            document.addEventListener('mouseup', this.stopDrag);
-            document.addEventListener('touchend', this.stopDrag);
+            document.addEventListener('mouseup', () => this.stopDrag());
+            document.addEventListener('touchend', () => this.stopDrag());
+            document.addEventListener('touchcancel', () => this.stopDrag());
         },
 
         startDrag(e) {
             const ball = document.getElementById('security-floating-ball');
             if (!ball) return;
 
-            isDragging = true;
-            ball.style.cursor = 'grabbing';
-            ball.style.transition = 'none';
+            this.isDragging = true;
+            ball.classList.add('dragging');
 
+            const rect = ball.getBoundingClientRect();
             const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
             const clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
 
-            startX = clientX - ball.offsetLeft;
-            startY = clientY - ball.offsetTop;
-            initialX = ball.offsetLeft;
-            initialY = ball.offsetTop;
+            this.dragData = {
+                startX: clientX - rect.left,
+                startY: clientY - rect.top,
+                initialX: rect.left,
+                initialY: rect.top
+            };
 
             e.preventDefault();
+            e.stopPropagation();
         },
 
         drag(e) {
-            if (!isDragging) return;
+            if (!this.isDragging || !this.dragData) return;
 
-            const ball = document.getElementById('security-floating-ball');
-            if (!ball) return;
+            if (this.animationFrame) {
+                cancelAnimationFrame(this.animationFrame);
+            }
 
-            const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
-            const clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
+            this.animationFrame = requestAnimationFrame(() => {
+                const ball = document.getElementById('security-floating-ball');
+                if (!ball) return;
 
-            let newX = clientX - startX;
-            let newY = clientY - startY;
+                const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
+                const clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
 
-            const maxX = window.innerWidth - ball.offsetWidth;
-            const maxY = window.innerHeight - ball.offsetHeight;
+                let newX = clientX - this.dragData.startX;
+                let newY = clientY - this.dragData.startY;
 
-            newX = Math.max(0, Math.min(newX, maxX));
-            newY = Math.max(0, Math.min(newY, maxY));
+                const maxX = window.innerWidth - ball.offsetWidth;
+                const maxY = window.innerHeight - ball.offsetHeight;
 
-            ball.style.left = newX + 'px';
-            ball.style.top = newY + 'px';
-            ball.style.right = 'auto';
+                newX = Math.max(0, Math.min(newX, maxX));
+                newY = Math.max(0, Math.min(newY, maxY));
 
-            e.preventDefault();
+                ball.style.left = newX + 'px';
+                ball.style.top = newY + 'px';
+                ball.style.right = 'auto';
+
+                e.preventDefault();
+            });
         },
 
         stopDrag() {
-            isDragging = false;
+            this.isDragging = false;
+            if (this.animationFrame) {
+                cancelAnimationFrame(this.animationFrame);
+                this.animationFrame = null;
+            }
+
             const ball = document.getElementById('security-floating-ball');
             if (ball) {
-                ball.style.cursor = 'move';
-                ball.style.transition = 'all 0.3s ease';
+                ball.classList.remove('dragging');
+                
+                setTimeout(() => {
+                    this.saveBallPosition(ball.style.left, ball.style.top);
+                }, 100);
             }
+
+            this.dragData = null;
+        },
+
+        saveBallPosition(left, top) {
+            try {
+                GM_setValue('floatingBallPosition', { left, top });
+            } catch {}
+        },
+
+        loadBallPosition() {
+            try {
+                const position = GM_getValue('floatingBallPosition');
+                if (position && position.left && position.top) {
+                    const ball = document.getElementById('security-floating-ball');
+                    if (ball) {
+                        ball.style.left = position.left;
+                        ball.style.top = position.top;
+                        ball.style.right = 'auto';
+                    }
+                }
+            } catch {}
         },
 
         startScan() {
@@ -270,18 +422,18 @@
             if (ball) {
                 ball.classList.add('scanning');
                 ball.innerHTML = '⏳';
+                
+                setTimeout(() => {
+                    SecurityEngine.quickScan();
+                    if (ball) {
+                        ball.classList.remove('scanning');
+                        ball.innerHTML = '✅';
+                        setTimeout(() => {
+                            ball.innerHTML = '🔍';
+                        }, 1500);
+                    }
+                }, 800);
             }
-
-            setTimeout(() => {
-                SecurityEngine.quickScan();
-                if (ball) {
-                    ball.classList.remove('scanning');
-                    ball.innerHTML = '✅';
-                    setTimeout(() => {
-                        ball.innerHTML = '🔍';
-                    }, 2000);
-                }
-            }, 500);
         }
     };
 
@@ -413,12 +565,20 @@
 
     const ContentScanner = {
         quickScan() {
-            const domain = window.location.hostname;
-            const hasPornography = this.checkPornographyContent();
-            if (!hasPornography) {
+            const scanResults = {
+                pornography: this.checkPornographyContent(),
+                suspiciousLinks: this.scanSuspiciousLinks(),
+                iframes: this.scanSuspiciousIframes(),
+                timestamp: Date.now()
+            };
+
+            if (!scanResults.pornography) {
+                const domain = window.location.hostname;
                 const hasRecord = SecurityCore.enhancedRecordCheck(domain);
                 UIManager.showSecurityCheckPopup(domain, hasRecord, false);
             }
+
+            return scanResults;
         },
 
         checkPornographyContent() {
@@ -441,6 +601,32 @@
                 return true;
             }
             return false;
+        },
+
+        scanSuspiciousLinks() {
+            const links = document.getElementsByTagName('a');
+            let suspiciousCount = 0;
+            
+            for (let link of links) {
+                if (this.checkLink(link)) {
+                    suspiciousCount++;
+                }
+            }
+            
+            return suspiciousCount;
+        },
+
+        scanSuspiciousIframes() {
+            const iframes = document.getElementsByTagName('iframe');
+            let suspiciousCount = 0;
+            
+            for (let iframe of iframes) {
+                if (this.checkIframe(iframe)) {
+                    suspiciousCount++;
+                }
+            }
+            
+            return suspiciousCount;
         },
 
         monitorDynamicContent() {
@@ -473,14 +659,18 @@
                         e.preventDefault(); e.stopPropagation();
                     }
                 }, { capture: true });
+                return true;
             }
+            return false;
         },
 
         checkIframe(iframe) {
             const src = iframe.getAttribute('src');
             if (src && SecurityCore.isSuspiciousURL(src)) {
                 iframe.style.border = '3px solid orange';
+                return true;
             }
+            return false;
         }
     };
 
@@ -602,6 +792,8 @@
 
     const SecurityEngine = {
         init() {
+            SecuritySystem.init();
+            
             const domain = window.location.hostname;
             
             setTimeout(() => {
@@ -613,6 +805,10 @@
             RequestInterceptor.init();
             ContentScanner.monitorDynamicContent();
             FloatingBall.init();
+            
+            setTimeout(() => {
+                FloatingBall.loadBallPosition();
+            }, 500);
         },
 
         checkSiteRecord(domain) {
@@ -630,7 +826,7 @@
         },
 
         quickScan() {
-            ContentScanner.quickScan();
+            return ContentScanner.quickScan();
         }
     };
 
@@ -641,8 +837,9 @@
     }
 
     window.securityInterceptor = {
-        version: '1.7',
+        version: '1.8',
         config: SECURITY_CONFIG,
-        quickScan: () => SecurityEngine.quickScan()
+        quickScan: () => SecurityEngine.quickScan(),
+        securitySystem: SecuritySystem
     };
 })();
