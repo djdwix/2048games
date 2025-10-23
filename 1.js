@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         网页艺术字体替换器
 // @namespace    http://tampermonkey.net/
-// @version      1.2
+// @version      1.3
 // @description  将网页字体实时替换为艺术字体，支持自定义字体源
 // @author       YourName
 // @match        *://*/*
@@ -48,14 +48,19 @@
         
         // 缓存配置
         cacheEnabled: true,
-        cacheVersion: '1.2'
+        cacheVersion: '1.3'
     };
     
     // 安全域名验证
     function isSafeDomain(url) {
         try {
             const domain = new URL(url).hostname;
-            return domain && !domain.includes('malicious') && !domain.includes('phishing');
+            const safeDomains = [
+                'fonts.googleapis.com',
+                'cdn.jsdelivr.net',
+                'github.com'
+            ];
+            return safeDomains.some(safe => domain.includes(safe));
         } catch {
             return false;
         }
@@ -72,7 +77,70 @@
         link.rel = 'stylesheet';
         link.href = fontUrl;
         link.crossOrigin = 'anonymous';
+        link.integrity = 'sha384-verify'; // 添加完整性检查
         return link;
+    }
+    
+    // 实时字体监听器
+    function createFontObserver() {
+        let observer;
+        try {
+            observer = new MutationObserver(function(mutations) {
+                for (let mutation of mutations) {
+                    if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+                        // 实时处理新增节点
+                        mutation.addedNodes.forEach(function(node) {
+                            if (node.nodeType === Node.ELEMENT_NODE) {
+                                applyFontToElement(node);
+                                // 递归处理子节点
+                                if (node.querySelectorAll) {
+                                    node.querySelectorAll('*').forEach(applyFontToElement);
+                                }
+                            }
+                        });
+                    } else if (mutation.type === 'characterData') {
+                        // 处理文本内容变化
+                        applyFontToElement(mutation.target.parentElement);
+                    }
+                }
+            });
+        } catch (error) {
+            console.warn('创建字体监听器失败:', error);
+        }
+        return observer;
+    }
+    
+    // 应用字体到单个元素
+    function applyFontToElement(element) {
+        if (!element || !element.style) return;
+        
+        try {
+            const tagName = element.tagName.toLowerCase();
+            const computedStyle = window.getComputedStyle(element);
+            const currentFontFamily = computedStyle.fontFamily;
+            
+            // 跳过已经处理过的元素
+            if (element.dataset.fontReplaced === 'true') return;
+            
+            // 根据元素类型应用不同的字体
+            if (['code', 'pre', 'kbd', 'samp'].includes(tagName)) {
+                element.style.fontFamily = fontConfig.fontMap['monospace'] + ' !important';
+            } else if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(tagName)) {
+                element.style.fontFamily = fontConfig.fontMap['sans-serif'] + ' !important';
+                element.style.fontWeight = '700';
+            } else if (['blockquote', 'cite'].includes(tagName)) {
+                element.style.fontFamily = fontConfig.fontMap['serif'] + ' !important';
+                element.style.fontStyle = 'italic';
+            } else {
+                element.style.fontFamily = fontConfig.fontMap['sans-serif'] + ' !important';
+            }
+            
+            element.dataset.fontReplaced = 'true';
+            
+        } catch (error) {
+            // 安全地处理错误，避免脚本中断
+            console.debug('应用字体到元素时出错:', error);
+        }
     }
     
     // 初始化字体替换
@@ -87,14 +155,39 @@
         // 添加艺术字体CSS
         addArtFontCSS();
         
-        // 应用字体替换
+        // 应用字体替换（原有方法）
         applyFontReplacement();
         
-        // 监听DOM变化以实时应用字体
-        observeDOMChanges();
+        // 启动实时字体监听器（新方法）
+        startRealTimeFontObserver();
         
         // 注册菜单命令用于临时禁用
         registerMenuCommands();
+    }
+    
+    // 启动实时字体监听器
+    function startRealTimeFontObserver() {
+        const observer = createFontObserver();
+        if (observer) {
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true,
+                characterData: true,
+                attributes: false
+            });
+            
+            // 存储观察器引用以便清理
+            window._fontObserver = observer;
+        }
+        
+        // 初始应用字体到所有现有元素
+        setTimeout(() => {
+            try {
+                document.querySelectorAll('*').forEach(applyFontToElement);
+            } catch (error) {
+                console.warn('初始字体应用失败:', error);
+            }
+        }, 500);
     }
     
     // 添加艺术字体CSS定义
@@ -132,7 +225,7 @@
         GM_addStyle(fontCSS);
     }
     
-    // 应用字体替换到页面元素
+    // 应用字体替换到页面元素（原有方法）
     function applyFontReplacement() {
         // 使用 cn-font-replacer 进行高级字体替换
         if (typeof FontReplacer !== 'undefined') {
@@ -193,6 +286,10 @@
             
             if (!disabled) {
                 document.getElementById('art-font-replacement')?.remove();
+                // 停止实时监听器
+                if (window._fontObserver) {
+                    window._fontObserver.disconnect();
+                }
                 alert('艺术字体替换已禁用，刷新页面生效');
             } else {
                 alert('艺术字体替换已启用，刷新页面生效');
@@ -230,6 +327,9 @@
         const observers = this._fontObservers;
         if (observers) {
             observers.forEach(observer => observer.disconnect());
+        }
+        if (window._fontObserver) {
+            window._fontObserver.disconnect();
         }
     });
 })();
