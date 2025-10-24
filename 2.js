@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         网页安全拦截器
 // @namespace    http://tampermonkey.net/
-// @version      1.9
+// @version      2.0
 // @description  拦截未备案网站和隐藏跳转页面，提升网页浏览安全性
 // @author       You
 // @match        *://*/*
@@ -28,41 +28,60 @@
         SCAN_DELAY: 200,
         FLOATING_BALL: true,
         SECURITY_LEVEL: 'high',
-        SCRIPT_SOURCE: 'https://raw.githubusercontent.com/djdwix/2048games/main/2.js'
+        SCRIPT_SOURCE: 'https://raw.githubusercontent.com/djdwix/2048games/main/2.js',
+        INTEGRITY_CHECK: true
     };
 
-    const SecurityLock = {
+    const SecurityValidator = {
         async verifyScriptIntegrity() {
+            if (!SECURITY_CONFIG.INTEGRITY_CHECK) {
+                return true;
+            }
+
             try {
-                const currentScript = document.currentScript || (() => {
-                    const scripts = document.scripts;
-                    return scripts[scripts.length - 1];
-                })();
-                
-                if (!currentScript) {
-                    this.showSecurityWarning('无法验证脚本完整性');
-                    return false;
+                const currentScriptContent = this.getCurrentScriptContent();
+                if (!currentScriptContent) {
+                    console.warn('无法获取当前脚本内容，跳过完整性检查');
+                    return true;
                 }
 
-                const localChecksum = this.generateChecksum(currentScript.textContent);
+                const localChecksum = this.generateChecksum(currentScriptContent);
                 const remoteChecksum = await this.fetchRemoteChecksum();
                 
-                if (!remoteChecksum) {
+                if (remoteChecksum === null) {
                     console.warn('无法获取远程校验码，跳过完整性检查');
                     return true;
                 }
 
                 if (localChecksum !== remoteChecksum) {
-                    this.showSecurityWarning('脚本内容已被篡改，请从官方渠道下载');
+                    this.showSecurityWarning('脚本完整性验证失败，内容可能被篡改');
                     return false;
                 }
 
                 GM_setValue('script_checksum', localChecksum);
+                console.log('脚本完整性验证通过');
                 return true;
             } catch (error) {
                 console.error('完整性检查失败:', error);
-                this.showSecurityWarning('安全验证失败');
-                return false;
+                return true;
+            }
+        },
+
+        getCurrentScriptContent() {
+            try {
+                const scripts = document.scripts;
+                for (let i = scripts.length - 1; i >= 0; i--) {
+                    const script = scripts[i];
+                    if (script.src && script.src.includes('2.js')) {
+                        return null;
+                    }
+                    if (script.textContent && script.textContent.includes('securityInterceptor')) {
+                        return script.textContent;
+                    }
+                }
+                return null;
+            } catch (error) {
+                return null;
             }
         },
 
@@ -71,10 +90,10 @@
                 GM_xmlhttpRequest({
                     method: 'GET',
                     url: SECURITY_CONFIG.SCRIPT_SOURCE + '?t=' + Date.now(),
-                    timeout: 10000,
+                    timeout: 8000,
                     onload: function(response) {
                         if (response.status === 200) {
-                            const checksum = SecurityLock.generateChecksum(response.responseText);
+                            const checksum = SecurityValidator.generateChecksum(response.responseText);
                             resolve(checksum);
                         } else {
                             resolve(null);
@@ -91,14 +110,19 @@
         },
 
         generateChecksum(content) {
+            if (!content) return 'invalid';
+            const cleanContent = content
+                .replace(/\s+/g, '')
+                .replace(/\/\*[\s\S]*?\*\//g, '')
+                .replace(/\/\/[^\n]*\n/g, '');
+            
             let hash = 0;
-            const str = content.replace(/\s+/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
-            for (let i = 0; i < str.length; i++) {
-                const char = str.charCodeAt(i);
+            for (let i = 0; i < cleanContent.length; i++) {
+                const char = cleanContent.charCodeAt(i);
                 hash = ((hash << 5) - hash) + char;
                 hash = hash & hash;
             }
-            return Math.abs(hash).toString(36);
+            return Math.abs(hash).toString(36) + cleanContent.length.toString(36);
         },
 
         showSecurityWarning(message) {
@@ -109,39 +133,195 @@
                     left: 0;
                     width: 100%;
                     height: 100%;
-                    background: rgba(0,0,0,0.8);
+                    background: rgba(0,0,0,0.9);
                     z-index: 2147483647;
                     display: flex;
                     align-items: center;
                     justify-content: center;
                     font-family: Arial, sans-serif;
+                    color: white;
                 ">
                     <div style="
-                        background: white;
+                        background: #ff4444;
                         padding: 30px;
-                        border-radius: 10px;
+                        border-radius: 15px;
                         text-align: center;
-                        max-width: 400px;
-                        box-shadow: 0 0 20px rgba(255,0,0,0.5);
-                        border: 3px solid #ff4444;
+                        max-width: 500px;
+                        box-shadow: 0 0 30px rgba(255,0,0,0.7);
+                        border: 4px solid #ff0000;
                     ">
-                        <h2 style="color: #ff4444; margin: 0 0 20px 0;">安全警告</h2>
-                        <p style="color: #333; margin: 0 0 20px 0; line-height: 1.5;">${message}</p>
-                        <button onclick="this.parentElement.parentElement.parentElement.remove()" style="
-                            background: #ff4444;
-                            color: white;
-                            border: none;
-                            padding: 10px 20px;
-                            border-radius: 5px;
-                            cursor: pointer;
-                            font-size: 16px;
-                        ">关闭</button>
+                        <h2 style="margin: 0 0 20px 0; color: white;">⚠️ 安全警告</h2>
+                        <p style="margin: 0 0 25px 0; line-height: 1.6; font-size: 16px;">${message}</p>
+                        <div style="display: flex; gap: 15px; justify-content: center;">
+                            <button onclick="window.location.reload()" style="
+                                background: white;
+                                color: #ff4444;
+                                border: none;
+                                padding: 12px 24px;
+                                border-radius: 6px;
+                                cursor: pointer;
+                                font-size: 16px;
+                                font-weight: bold;
+                            ">重新加载</button>
+                            <button onclick="window.close()" style="
+                                background: transparent;
+                                color: white;
+                                border: 2px solid white;
+                                padding: 12px 24px;
+                                border-radius: 6px;
+                                cursor: pointer;
+                                font-size: 16px;
+                            ">关闭页面</button>
+                        </div>
                     </div>
                 </div>
             `;
             
             document.documentElement.innerHTML = warningHTML;
-            throw new Error('SecurityLock: Script integrity check failed');
+        }
+    };
+
+    const CoreLibrary = {
+        Utilities: {
+            sanitizeInput(input) {
+                if (typeof input !== 'string') return '';
+                return input.replace(/[\r\n\t\0<>"'`\\\u0000-\u001F\u007F-\u009F]/g, '').substring(0, 1000);
+            },
+
+            validateDomain(domain) {
+                if (typeof domain !== 'string') return false;
+                const domainRegex = /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z]{2,})+$/;
+                return domainRegex.test(domain);
+            },
+
+            safeJSONParse(str, defaultValue = null) {
+                try {
+                    return JSON.parse(str);
+                } catch {
+                    return defaultValue;
+                }
+            },
+
+            debounce(func, wait, immediate = false) {
+                let timeout;
+                return function executedFunction(...args) {
+                    const later = () => {
+                        timeout = null;
+                        if (!immediate) func.apply(this, args);
+                    };
+                    const callNow = immediate && !timeout;
+                    clearTimeout(timeout);
+                    timeout = setTimeout(later, wait);
+                    if (callNow) func.apply(this, args);
+                };
+            },
+
+            throttle(func, limit) {
+                let inThrottle;
+                return function(...args) {
+                    if (!inThrottle) {
+                        func.apply(this, args);
+                        inThrottle = true;
+                        setTimeout(() => inThrottle = false, limit);
+                    }
+                };
+            },
+
+            generateId() {
+                return Date.now().toString(36) + Math.random().toString(36).substr(2);
+            }
+        },
+
+        Security: {
+            detectXSS(content) {
+                if (typeof content !== 'string') return false;
+                const xssPatterns = [
+                    /<script\b[^>]*>[\s\S]*?<\/script>/gi,
+                    /javascript:/gi,
+                    /vbscript:/gi,
+                    /on\w+\s*=/gi,
+                    /expression\s*\(/gi
+                ];
+                return xssPatterns.some(pattern => pattern.test(content));
+            },
+
+            validateURL(url) {
+                try {
+                    const parsed = new URL(url);
+                    return ['http:', 'https:'].includes(parsed.protocol);
+                } catch {
+                    return false;
+                }
+            },
+
+            escapeHTML(str) {
+                const div = document.createElement('div');
+                div.textContent = str;
+                return div.innerHTML;
+            }
+        },
+
+        Storage: {
+            get(key, defaultValue = null) {
+                try {
+                    return GM_getValue(key, defaultValue);
+                } catch {
+                    return defaultValue;
+                }
+            },
+
+            set(key, value) {
+                try {
+                    GM_setValue(key, value);
+                    return true;
+                } catch {
+                    return false;
+                }
+            },
+
+            remove(key) {
+                try {
+                    GM_deleteValue(key);
+                    return true;
+                } catch {
+                    return false;
+                }
+            },
+
+            clear() {
+                try {
+                    const keys = GM_listValues();
+                    keys.forEach(key => GM_deleteValue(key));
+                    return true;
+                } catch {
+                    return false;
+                }
+            }
+        },
+
+        Network: {
+            request(options) {
+                return new Promise((resolve, reject) => {
+                    const config = {
+                        method: 'GET',
+                        timeout: 10000,
+                        ...options
+                    };
+
+                    GM_xmlhttpRequest({
+                        ...config,
+                        onload: function(response) {
+                            resolve(response);
+                        },
+                        onerror: function(error) {
+                            reject(error);
+                        },
+                        ontimeout: function() {
+                            reject(new Error('Request timeout'));
+                        }
+                    });
+                });
+            }
         }
     };
 
@@ -178,21 +358,29 @@
         },
 
         enableCSP() {
-            const cspMeta = document.createElement('meta');
-            cspMeta.httpEquiv = 'Content-Security-Policy';
-            cspMeta.content = "script-src 'self' 'unsafe-eval' 'unsafe-inline'; object-src 'none'";
-            document.head.appendChild(cspMeta);
+            try {
+                const cspMeta = document.createElement('meta');
+                cspMeta.httpEquiv = 'Content-Security-Policy';
+                cspMeta.content = "default-src 'self'; script-src 'self' 'unsafe-inline'; object-src 'none'";
+                document.head.appendChild(cspMeta);
+            } catch (error) {
+                console.warn('CSP设置失败:', error);
+            }
         },
 
         protectGlobalObjects() {
             const protectedObjects = ['XMLHttpRequest', 'fetch', 'setTimeout', 'setInterval'];
             protectedObjects.forEach(objName => {
                 if (window[objName]) {
-                    Object.defineProperty(window, objName, {
-                        value: window[objName],
-                        writable: false,
-                        configurable: false
-                    });
+                    try {
+                        Object.defineProperty(window, objName, {
+                            value: window[objName],
+                            writable: false,
+                            configurable: false
+                        });
+                    } catch (error) {
+                        console.warn(`保护 ${objName} 失败:`, error);
+                    }
                 }
             });
         },
@@ -204,111 +392,18 @@
         },
 
         checkScriptIntegrity() {
-            const currentScript = document.currentScript || (() => {
-                const scripts = document.querySelectorAll('script');
-                return scripts[scripts.length - 1];
-            })();
+            const currentChecksum = SecurityValidator.generateChecksum(
+                SecurityValidator.getCurrentScriptContent()
+            );
+            const storedChecksum = CoreLibrary.Storage.get('script_checksum');
             
-            if (!currentScript) return;
-
-            const scriptContent = currentScript.textContent;
-            const checksum = SecurityLock.generateChecksum(scriptContent);
-            
-            const storedChecksum = GM_getValue('script_checksum');
-            if (!storedChecksum) {
-                GM_setValue('script_checksum', checksum);
-            } else if (storedChecksum !== checksum) {
-                console.error('Security: Script integrity check failed');
-                SecurityLock.showSecurityWarning('检测到脚本被篡改，已停止运行');
+            if (storedChecksum && currentChecksum !== storedChecksum) {
+                SecurityValidator.showSecurityWarning('检测到脚本被篡改，已停止运行');
             }
-        },
-
-        emergencyShutdown() {
-            window.location.href = 'about:blank';
         }
     };
 
-    const SecurityUtils = {
-        sanitizeInput(input) {
-            if (typeof input !== 'string') return '';
-            return input.replace(/[\r\n\t\0<>"'`\\\u0000-\u001F\u007F-\u009F]/g, '').substring(0, 500);
-        },
-
-        validateDomain(domain) {
-            if (typeof domain !== 'string') return false;
-            return /^[a-zA-Z0-9][a-zA-Z0-9-.]{1,61}[a-zA-Z0-9]\.[a-zA-Z]{2,}$/.test(domain);
-        },
-
-        safeJSONParse(str) {
-            try {
-                return JSON.parse(str);
-            } catch {
-                return null;
-            }
-        },
-
-        debounce(func, wait) {
-            let timeout;
-            return function executedFunction(...args) {
-                const later = () => {
-                    clearTimeout(timeout);
-                    func(...args);
-                };
-                clearTimeout(timeout);
-                timeout = setTimeout(later, wait);
-            };
-        },
-
-        throttle(func, limit) {
-            let inThrottle;
-            return function(...args) {
-                if (!inThrottle) {
-                    func.apply(this, args);
-                    inThrottle = true;
-                    setTimeout(() => inThrottle = false, limit);
-                }
-            };
-        }
-    };
-
-    const StorageManager = {
-        getCheckedDomains() {
-            try {
-                return GM_getValue('checkedDomains', {});
-            } catch {
-                return {};
-            }
-        },
-
-        saveCheckedDomain(domain, hasRecord) {
-            try {
-                if (!SecurityUtils.validateDomain(domain)) return;
-                const domains = this.getCheckedDomains();
-                domains[domain] = { hasRecord, timestamp: Date.now() };
-                GM_setValue('checkedDomains', domains);
-            } catch {}
-        },
-
-        getSecuritySettings() {
-            try {
-                return GM_getValue('securitySettings', {
-                    floatingBall: true,
-                    autoScan: true,
-                    notifications: true
-                });
-            } catch {
-                return { floatingBall: true, autoScan: true, notifications: true };
-            }
-        },
-
-        saveSecuritySettings(settings) {
-            try {
-                GM_setValue('securitySettings', settings);
-            } catch {}
-        }
-    };
-
-    const FloatingBall = {
+    const FloatingBallManager = {
         isDragging: false,
         dragData: null,
         animationFrame: null,
@@ -405,28 +500,28 @@
                 } else if (ball && ball.classList.contains('hidden')) {
                     ball.classList.remove('hidden');
                 }
-            }, 1000);
+            }, 2000);
         },
 
         bindEvents() {
             const ball = this.ballElement;
             if (!ball) return;
 
-            ball.addEventListener('mousedown', (e) => this.startDrag(e));
-            ball.addEventListener('touchstart', (e) => this.startDrag(e), { passive: false });
+            const startDrag = (e) => this.startDrag(e);
+            const drag = (e) => this.drag(e);
+            const stopDrag = () => this.stopDrag();
 
+            ball.addEventListener('mousedown', startDrag);
+            ball.addEventListener('touchstart', startDrag, { passive: false });
             ball.addEventListener('click', (e) => {
-                if (!this.isDragging) {
-                    this.startScan();
-                }
+                if (!this.isDragging) this.startScan();
             });
 
-            document.addEventListener('mousemove', (e) => this.drag(e));
-            document.addEventListener('touchmove', (e) => this.drag(e), { passive: false });
-            
-            document.addEventListener('mouseup', () => this.stopDrag());
-            document.addEventListener('touchend', () => this.stopDrag());
-            document.addEventListener('touchcancel', () => this.stopDrag());
+            document.addEventListener('mousemove', drag);
+            document.addEventListener('touchmove', drag, { passive: false });
+            document.addEventListener('mouseup', stopDrag);
+            document.addEventListener('touchend', stopDrag);
+            document.addEventListener('touchcancel', stopDrag);
         },
 
         startDrag(e) {
@@ -442,9 +537,7 @@
 
             this.dragData = {
                 startX: clientX - rect.left,
-                startY: clientY - rect.top,
-                initialX: rect.left,
-                initialY: rect.top
+                startY: clientY - rect.top
             };
 
             e.preventDefault();
@@ -492,33 +585,26 @@
             const ball = this.ballElement;
             if (ball) {
                 ball.classList.remove('dragging');
-                
-                setTimeout(() => {
-                    this.saveBallPosition(ball.style.left, ball.style.top);
-                }, 100);
+                this.saveBallPosition(ball.style.left, ball.style.top);
             }
 
             this.dragData = null;
         },
 
         saveBallPosition(left, top) {
-            try {
-                GM_setValue('floatingBallPosition', { left, top });
-            } catch {}
+            CoreLibrary.Storage.set('floatingBallPosition', { left, top });
         },
 
         loadBallPosition() {
-            try {
-                const position = GM_getValue('floatingBallPosition');
-                if (position && position.left && position.top) {
-                    const ball = this.ballElement;
-                    if (ball) {
-                        ball.style.left = position.left;
-                        ball.style.top = position.top;
-                        ball.style.right = 'auto';
-                    }
+            const position = CoreLibrary.Storage.get('floatingBallPosition');
+            if (position && position.left && position.top) {
+                const ball = this.ballElement;
+                if (ball) {
+                    ball.style.left = position.left;
+                    ball.style.top = position.top;
+                    ball.style.right = 'auto';
                 }
-            } catch {}
+            }
         },
 
         startScan() {
@@ -538,6 +624,140 @@
                     }
                 }, 800);
             }
+        }
+    };
+
+    const ContentScanner = {
+        quickScan() {
+            const scanResults = {
+                pornography: this.checkPornographyContent(),
+                suspiciousLinks: this.scanSuspiciousLinks(),
+                iframes: this.scanSuspiciousIframes(),
+                timestamp: Date.now()
+            };
+
+            if (!scanResults.pornography) {
+                const domain = window.location.hostname;
+                const hasRecord = SecurityCore.enhancedRecordCheck(domain);
+                UIManager.showSecurityCheckPopup(domain, hasRecord, false);
+            }
+
+            return scanResults;
+        },
+
+        checkPornographyContent() {
+            const text = document.body?.innerText.toLowerCase() || '';
+            const html = document.documentElement?.innerHTML.toLowerCase() || '';
+            const url = window.location.href.toLowerCase();
+            const title = document.title.toLowerCase();
+
+            let score = 0;
+            KEYWORD_LIBRARY.PORNOGRAPHY.forEach(keyword => {
+                const regex = new RegExp(keyword, 'gi');
+                if (regex.test(text)) score += 2;
+                if (regex.test(html)) score += 1;
+                if (regex.test(url)) score += 3;
+                if (regex.test(title)) score += 3;
+            });
+
+            if (score >= 5) {
+                UIManager.showSecurityCheckPopup(window.location.hostname, false, true);
+                return true;
+            }
+            return false;
+        },
+
+        scanSuspiciousLinks() {
+            const links = document.getElementsByTagName('a');
+            let suspiciousCount = 0;
+            
+            for (let link of links) {
+                if (this.checkLink(link)) {
+                    suspiciousCount++;
+                }
+            }
+            
+            return suspiciousCount;
+        },
+
+        scanSuspiciousIframes() {
+            const iframes = document.getElementsByTagName('iframe');
+            let suspiciousCount = 0;
+            
+            for (let iframe of iframes) {
+                if (this.checkIframe(iframe)) {
+                    suspiciousCount++;
+                }
+            }
+            
+            return suspiciousCount;
+        },
+
+        monitorDynamicContent() {
+            const observer = new MutationObserver(mutations => {
+                for (const mutation of mutations) {
+                    for (const node of mutation.addedNodes) {
+                        if (node.nodeType === 1) {
+                            setTimeout(() => {
+                                if (node.tagName === 'A') this.checkLink(node);
+                                else if (node.tagName === 'IFRAME') this.checkIframe(node);
+                                else if (node.querySelectorAll) {
+                                    node.querySelectorAll('a').forEach(link => this.checkLink(link));
+                                    node.querySelectorAll('iframe').forEach(iframe => this.checkIframe(iframe));
+                                }
+                            }, 0);
+                        }
+                    }
+                }
+            });
+
+            observer.observe(document, { childList: true, subtree: true });
+        },
+
+        checkLink(link) {
+            const href = link.getAttribute('href');
+            if (href && SecurityCore.isSuspiciousURL(href)) {
+                link.style.border = '2px solid red';
+                link.addEventListener('click', (e) => {
+                    if (!confirm('此链接可能指向不安全网站，是否继续访问？\n' + href)) {
+                        e.preventDefault(); e.stopPropagation();
+                    }
+                }, { capture: true });
+                return true;
+            }
+            return false;
+        },
+
+        checkIframe(iframe) {
+            const src = iframe.getAttribute('src');
+            if (src && SecurityCore.isSuspiciousURL(src)) {
+                iframe.style.border = '3px solid orange';
+                return true;
+            }
+            return false;
+        }
+    };
+
+    const SecurityCore = {
+        isSuspiciousURL(url) {
+            if (!url || typeof url !== 'string') return false;
+            const sanitized = CoreLibrary.Utilities.sanitizeInput(url);
+            return KEYWORD_LIBRARY.MALICIOUS_PATTERNS.some(pattern => pattern.test(sanitized));
+        },
+
+        enhancedRecordCheck(domain) {
+            if (!CoreLibrary.Utilities.validateDomain(domain)) return false;
+            if (KEYWORD_LIBRARY.TRUSTED_DOMAINS.some(d => domain.endsWith(d))) return true;
+            if (KEYWORD_LIBRARY.SUSPICIOUS_DOMAINS.some(d => domain.endsWith(d))) return false;
+            
+            const domainParts = domain.split('.');
+            if (domainParts.length < 2) return false;
+            
+            const secondLevel = domainParts[domainParts.length - 2];
+            const riskyKeywords = ['free', 'download', 'video', 'movie', 'stream', 'live', 'chat'];
+            if (riskyKeywords.some(keyword => secondLevel.includes(keyword))) return Math.random() > 0.6;
+            
+            return Math.random() > 0.4;
         }
     };
 
@@ -667,140 +887,6 @@
         }
     };
 
-    const ContentScanner = {
-        quickScan() {
-            const scanResults = {
-                pornography: this.checkPornographyContent(),
-                suspiciousLinks: this.scanSuspiciousLinks(),
-                iframes: this.scanSuspiciousIframes(),
-                timestamp: Date.now()
-            };
-
-            if (!scanResults.pornography) {
-                const domain = window.location.hostname;
-                const hasRecord = SecurityCore.enhancedRecordCheck(domain);
-                UIManager.showSecurityCheckPopup(domain, hasRecord, false);
-            }
-
-            return scanResults;
-        },
-
-        checkPornographyContent() {
-            const text = document.body?.innerText.toLowerCase() || '';
-            const html = document.documentElement?.innerHTML.toLowerCase() || '';
-            const url = window.location.href.toLowerCase();
-            const title = document.title.toLowerCase();
-
-            let score = 0;
-            KEYWORD_LIBRARY.PORNOGRAPHY.forEach(keyword => {
-                const regex = new RegExp(keyword, 'gi');
-                if (regex.test(text)) score += 2;
-                if (regex.test(html)) score += 1;
-                if (regex.test(url)) score += 3;
-                if (regex.test(title)) score += 3;
-            });
-
-            if (score >= 5) {
-                UIManager.showSecurityCheckPopup(window.location.hostname, false, true);
-                return true;
-            }
-            return false;
-        },
-
-        scanSuspiciousLinks() {
-            const links = document.getElementsByTagName('a');
-            let suspiciousCount = 0;
-            
-            for (let link of links) {
-                if (this.checkLink(link)) {
-                    suspiciousCount++;
-                }
-            }
-            
-            return suspiciousCount;
-        },
-
-        scanSuspiciousIframes() {
-            const iframes = document.getElementsByTagName('iframe');
-            let suspiciousCount = 0;
-            
-            for (let iframe of iframes) {
-                if (this.checkIframe(iframe)) {
-                    suspiciousCount++;
-                }
-            }
-            
-            return suspiciousCount;
-        },
-
-        monitorDynamicContent() {
-            const observer = new MutationObserver(mutations => {
-                for (const mutation of mutations) {
-                    for (const node of mutation.addedNodes) {
-                        if (node.nodeType === 1) {
-                            setTimeout(() => {
-                                if (node.tagName === 'A') this.checkLink(node);
-                                else if (node.tagName === 'IFRAME') this.checkIframe(node);
-                                else if (node.querySelectorAll) {
-                                    node.querySelectorAll('a').forEach(link => this.checkLink(link));
-                                    node.querySelectorAll('iframe').forEach(iframe => this.checkIframe(iframe));
-                                }
-                            }, 0);
-                        }
-                    }
-                }
-            });
-
-            observer.observe(document, { childList: true, subtree: true });
-        },
-
-        checkLink(link) {
-            const href = link.getAttribute('href');
-            if (href && SecurityCore.isSuspiciousURL(href)) {
-                link.style.border = '2px solid red';
-                link.addEventListener('click', (e) => {
-                    if (!confirm('此链接可能指向不安全网站，是否继续访问？\n' + href)) {
-                        e.preventDefault(); e.stopPropagation();
-                    }
-                }, { capture: true });
-                return true;
-            }
-            return false;
-        },
-
-        checkIframe(iframe) {
-            const src = iframe.getAttribute('src');
-            if (src && SecurityCore.isSuspiciousURL(src)) {
-                iframe.style.border = '3px solid orange';
-                return true;
-            }
-            return false;
-        }
-    };
-
-    const SecurityCore = {
-        isSuspiciousURL(url) {
-            if (!url || typeof url !== 'string') return false;
-            const sanitized = SecurityUtils.sanitizeInput(url);
-            return KEYWORD_LIBRARY.MALICIOUS_PATTERNS.some(pattern => pattern.test(sanitized));
-        },
-
-        enhancedRecordCheck(domain) {
-            if (!SecurityUtils.validateDomain(domain)) return false;
-            if (KEYWORD_LIBRARY.TRUSTED_DOMAINS.some(d => domain.endsWith(d))) return true;
-            if (KEYWORD_LIBRARY.SUSPICIOUS_DOMAINS.some(d => domain.endsWith(d))) return false;
-            
-            const domainParts = domain.split('.');
-            if (domainParts.length < 2) return false;
-            
-            const secondLevel = domainParts[domainParts.length - 2];
-            const riskyKeywords = ['free', 'download', 'video', 'movie', 'stream', 'live', 'chat'];
-            if (riskyKeywords.some(keyword => secondLevel.includes(keyword))) return Math.random() > 0.6;
-            
-            return Math.random() > 0.4;
-        }
-    };
-
     const RequestInterceptor = {
         init() {
             this.interceptWindowOpen();
@@ -828,7 +914,7 @@
             try {
                 const originalReplace = window.location.replace;
                 window.location.replace = function(url) {
-                    const sanitized = SecurityUtils.sanitizeInput(url);
+                    const sanitized = CoreLibrary.Utilities.sanitizeInput(url);
                     if (SecurityCore.isSuspiciousURL(sanitized)) {
                         this.safeNotify('安全拦截', '已拦截可疑跳转');
                         return;
@@ -842,7 +928,7 @@
             if (typeof XMLHttpRequest !== 'undefined') {
                 const originalOpen = XMLHttpRequest.prototype.open;
                 XMLHttpRequest.prototype.open = function(method, url, ...args) {
-                    const sanitized = SecurityUtils.sanitizeInput(url);
+                    const sanitized = CoreLibrary.Utilities.sanitizeInput(url);
                     if (SecurityCore.isSuspiciousURL(sanitized)) {
                         this._blocked = true;
                         return;
@@ -863,7 +949,7 @@
                 const original = window.fetch;
                 window.fetch = function(...args) {
                     const url = args[0];
-                    const sanitized = SecurityUtils.sanitizeInput(url);
+                    const sanitized = CoreLibrary.Utilities.sanitizeInput(url);
                     if (SecurityCore.isSuspiciousURL(sanitized)) {
                         return Promise.reject(new Error('安全拦截'));
                     }
@@ -876,7 +962,7 @@
         interceptForms() {
             document.addEventListener('submit', (e) => {
                 const action = e.target?.getAttribute('action');
-                const sanitized = SecurityUtils.sanitizeInput(action);
+                const sanitized = CoreLibrary.Utilities.sanitizeInput(action);
                 if (sanitized && SecurityCore.isSuspiciousURL(sanitized)) {
                     if (!confirm('此表单将提交到可疑网址，是否继续？')) {
                         e.preventDefault(); e.stopPropagation();
@@ -896,7 +982,7 @@
 
     const SecurityEngine = {
         async init() {
-            const integrityValid = await SecurityLock.verifyScriptIntegrity();
+            const integrityValid = await SecurityValidator.verifyScriptIntegrity();
             if (!integrityValid) {
                 return;
             }
@@ -913,11 +999,11 @@
 
             RequestInterceptor.init();
             ContentScanner.monitorDynamicContent();
-            FloatingBall.init();
+            FloatingBallManager.init();
         },
 
         checkSiteRecord(domain) {
-            const domains = StorageManager.getCheckedDomains();
+            const domains = CoreLibrary.Storage.get('checkedDomains', {});
             const currentTime = Date.now();
             
             if (domains[domain] && (currentTime - domains[domain].timestamp) < SECURITY_CONFIG.CACHE_TIME) {
@@ -926,7 +1012,10 @@
             }
             
             const hasRecord = SecurityCore.enhancedRecordCheck(domain);
-            StorageManager.saveCheckedDomain(domain, hasRecord);
+            CoreLibrary.Storage.set('checkedDomains', {
+                ...domains,
+                [domain]: { hasRecord, timestamp: currentTime }
+            });
             UIManager.showSecurityCheckPopup(domain, hasRecord);
         },
 
@@ -942,9 +1031,9 @@
     }
 
     window.securityInterceptor = {
-        version: '1.9',
+        version: '2.0',
         config: SECURITY_CONFIG,
         quickScan: () => SecurityEngine.quickScan(),
-        securitySystem: SecuritySystem
+        coreLibrary: CoreLibrary
     };
 })();
