@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         网页安全拦截器
 // @namespace    http://tampermonkey.net/
-// @version      1.8
+// @version      1.9
 // @description  拦截未备案网站和隐藏跳转页面，提升网页浏览安全性
 // @author       You
 // @match        *://*/*
@@ -14,6 +14,7 @@
 // @connect      *
 // @connect      miit.gov.cn
 // @connect      beian.miit.gov.cn
+// @connect      raw.githubusercontent.com
 // @downloadURL  https://raw.githubusercontent.com/djdwix/2048games/main/2.js
 // @updateURL    https://raw.githubusercontent.com/djdwix/2048games/main/2.js
 // ==/UserScript==
@@ -26,7 +27,122 @@
         CACHE_TIME: 86400000,
         SCAN_DELAY: 200,
         FLOATING_BALL: true,
-        SECURITY_LEVEL: 'high'
+        SECURITY_LEVEL: 'high',
+        SCRIPT_SOURCE: 'https://raw.githubusercontent.com/djdwix/2048games/main/2.js'
+    };
+
+    const SecurityLock = {
+        async verifyScriptIntegrity() {
+            try {
+                const currentScript = document.currentScript || (() => {
+                    const scripts = document.scripts;
+                    return scripts[scripts.length - 1];
+                })();
+                
+                if (!currentScript) {
+                    this.showSecurityWarning('无法验证脚本完整性');
+                    return false;
+                }
+
+                const localChecksum = this.generateChecksum(currentScript.textContent);
+                const remoteChecksum = await this.fetchRemoteChecksum();
+                
+                if (!remoteChecksum) {
+                    console.warn('无法获取远程校验码，跳过完整性检查');
+                    return true;
+                }
+
+                if (localChecksum !== remoteChecksum) {
+                    this.showSecurityWarning('脚本内容已被篡改，请从官方渠道下载');
+                    return false;
+                }
+
+                GM_setValue('script_checksum', localChecksum);
+                return true;
+            } catch (error) {
+                console.error('完整性检查失败:', error);
+                this.showSecurityWarning('安全验证失败');
+                return false;
+            }
+        },
+
+        async fetchRemoteChecksum() {
+            return new Promise((resolve) => {
+                GM_xmlhttpRequest({
+                    method: 'GET',
+                    url: SECURITY_CONFIG.SCRIPT_SOURCE + '?t=' + Date.now(),
+                    timeout: 10000,
+                    onload: function(response) {
+                        if (response.status === 200) {
+                            const checksum = SecurityLock.generateChecksum(response.responseText);
+                            resolve(checksum);
+                        } else {
+                            resolve(null);
+                        }
+                    },
+                    onerror: function() {
+                        resolve(null);
+                    },
+                    ontimeout: function() {
+                        resolve(null);
+                    }
+                });
+            });
+        },
+
+        generateChecksum(content) {
+            let hash = 0;
+            const str = content.replace(/\s+/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+            for (let i = 0; i < str.length; i++) {
+                const char = str.charCodeAt(i);
+                hash = ((hash << 5) - hash) + char;
+                hash = hash & hash;
+            }
+            return Math.abs(hash).toString(36);
+        },
+
+        showSecurityWarning(message) {
+            const warningHTML = `
+                <div style="
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    background: rgba(0,0,0,0.8);
+                    z-index: 2147483647;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-family: Arial, sans-serif;
+                ">
+                    <div style="
+                        background: white;
+                        padding: 30px;
+                        border-radius: 10px;
+                        text-align: center;
+                        max-width: 400px;
+                        box-shadow: 0 0 20px rgba(255,0,0,0.5);
+                        border: 3px solid #ff4444;
+                    ">
+                        <h2 style="color: #ff4444; margin: 0 0 20px 0;">安全警告</h2>
+                        <p style="color: #333; margin: 0 0 20px 0; line-height: 1.5;">${message}</p>
+                        <button onclick="this.parentElement.parentElement.parentElement.remove()" style="
+                            background: #ff4444;
+                            color: white;
+                            border: none;
+                            padding: 10px 20px;
+                            border-radius: 5px;
+                            cursor: pointer;
+                            font-size: 16px;
+                        ">关闭</button>
+                    </div>
+                </div>
+            `;
+            
+            document.documentElement.innerHTML = warningHTML;
+            throw new Error('SecurityLock: Script integrity check failed');
+        }
     };
 
     const KEYWORD_LIBRARY = {
@@ -82,68 +198,33 @@
         },
 
         detectTampering() {
-            const originalFunctions = {
-                addEventListener: EventTarget.prototype.addEventListener,
-                removeEventListener: EventTarget.prototype.removeEventListener
-            };
-
-            EventTarget.prototype.addEventListener = function(type, listener, options) {
-                if (typeof listener === 'function') {
-                    const wrappedListener = function(...args) {
-                        try {
-                            return listener.apply(this, args);
-                        } catch (error) {
-                            console.warn('Security: Event listener error', error);
-                        }
-                    };
-                    return originalFunctions.addEventListener.call(this, type, wrappedListener, options);
-                }
-                return originalFunctions.addEventListener.call(this, type, listener, options);
-            };
-
             setInterval(() => {
                 this.checkScriptIntegrity();
-            }, 10000);
+            }, 30000);
         },
 
         checkScriptIntegrity() {
-            const currentScript = document.currentScript;
+            const currentScript = document.currentScript || (() => {
+                const scripts = document.querySelectorAll('script');
+                return scripts[scripts.length - 1];
+            })();
+            
             if (!currentScript) return;
 
             const scriptContent = currentScript.textContent;
-            const checksum = this.generateChecksum(scriptContent);
+            const checksum = SecurityLock.generateChecksum(scriptContent);
             
             const storedChecksum = GM_getValue('script_checksum');
             if (!storedChecksum) {
                 GM_setValue('script_checksum', checksum);
             } else if (storedChecksum !== checksum) {
                 console.error('Security: Script integrity check failed');
-                this.emergencyShutdown();
+                SecurityLock.showSecurityWarning('检测到脚本被篡改，已停止运行');
             }
-        },
-
-        generateChecksum(str) {
-            let hash = 0;
-            for (let i = 0; i < str.length; i++) {
-                const char = str.charCodeAt(i);
-                hash = ((hash << 5) - hash) + char;
-                hash = hash & hash;
-            }
-            return hash.toString();
         },
 
         emergencyShutdown() {
             window.location.href = 'about:blank';
-        },
-
-        validateSecurityContext() {
-            if (window !== window.top) {
-                return 'iframe';
-            }
-            if (document.location.protocol === 'file:') {
-                return 'local_file';
-            }
-            return 'secure';
         }
     };
 
@@ -231,19 +312,24 @@
         isDragging: false,
         dragData: null,
         animationFrame: null,
+        ballElement: null,
 
         init() {
             if (!SECURITY_CONFIG.FLOATING_BALL) return;
             
             this.createFloatingBall();
             this.bindEvents();
+            this.ensureBallVisibility();
         },
 
         createFloatingBall() {
-            const existingBall = document.getElementById('security-floating-ball');
-            if (existingBall) return;
+            let ball = document.getElementById('security-floating-ball');
+            if (ball) {
+                this.ballElement = ball;
+                return;
+            }
 
-            const ball = document.createElement('div');
+            ball = document.createElement('div');
             ball.id = 'security-floating-ball';
             ball.innerHTML = '🔍';
             ball.title = '点击扫描当前网页';
@@ -285,6 +371,9 @@
                     transition: none;
                     cursor: grabbing;
                 }
+                #security-floating-ball.hidden {
+                    display: none !important;
+                }
                 @keyframes pulse {
                     0% { transform: scale(1); }
                     50% { transform: scale(1.1); }
@@ -302,10 +391,25 @@
             `);
 
             document.body.appendChild(ball);
+            this.ballElement = ball;
+            
+            this.loadBallPosition();
+        },
+
+        ensureBallVisibility() {
+            setInterval(() => {
+                const ball = document.getElementById('security-floating-ball');
+                if (!ball && this.ballElement) {
+                    document.body.appendChild(this.ballElement);
+                    this.loadBallPosition();
+                } else if (ball && ball.classList.contains('hidden')) {
+                    ball.classList.remove('hidden');
+                }
+            }, 1000);
         },
 
         bindEvents() {
-            const ball = document.getElementById('security-floating-ball');
+            const ball = this.ballElement;
             if (!ball) return;
 
             ball.addEventListener('mousedown', (e) => this.startDrag(e));
@@ -326,7 +430,7 @@
         },
 
         startDrag(e) {
-            const ball = document.getElementById('security-floating-ball');
+            const ball = this.ballElement;
             if (!ball) return;
 
             this.isDragging = true;
@@ -355,7 +459,7 @@
             }
 
             this.animationFrame = requestAnimationFrame(() => {
-                const ball = document.getElementById('security-floating-ball');
+                const ball = this.ballElement;
                 if (!ball) return;
 
                 const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
@@ -385,7 +489,7 @@
                 this.animationFrame = null;
             }
 
-            const ball = document.getElementById('security-floating-ball');
+            const ball = this.ballElement;
             if (ball) {
                 ball.classList.remove('dragging');
                 
@@ -407,7 +511,7 @@
             try {
                 const position = GM_getValue('floatingBallPosition');
                 if (position && position.left && position.top) {
-                    const ball = document.getElementById('security-floating-ball');
+                    const ball = this.ballElement;
                     if (ball) {
                         ball.style.left = position.left;
                         ball.style.top = position.top;
@@ -418,7 +522,7 @@
         },
 
         startScan() {
-            const ball = document.getElementById('security-floating-ball');
+            const ball = this.ballElement;
             if (ball) {
                 ball.classList.add('scanning');
                 ball.innerHTML = '⏳';
@@ -791,7 +895,12 @@
     };
 
     const SecurityEngine = {
-        init() {
+        async init() {
+            const integrityValid = await SecurityLock.verifyScriptIntegrity();
+            if (!integrityValid) {
+                return;
+            }
+
             SecuritySystem.init();
             
             const domain = window.location.hostname;
@@ -805,10 +914,6 @@
             RequestInterceptor.init();
             ContentScanner.monitorDynamicContent();
             FloatingBall.init();
-            
-            setTimeout(() => {
-                FloatingBall.loadBallPosition();
-            }, 500);
         },
 
         checkSiteRecord(domain) {
@@ -837,7 +942,7 @@
     }
 
     window.securityInterceptor = {
-        version: '1.8',
+        version: '1.9',
         config: SECURITY_CONFIG,
         quickScan: () => SecurityEngine.quickScan(),
         securitySystem: SecuritySystem
