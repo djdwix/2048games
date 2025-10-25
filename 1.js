@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         网页艺术字体替换器
 // @namespace    http://tampermonkey.net/
-// @version      1.3
+// @version      1.4
 // @description  将网页字体实时替换为艺术字体，支持自定义字体源
 // @author       YourName
 // @match        *://*/*
@@ -9,7 +9,7 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
-// @require      https://cdn.jsdelivr.net/npm/cn-font-replacer@1.0.0/dist/fontReplacer.min.js
+// @require      https://cdn.jsdelivr.net/npm/cn-font-replacer@1.2.1/dist/fontReplacer.min.js
 // @downloadURL  https://raw.githubusercontent.com/djdwix/2048games/main/1.js
 // @updateURL    https://raw.githubusercontent.com/djdwix/2048games/main/1.js
 // @license      MIT
@@ -43,12 +43,21 @@
             'prezi.com',
             'online-banking',
             'login.',
-            'auth.'
+            'auth.',
+            'localhost',
+            '127.0.0.1'
         ],
+        
+        // 性能优化配置
+        performance: {
+            throttleDelay: 50,
+            batchSize: 100,
+            maxElements: 5000
+        },
         
         // 缓存配置
         cacheEnabled: true,
-        cacheVersion: '1.3'
+        cacheVersion: '1.4'
     };
     
     // 安全域名验证
@@ -58,9 +67,12 @@
             const safeDomains = [
                 'fonts.googleapis.com',
                 'cdn.jsdelivr.net',
-                'github.com'
+                'github.com',
+                'fonts.gstatic.com'
             ];
-            return safeDomains.some(safe => domain.includes(safe));
+            return safeDomains.some(safe => domain.includes(safe)) && 
+                   !domain.includes('malicious') && 
+                   !domain.includes('phishing');
         } catch {
             return false;
         }
@@ -77,32 +89,41 @@
         link.rel = 'stylesheet';
         link.href = fontUrl;
         link.crossOrigin = 'anonymous';
-        link.integrity = 'sha384-verify'; // 添加完整性检查
+        link.integrity = 'sha384-verify';
+        link.referrerPolicy = 'no-referrer';
         return link;
     }
     
-    // 实时字体监听器
+    // 性能优化的实时字体监听器
     function createFontObserver() {
         let observer;
+        let timeoutId;
+        let processedElements = new WeakSet();
+        
         try {
             observer = new MutationObserver(function(mutations) {
-                for (let mutation of mutations) {
-                    if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
-                        // 实时处理新增节点
-                        mutation.addedNodes.forEach(function(node) {
-                            if (node.nodeType === Node.ELEMENT_NODE) {
-                                applyFontToElement(node);
-                                // 递归处理子节点
-                                if (node.querySelectorAll) {
-                                    node.querySelectorAll('*').forEach(applyFontToElement);
+                // 使用防抖优化性能
+                clearTimeout(timeoutId);
+                timeoutId = setTimeout(function() {
+                    const elementsToProcess = new Set();
+                    
+                    for (let mutation of mutations) {
+                        if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+                            mutation.addedNodes.forEach(function(node) {
+                                if (node.nodeType === Node.ELEMENT_NODE && !processedElements.has(node)) {
+                                    elementsToProcess.add(node);
+                                    // 限制处理元素数量
+                                    if (elementsToProcess.size >= fontConfig.performance.batchSize) break;
                                 }
-                            }
-                        });
-                    } else if (mutation.type === 'characterData') {
-                        // 处理文本内容变化
-                        applyFontToElement(mutation.target.parentElement);
+                            });
+                        }
                     }
-                }
+                    
+                    // 批量处理元素
+                    if (elementsToProcess.size > 0) {
+                        processElementsBatch(Array.from(elementsToProcess));
+                    }
+                }, fontConfig.performance.throttleDelay);
             });
         } catch (error) {
             console.warn('创建字体监听器失败:', error);
@@ -110,36 +131,60 @@
         return observer;
     }
     
-    // 应用字体到单个元素
+    // 批量处理元素
+    function processElementsBatch(elements) {
+        let processedCount = 0;
+        
+        for (let element of elements) {
+            if (processedCount >= fontConfig.performance.batchSize) break;
+            
+            if (applyFontToElement(element)) {
+                processedCount++;
+            }
+            
+            // 限制总处理元素数量
+            if (processedCount >= fontConfig.performance.maxElements) break;
+        }
+    }
+    
+    // 应用字体到单个元素（优化版）
     function applyFontToElement(element) {
-        if (!element || !element.style) return;
+        if (!element || !element.style || element.dataset.fontReplaced === 'true') {
+            return false;
+        }
         
         try {
             const tagName = element.tagName.toLowerCase();
             const computedStyle = window.getComputedStyle(element);
             const currentFontFamily = computedStyle.fontFamily;
             
-            // 跳过已经处理过的元素
-            if (element.dataset.fontReplaced === 'true') return;
+            // 跳过不可见元素
+            if (computedStyle.display === 'none' || computedStyle.visibility === 'hidden') {
+                return false;
+            }
             
             // 根据元素类型应用不同的字体
             if (['code', 'pre', 'kbd', 'samp'].includes(tagName)) {
-                element.style.fontFamily = fontConfig.fontMap['monospace'] + ' !important';
+                element.style.fontFamily = fontConfig.fontMap['monospace'];
             } else if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(tagName)) {
-                element.style.fontFamily = fontConfig.fontMap['sans-serif'] + ' !important';
+                element.style.fontFamily = fontConfig.fontMap['sans-serif'];
                 element.style.fontWeight = '700';
             } else if (['blockquote', 'cite'].includes(tagName)) {
-                element.style.fontFamily = fontConfig.fontMap['serif'] + ' !important';
+                element.style.fontFamily = fontConfig.fontMap['serif'];
                 element.style.fontStyle = 'italic';
+            } else if (['input', 'textarea', 'button', 'select'].includes(tagName)) {
+                // 表单元素特殊处理
+                element.style.fontFamily = fontConfig.fontMap['sans-serif'];
             } else {
-                element.style.fontFamily = fontConfig.fontMap['sans-serif'] + ' !important';
+                element.style.fontFamily = fontConfig.fontMap['sans-serif'];
             }
             
             element.dataset.fontReplaced = 'true';
+            return true;
             
         } catch (error) {
-            // 安全地处理错误，避免脚本中断
             console.debug('应用字体到元素时出错:', error);
+            return false;
         }
     }
     
@@ -149,6 +194,12 @@
         const currentHost = window.location.hostname;
         if (fontConfig.excludeSites.some(site => currentHost.includes(site))) {
             console.log('当前网站在排除列表中，跳过字体替换');
+            return;
+        }
+        
+        // 安全检查
+        if (!isPageSafe()) {
+            console.warn('页面安全检查未通过，跳过字体替换');
             return;
         }
         
@@ -165,6 +216,25 @@
         registerMenuCommands();
     }
     
+    // 页面安全检查
+    function isPageSafe() {
+        try {
+            // 检查页面是否被篡改
+            if (document.documentElement.hasAttribute('data-tampered')) {
+                return false;
+            }
+            
+            // 检查是否在iframe中
+            if (window.self !== window.top) {
+                return false;
+            }
+            
+            return true;
+        } catch (error) {
+            return false;
+        }
+    }
+    
     // 启动实时字体监听器
     function startRealTimeFontObserver() {
         const observer = createFontObserver();
@@ -172,7 +242,7 @@
             observer.observe(document.body, {
                 childList: true,
                 subtree: true,
-                characterData: true,
+                characterData: false, // 禁用字符数据监听以提高性能
                 attributes: false
             });
             
@@ -180,20 +250,29 @@
             window._fontObserver = observer;
         }
         
-        // 初始应用字体到所有现有元素
+        // 延迟初始应用以提高页面加载速度
         setTimeout(() => {
             try {
-                document.querySelectorAll('*').forEach(applyFontToElement);
+                // 分批处理现有元素
+                const allElements = document.querySelectorAll('*');
+                const totalElements = Math.min(allElements.length, fontConfig.performance.maxElements);
+                
+                for (let i = 0; i < totalElements; i += fontConfig.performance.batchSize) {
+                    setTimeout(() => {
+                        const batch = Array.from(allElements).slice(i, i + fontConfig.performance.batchSize);
+                        processElementsBatch(batch);
+                    }, i * 10);
+                }
             } catch (error) {
                 console.warn('初始字体应用失败:', error);
             }
-        }, 500);
+        }, 1000);
     }
     
     // 添加艺术字体CSS定义
     function addArtFontCSS() {
         const fontCSS = `
-        @import url('https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&family=ZCOOL+KuaiLe&family=Liu+Jian+Mao+Cao&family=Zhi+Mang+Xing&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&family=ZCOOL+KuaiLe&family=Liu+Jian+Mao+Cao&family=Zhi+Mang+Xing&display=swap&display=block');
         
         @font-face {
             font-family: 'PangMenZhengDao';
@@ -202,7 +281,8 @@
             font-feature-settings: "kern" off;
         }
         
-        * {
+        /* 使用更高效的选择器 */
+        body, div, p, span, a, li, td, th {
             font-family: ${fontConfig.fontMap['sans-serif']} !important;
         }
         
@@ -220,6 +300,10 @@
             font-family: ${fontConfig.fontMap['serif']} !important;
             font-style: italic;
         }
+        
+        input, textarea, button, select {
+            font-family: ${fontConfig.fontMap['sans-serif']} !important;
+        }
         `;
         
         GM_addStyle(fontCSS);
@@ -227,11 +311,14 @@
     
     // 应用字体替换到页面元素（原有方法）
     function applyFontReplacement() {
-        // 使用 cn-font-replacer 进行高级字体替换
+        // 使用更新后的 cn-font-replacer 进行高级字体替换
         if (typeof FontReplacer !== 'undefined') {
             try {
                 // 初始化字体替换器
-                const fontReplacer = new FontReplacer();
+                const fontReplacer = new FontReplacer({
+                    performanceMode: true,
+                    safeMode: true
+                });
                 fontReplacer.applyFont(document.body, 'art-font-replacement');
             } catch (error) {
                 console.warn('高级字体替换失败，使用基础方法:', error);
@@ -244,6 +331,10 @@
     
     // 基础字体替换方法
     function applyBasicFontReplacement() {
+        if (document.getElementById('art-font-replacement')) {
+            return; // 避免重复添加
+        }
+        
         const style = document.createElement('style');
         style.id = 'art-font-replacement';
         style.textContent = `
@@ -317,19 +408,18 @@
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', initFontReplacement);
         } else {
-            initFontReplacement();
+            // 延迟初始化以提高页面加载性能
+            setTimeout(initFontReplacement, 100);
         }
     }
     
     // 清理函数
     window.addEventListener('beforeunload', function() {
         // 清理可能的资源泄露
-        const observers = this._fontObservers;
-        if (observers) {
-            observers.forEach(observer => observer.disconnect());
-        }
         if (window._fontObserver) {
             window._fontObserver.disconnect();
         }
+        // 清理全局变量
+        delete window._fontObserver;
     });
 })();
