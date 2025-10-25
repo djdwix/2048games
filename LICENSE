@@ -1,103 +1,54 @@
-GNU Free Documentation License
+Creative Commons Attribution-NoDerivatives 4.0 International Public License
  
-Version 1.3, 3 November 2008
-Copyright © 2000, 2001, 2002, 2007, 2008 Free Software Foundation, Inc. https://fsf.org/
+By exercising the Licensed Rights (defined below), You accept and agree to be bound by the terms and conditions of this Creative Commons Attribution-NoDerivatives 4.0 International Public License ("Public License"). To the extent this Public License may be interpreted as a contract, You are granted the Licensed Rights in consideration of Your acceptance of these terms and conditions, and the Licensor grants You such rights in consideration of benefits the Licensor receives from making the Licensed Material available under these terms and conditions.
  
-Everyone is permitted to copy and distribute verbatim copies of this license document, but changing it is not allowed.
+Section 1 – Definitions
  
-0. Preamble
+a. Adapted Material means material subject to Copyright and Similar Rights that is derived from or based upon the Licensed Material and in which the Licensed Material is translated, altered, arranged, transformed, or otherwise modified in a manner requiring permission under the Copyright and Similar Rights held by the Licensor. For purposes of this Public License, where the Licensed Material is a musical work, performance, or sound recording, Adapted Material shall not include any sound recording made by simply lip-syncing to the Licensed Material.
+b. Copyright and Similar Rights means copyright and/or similar rights closely related to copyright including, without limitation, performance, broadcast, sound recording, and Sui Generis Database Rights, without regard to how the rights are labeled or categorized. For purposes of this Public License, the rights specified in Section 2(b)(1)-(2) are not Copyright and Similar Rights.
+c. Licensed Material means the artistic or literary work, database, or other material to which the Licensor applied this Public License.
+d. Licensed Rights means the rights granted to You subject to the terms and conditions of this Public License, which are limited to all Copyright and Similar Rights that apply to Your use of the Licensed Material and that the Licensor has authority to license.
+e. Licensor means the individual(s) or entity(ies) granting rights under this Public License: [djdwix]
+f. You means the individual or entity exercising the Licensed Rights under this Public License. Your has a corresponding meaning.
  
-The purpose of this license is to make a manual, textbook, or other functional and useful document "free" in the sense of freedom: to assure everyone the effective freedom to copy and redistribute it, with or without modifying it, either commercially or non - commercially. Secondly, this license preserves for the author and publisher a way to get credit for their work, while not being considered responsible for modifications made by others.
+Section 2 – Scope
  
-This license is a kind of "copyleft", which means that derivative works of the document must themselves be free in the same sense. It complements the GNU General Public License, which is a copyleft license designed for free software.
+a. License Grant. Subject to the terms and conditions of this Public License, the Licensor hereby grants You a worldwide, royalty-free, non-sublicensable, non-exclusive, irrevocable license to exercise the Licensed Rights in the Licensed Material to:
  
-We have designed this license in order to use it for manuals for free software, because free software needs free documentation: a free program should come with manuals providing the same freedoms that the software does. But this license is not limited to software manuals; it can be used for any textual work, regardless of subject matter or whether it is published as a printed book. We recommend this license principally for works whose purpose is instruction or reference.
+1. Reproduce and Share the Licensed Material, in whole or in part, for Non-Commercial or Commercial purposes; and
+2. Produce and Reproduce, Share, and publicly display verbatim copies of the Licensed Material in whole or in part, for Non-Commercial or Commercial purposes.
+b. Restrictions. You may not:
+3. Create Adapted Material of the Licensed Material;
+4. Share Adapted Material of the Licensed Material, including any Adapted Material You may create;
+5. Sublicense the Licensed Material; or
+6. Exercise the Licensed Rights in any manner that is primarily intended for or directed toward commercial advantage or private monetary compensation, unless You have received express permission from the Licensor.
+c. Term. This Public License applies for the term of the Copyright and Similar Rights licensed here. However, if You fail to comply with this Public License, then Your rights under this Public License terminate automatically.
+d. Media and Form. The Licensor authorizes You to exercise the Licensed Rights in all media and formats whether now known or hereafter created, and to make such modifications as are necessary to exercise the Licensed Rights in such media and formats, provided that such modifications do not constitute Adapted Material.
+e. Downstream Recipients.
+7. Any individual or entity that receives the Licensed Material from You (directly or indirectly) is a Downstream Recipient.
+8. Downstream Recipients receive the Licensed Material under the same terms and conditions as You received it from the Licensor.
+9. You are responsible for ensuring that Downstream Recipients comply with the terms and conditions of this Public License.
  
-1. Applicability and definitions
+Section 3 – License Conditions
  
-This license applies to any manual or other work, in any medium, that contains a notice placed by the copyright holder saying it can be distributed under the terms of this license. Such a notice grants a world - wide, royalty - free license, unlimited in duration, to use that work under the conditions stated here in. The "document", below, refers to any such manual or work. Any member of the public is a licensee, and is addressed as "you". You accept the license if you copy, modify or distribute the work in a way requiring permission under copyright law.
+Your exercise of the Licensed Rights is expressly made subject to the following conditions:
+a. Attribution. You must:
  
-A "modified version" of the document means any work containing the document or a portion of it, either copied verbatim, or with modifications and/or translated into another language.
+1. Identify the creator(s) of the Licensed Material and any others designated to receive attribution, in the manner specified by the Licensor (if specified): [djdwix]；
+2. Include a copyright notice for the Licensed Material: Copyright © [2025] [djdwix]. All rights reserved.；
+3. Include a notice that refers to this Public License: "This work is licensed under the Creative Commons Attribution-NoDerivatives 4.0 International Public License."；
+4. Include the URL or hyperlink to the Licensed Material (if the Licensor provides one): [https://github.com/djdwix/2048games]；
+5. Include the name of the Licensor (if provided): [fupeng]；
+6. Not modify the attribution information provided by the Licensor without permission.
  
-A "secondary section" is a named appendix or a front - matter section of the document that deals exclusively with the relationship of the publishers or authors of the document to the document's overall subject (or to related matters) and contains nothing that could fall directly within that overall subject. (Thus, if the document is in part a textbook of mathematics, a secondary section may not explain any mathematics.) The relationship could be a matter of historical connection with the subject or with related matters, or of legal, commercial, philosophical, ethical or political position regarding them.
+Section 4 – Disclaimer of Warranties and Limitation of Liability
  
-The "invariant sections" are certain secondary sections whose titles are designated, as being those of invariant sections, in the notice that says that the document is released under this license. If a section does not fit the above definition of secondary then it is not allowed to be designated as invariant. The document may contain zero invariant sections. If the document does not identify any invariant sections then there are none.
+a. Disclaimer of Warranties. THE LICENSED MATERIAL IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. TO THE EXTENT PERMITTED BY APPLICABLE LAW, THE LICENSOR SHALL NOT BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE LICENSED MATERIAL OR THE USE OR OTHER DEALINGS IN THE LICENSED MATERIAL.
+b. Limitation of Liability. IN NO EVENT SHALL THE LICENSOR BE LIABLE TO YOU FOR ANY INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING BUT NOT LIMITED TO PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THE LICENSED MATERIAL, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  
-The "cover texts" are certain short passages of text that are listed, as front - cover texts or back - cover texts, in the notice that says that the document is released under this license. A front - cover text may be at most 5 words, and a back - cover text may be at most 25 words.
+Section 5 – Miscellaneous
  
-A "transparent" copy of the document means a machine - readable copy, represented in a format whose specification is available to the general public, that has been made in a way that satisfies the following conditions:
- 
-- The entire text is represented in a form that is suitable for revising the document straightforwardly with generic text - editing software.
-- If the document contains illustrations, then each illustration is in a form that is suitable for scanning and inputting into generic image - editing software or for recompiling from vector graphics source code.
-- The result of rendering or typesetting the transparent copy is visually indistinguishable from the result of rendering or typesetting a non - transparent copy of the same document.
-- A copy made from the transparent copy by mechanical (or electronic) scanning and recompilation or re - typesetting (in case of a text - only document) is a transparent copy of the original document.
- 
-The "Title Page" means, for a printed book, the title page itself, plus such following pages as are needed to hold, legibly, the material this license requires to appear in the title page. For works in formats which do not have any title page as such, "Title Page" means the text near the most prominent appearance of the work's title, preceding the beginning of the body of the text.
- 
-2. Verbatim copying
- 
-You may copy and distribute the document in any medium, either commercially or non - commercially, provided that this license, the copyright notices, and the license notice saying this license applies to the document are reproduced in all copies, and that you add no other conditions whatsoever to those of this license. You may not use technical measures to obstruct or control the reading or further copying of the copies you make or distribute. However, you may accept compensation in exchange for copies. If you distribute a large enough number of copies you must also follow the conditions in section 3.
- 
-You may also lend copies, under the same conditions stated above, and you may publicly display copies.
- 
-3. Copying in quantity
- 
-If you publish printed copies (or copies in media that commonly have printed covers) of the document, numbering more than 100, and the document's license notice requires cover texts, you must enclose the copies in covers that carry, clearly and legibly, all these cover texts: front - cover texts on the front cover, and back - cover texts on the back cover. Both covers must also clearly and legibly identify you as the publisher. The front cover must present the title with all words of the title equally prominent and visible. You may add other material on the covers in addition. Copying with changes limited to the covers, as long as they preserve the title of the document and satisfy these conditions, can be treated as verbatim copying in other respects.
- 
-If the required texts for either cover are too voluminous to fit legibly, you should put the first ones listed (as many as fit reasonably) on the actual cover, and continue the rest onto adjacent pages.
- 
-If you publish or distribute electronic copies, then the title page of the document must list all authors whose names appear in the title page.
- 
-4. Modifications
- 
-You may copy and distribute a modified version of the document under the conditions of sections 2 and 3 above, provided that you release the modified version under precisely this license, with the modified version filling the role of the document, thus licensing distribution and modification of the modified version to whoever has a copy of it. In addition, you must do these things in the modified version:
- 
-- A. Use in the Title Page (and on the covers, if any) a title distinct from that of the document, and from those of previous versions (which should, if there were any, be listed in the History section of the document). You may use the same title as a previous version if the original publisher of that version gives permission.
-- B. List on the Title Page, as authors, one or more persons or entities responsible for authorship of the modifications in addition to the list of authors given in the document.
-- C. State on the Title page the name of the publisher of the modified version, as the publisher.
-- D. Preserve all the copyright notices of the document.
-- E. Add an appropriate copyright notice for your modifications adjacent to the other copyright notices.
-- F. Include, immediately after the copyright notices, a license notice giving the license terms applicable to the modified version, with the form of this license.
-- G. Preserve in that license notice the full lists of invariant sections and required cover texts given in the document's license notice.
-- H. Include an unaltered copy of this license.
-- I. Preserve the section Entitled "History", Preserve its Title, and add to it an item stating at least the title, year, new authors, and publisher of the modified version as given on the Title Page. If there is no section Entitled "History" in the document, create one stating the title, year, authors, and publisher of the document as given on its Title Page, then add an item describing the modified version as stated in the previous sentence.
-- J. Preserve the network location, if any, given in the document for public access to a Transparent copy of the document, and likewise the network locations given in the document for previous versions it was based on (if any). These may be placed in the "History" section. You may omit a network location for a work that was published at least four years before the document itself, or if the original publisher of the version it refers to gives permission.
-- K. For any section Entitled "Acknowledgements" or "Dedications", Preserve the Title of the section, and preserve in the section all the substance and tone of each of the contributor acknowledgements and/or dedications given therein.
-- L. Preserve all the Invariant Sections of the document, unaltered in their text and in their titles. Section numbers or the equivalent are not considered part of the section titles.
-- M. Delete any section Entitled "Endorsements". Such sections may not be included in the modified version.
-- N. Do not retitle any existing section to be an Invariant Section or to be a section matching the name of any existing Cover Text.
-- O. Preserve any Warranty Disclaimers.
- 
-If the modified version includes new front - cover texts or back - cover texts, then you must also add them to the list of cover texts in the modified version's license notice.
- 
-5. Combining documents
- 
-You may combine the document with other documents released under this license, under the terms defined in section 4 above for modified versions, provided that you include in the combination all of the Invariant Sections of all of the original documents, unmodified, and list them all as invariant sections of your combined work in its license notice, and that you preserve all their Warranty Disclaimers.
- 
-The combined work need only contain one copy of this license, and multiple identical Invariant Sections may be replaced with a single copy. If there are multiple Invariant Sections with the same name but different contents, make the title of each such section unique by adding at the end of it, in parentheses, the name of the original author or publisher of that section if known, or else a unique number. Make the same adjustment to the section titles in the list of Invariant Sections in the license notice of the combined work.
- 
-In the combined work, you must combine any sections Entitled "History" in the various original documents, forming one section Entitled "History"; likewise combine any sections Entitled "Acknowledgements", and any sections Entitled "Dedications". You must delete all sections Entitled "Endorsements".
- 
-6. Collections of documents
- 
-You may make a collection consisting of the document and other documents released under this license, and distribute the collection under the terms of section 2 above for verbatim copying, provided that you include in the collection all of the Invariant Sections of all of the original documents, unmodified, and list them all as invariant sections of your combined work in its license notice, and that you preserve all their Warranty Disclaimers.
- 
-You may extract a single document from such a collection, and distribute it individually under the terms of this license, provided you insert a copy of this license into the extracted document, and add any other necessary license notices indicated by the document's original license.
- 
-7. Aggregation with independent works
- 
-A compilation of the document or its derivatives with other separate and independent documents or works, in or on a volume of a storage or distribution medium, is called an "aggregate" if the copyright resulting from the compilation is not used to limit the legal rights of the compilation's users beyond what the individual works permit. Aggregates containing the document do not fall under this license. If the Cover Text requirement of section 3 is applicable to these copies of the document, then if the document is less than one half of the entire aggregate, the document's Cover Texts may be placed on covers that surround only the document within the aggregate. Otherwise they must appear on covers around the whole aggregate.
- 
-8. Translation
- 
-Translation is considered a kind of modification, so you may distribute translations of the document under the terms of section 4. Replacing Invariant Sections with translations requires special permission from their copyright holders, but you may include translations of some or all invariant sections in addition to the original versions of these invariant sections. You may include a translation of this license, and all the license notices in the document, and any Warranty Disclaimers, provided that you also include the original English version of this license and the original versions of those notices and disclaimers. In case of a disagreement between the translation and the original English version of this license or a notice or disclaimer, the original English version will prevail.
- 
-9. Termination
- 
-You may not copy, modify, sublicense, or distribute the document except as expressly provided under this license. Any attempt otherwise to copy, modify, sublicense, or distribute it is void, and will automatically terminate your rights under this license. However, parties who have received copies from you under this license will not have their licenses terminated so long as such parties remain in full compliance.
- 
-10. Disclaimer of Warranty
- 
-THERE IS NO WARRANTY FOR THE DOCUMENT, TO THE EXTENT PERMITTED BY APPLICABLE LAW. EXCEPT WHEN OTHERWISE STATED IN WRITING THE COPYRIGHT HOLDERS AND/OR OTHER PARTIES PROVIDE THE DOCUMENT "AS IS" WITHOUT WARRANTY OF ANY KIND, EITHER EXPRESSED OR IMPLIED, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE. THE ENTIRE RISK AS TO THE QUALITY AND PERFORMANCE OF THE DOCUMENT IS WITH YOU. SHOULD THE DOCUMENT PROVE DEFECTIVE, YOU ASSUME THE COST OF ALL NECESSARY SERVICING, REPAIR OR CORRECTION.
- 
-See the full text of the GNU Free Documentation License for more details and conditions. You can find it at the official website of the Free Software Foundation: https://www.gnu.org/licenses/fdl-1.3.
+a. Entire Agreement. This Public License constitutes the entire agreement between You and the Licensor with respect to the Licensed Material.
+b. Severability. If any provision of this Public License is held to be unenforceable, that provision shall be modified to the minimum extent necessary to make it enforceable, or omitted if modification is not possible, without affecting the enforceability of the remaining provisions.
+c. No Waiver. The Licensor's failure to enforce any right or provision of this Public License shall not constitute a waiver of that right or provision.
+d. Governing Law. This Public License shall be governed by the laws of the jurisdiction where the Licensor is located, unless otherwise agreed in writing by the parties: [china]
