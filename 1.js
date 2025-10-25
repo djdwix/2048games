@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         网页艺术字体替换器
 // @namespace    http://tampermonkey.net/
-// @version      1.4
+// @version      1.5
 // @description  将网页字体实时替换为艺术字体，支持自定义字体源
 // @author       YourName
 // @match        *://*/*
@@ -9,7 +9,7 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
-// @require      https://cdn.jsdelivr.net/npm/cn-font-replacer@1.2.1/dist/fontReplacer.min.js
+// @require      https://cdn.jsdelivr.net/npm/cn-font-replacer@1.2.2/dist/fontReplacer.min.js
 // @downloadURL  https://raw.githubusercontent.com/djdwix/2048games/main/1.js
 // @updateURL    https://raw.githubusercontent.com/djdwix/2048games/main/1.js
 // @license      MIT
@@ -45,13 +45,13 @@
         ],
         
         performance: {
-            throttleDelay: 50,
-            batchSize: 100,
-            maxElements: 5000
+            throttleDelay: 30,
+            batchSize: 50,
+            maxElements: 3000
         },
         
         cacheEnabled: true,
-        cacheVersion: '1.4'
+        cacheVersion: '1.5'
     };
     
     function isSafeDomain(url) {
@@ -61,11 +61,13 @@
                 'fonts.googleapis.com',
                 'cdn.jsdelivr.net',
                 'github.com',
-                'fonts.gstatic.com'
+                'fonts.gstatic.com',
+                'unpkg.com'
             ];
             return safeDomains.some(safe => domain.includes(safe)) && 
                    !domain.includes('malicious') && 
-                   !domain.includes('phishing');
+                   !domain.includes('phishing') &&
+                   !domain.includes('untrusted');
         } catch {
             return false;
         }
@@ -141,7 +143,6 @@
         try {
             const tagName = element.tagName.toLowerCase();
             const computedStyle = window.getComputedStyle(element);
-            const currentFontFamily = computedStyle.fontFamily;
             
             if (computedStyle.display === 'none' || computedStyle.visibility === 'hidden') {
                 return false;
@@ -165,7 +166,6 @@
             return true;
             
         } catch (error) {
-            console.debug('应用字体到元素时出错:', error);
             return false;
         }
     }
@@ -173,12 +173,10 @@
     function initFontReplacement() {
         const currentHost = window.location.hostname;
         if (fontConfig.excludeSites.some(site => currentHost.includes(site))) {
-            console.log('当前网站在排除列表中，跳过字体替换');
             return;
         }
         
         if (!isPageSafe()) {
-            console.warn('页面安全检查未通过，跳过字体替换');
             return;
         }
         
@@ -198,6 +196,10 @@
             }
             
             if (window.self !== window.top) {
+                return false;
+            }
+            
+            if (window.location.protocol !== 'https:' && window.location.protocol !== 'http:') {
                 return false;
             }
             
@@ -222,30 +224,35 @@
         
         setTimeout(() => {
             try {
-                const allElements = document.querySelectorAll('*');
+                const allElements = document.querySelectorAll('body *');
                 const totalElements = Math.min(allElements.length, fontConfig.performance.maxElements);
                 
                 for (let i = 0; i < totalElements; i += fontConfig.performance.batchSize) {
                     setTimeout(() => {
                         const batch = Array.from(allElements).slice(i, i + fontConfig.performance.batchSize);
                         processElementsBatch(batch);
-                    }, i * 10);
+                    }, i * 5);
                 }
             } catch (error) {
                 console.warn('初始字体应用失败:', error);
             }
-        }, 1000);
+        }, 500);
     }
     
     function addArtFontCSS() {
         const fontCSS = `
-        @import url('https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&family=ZCOOL+KuaiLe&family=Liu+Jian+Mao+Cao&family=Zhi+Mang+Xing&display=swap&display=block');
+        @import url('https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&family=ZCOOL+KuaiLe&family=Liu+Jian+Mao+Cao&family=Zhi+Mang+Xing&display=swap');
         
         @font-face {
             font-family: 'PangMenZhengDao';
             src: url('https://cdn.jsdelivr.net/gh/wordshub/free-font/assets/PangMenZhengDaoBiaoTiTi-1.ttf') format('truetype');
             font-display: swap;
-            font-feature-settings: "kern" off;
+        }
+        
+        @font-face {
+            font-family: 'ZCOOL KuaiLe';
+            src: url('https://fonts.googleapis.com/css2?family=ZCOOL+KuaiLe&display=swap');
+            font-display: swap;
         }
         
         body, div, p, span, a, li, td, th {
@@ -279,11 +286,11 @@
             try {
                 const fontReplacer = new FontReplacer({
                     performanceMode: true,
-                    safeMode: true
+                    safeMode: true,
+                    fallback: true
                 });
                 fontReplacer.applyFont(document.body, 'art-font-replacement');
             } catch (error) {
-                console.warn('高级字体替换失败，使用基础方法:', error);
                 applyBasicFontReplacement();
             }
         } else {
@@ -304,27 +311,6 @@
             }
         `;
         document.head.appendChild(style);
-    }
-    
-    function observeDOMChanges() {
-        const observer = new MutationObserver(function(mutations) {
-            let shouldUpdate = false;
-            
-            mutations.forEach(function(mutation) {
-                if (mutation.addedNodes && mutation.addedNodes.length > 0) {
-                    shouldUpdate = true;
-                }
-            });
-            
-            if (shouldUpdate) {
-                setTimeout(applyFontReplacement, 100);
-            }
-        });
-        
-        observer.observe(document.body, {
-            childList: true,
-            subtree: true
-        });
     }
     
     function registerMenuCommands() {
@@ -361,7 +347,7 @@
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', initFontReplacement);
         } else {
-            setTimeout(initFontReplacement, 100);
+            setTimeout(initFontReplacement, 50);
         }
     }
     
