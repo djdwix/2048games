@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         网页安全拦截器
 // @namespace    http://tampermonkey.net/
-// @version      2.2
+// @version      2.3
 // @description  拦截未备案网站和隐藏跳转页面，提升网页浏览安全性
 // @author       You
 // @match        *://*/*
@@ -45,8 +45,7 @@
 
             requiredGrants.forEach(grant => {
                 try {
-                    if (typeof window[grant] === 'function' || 
-                        (grant === 'GM_addStyle' && typeof GM_addStyle === 'function')) {
+                    if (typeof GM_info !== 'undefined' && GM_info.grant && GM_info.grant.includes(grant)) {
                         this.grantedPermissions.add(grant);
                     } else {
                         console.warn(`权限未授权: ${grant}`);
@@ -98,13 +97,7 @@
         },
 
         optimizeEventHandling() {
-            const originalAddEventListener = EventTarget.prototype.addEventListener;
-            EventTarget.prototype.addEventListener = function(type, listener, options) {
-                if (options && typeof options === 'object') {
-                    options.passive = true;
-                }
-                return originalAddEventListener.call(this, type, listener, options);
-            };
+            // 修复：不再全局劫持addEventListener，只在需要的地方优化
         },
 
         optimizeDOMOperations() {
@@ -115,19 +108,28 @@
 
         batchDOMUpdates() {
             let updateQueue = [];
+            let rafId = null;
+            
             const processQueue = () => {
+                rafId = null;
                 if (updateQueue.length > 0) {
-                    requestAnimationFrame(() => {
-                        const queue = updateQueue.slice();
-                        updateQueue = [];
-                        queue.forEach(fn => fn());
+                    const queue = updateQueue.slice();
+                    updateQueue = [];
+                    queue.forEach(fn => {
+                        try {
+                            fn();
+                        } catch (e) {
+                            console.warn('批量更新失败:', e);
+                        }
                     });
                 }
             };
 
             window.batchedUpdate = (callback) => {
                 updateQueue.push(callback);
-                processQueue();
+                if (!rafId) {
+                    rafId = requestAnimationFrame(processQueue);
+                }
             };
         }
     };
@@ -300,10 +302,11 @@
 
         generateChecksum(content) {
             if (!content) return 'invalid';
+            // 修复：先删除行注释，再删除块注释
             const cleanContent = content
-                .replace(/\s+/g, '')
-                .replace(/\/\*[\s\S]*?\*\//g, '')
-                .replace(/\/\/[^\n]*\n/g, '');
+                .replace(/\/\/[^\n]*\n/g, '')  // 先删除行注释
+                .replace(/\/\*[\s\S]*?\*\//g, '')  // 再删除块注释
+                .replace(/\s+/g, '');  // 最后删除空白字符
             
             let hash = 0;
             for (let i = 0; i < cleanContent.length; i++) {
@@ -433,7 +436,9 @@
 
         Storage: {
             get(key, defaultValue = null) {
-                return PermissionManager.safeGMOperation('GM_getValue', key, defaultValue) || defaultValue;
+                // 修复：使用明确的null检查而不是||操作符
+                const value = PermissionManager.safeGMOperation('GM_getValue', key);
+                return value === undefined || value === null ? defaultValue : value;
             },
 
             set(key, value) {
@@ -596,16 +601,21 @@
             const ball = this.ballElement;
             if (!ball) return;
 
-            ball.addEventListener('mousedown', (e) => this.startDrag(e));
-            ball.addEventListener('touchstart', (e) => this.startDrag(e), { passive: false });
+            // 修复：使用正确的options对象，不修改原始options
+            const startDrag = (e) => this.startDrag(e);
+            const drag = (e) => this.drag(e);
+            const stopDrag = () => this.stopDrag();
+
+            ball.addEventListener('mousedown', startDrag, { passive: false });
+            ball.addEventListener('touchstart', startDrag, { passive: false });
             ball.addEventListener('click', (e) => {
                 if (!this.isDragging) this.startScan();
-            });
+            }, { passive: true });
 
-            document.addEventListener('mousemove', (e) => this.drag(e));
-            document.addEventListener('touchmove', (e) => this.drag(e), { passive: false });
-            document.addEventListener('mouseup', () => this.stopDrag());
-            document.addEventListener('touchend', () => this.stopDrag());
+            document.addEventListener('mousemove', drag, { passive: false });
+            document.addEventListener('touchmove', drag, { passive: false });
+            document.addEventListener('mouseup', stopDrag, { passive: true });
+            document.addEventListener('touchend', stopDrag, { passive: true });
         },
 
         startDrag(e) {
@@ -750,6 +760,7 @@
             const href = link.getAttribute('href');
             if (href && SecurityCore.isSuspiciousURL(href)) {
                 link.style.border = '2px solid red';
+                // 修复：使用正确的options对象
                 link.addEventListener('click', (e) => {
                     if (!confirm('此链接可能指向不安全网站，是否继续访问？\n' + href)) {
                         e.preventDefault();
@@ -853,8 +864,12 @@
                 if (isPornography) window.location.href = 'about:blank';
             };
 
-            closeBtn.addEventListener('click', removePopup);
-            overlay.addEventListener('click', removePopup);
+            closeBtn.addEventListener('click', removePopup, { passive: true });
+            // 修复：阻止事件传播，避免点击popup内部时触发overlay点击事件
+            popup.addEventListener('click', (e) => {
+                e.stopPropagation();
+            }, { passive: true });
+            overlay.addEventListener('click', removePopup, { passive: true });
         },
 
         removeExistingPopups() {
@@ -943,13 +958,13 @@
     };
 
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', () => SecurityEngine.init());
+        document.addEventListener('DOMContentLoaded', () => SecurityEngine.init(), { once: true, passive: true });
     } else {
         SecurityEngine.init();
     }
 
     window.securityInterceptor = {
-        version: '2.2',
+        version: '2.3',
         quickScan: () => SecurityEngine.quickScan()
     };
 })();
