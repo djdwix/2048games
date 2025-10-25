@@ -18,25 +18,21 @@
 (function() {
     'use strict';
     
-    // 配置艺术字体
     const fontConfig = {
-        // 默认字体映射
         fontMap: {
             'serif': '"Hiragino Sans GB", "Source Han Serif", "YouYuan", "SimSun", serif',
             'sans-serif': '"PangMenZhengDao", "Source Han Sans", "Microsoft YaHei", "SimHei", sans-serif',
             'monospace': '"Fira Code", "Consolas", "Monaco", monospace'
         },
         
-        // 艺术字体列表（可扩展）
         artFonts: [
-            'PangMenZhengDao',  // 庞门正道标题体
-            'ZCOOL KuaiLe',     // 站酷快乐体
-            'Ma Shan Zheng',    // 马善政毛笔体
-            'Zhi Mang Xing',    // 稚芒行书
-            'Liu Jian Mao Cao'  // 刘剑毛草书
+            'PangMenZhengDao',
+            'ZCOOL KuaiLe',
+            'Ma Shan Zheng',
+            'Zhi Mang Xing',
+            'Liu Jian Mao Cao'
         ],
         
-        // 排除的网站（这些网站不应用字体替换）
         excludeSites: [
             'docs.google.com',
             'office.com',
@@ -48,19 +44,16 @@
             '127.0.0.1'
         ],
         
-        // 性能优化配置
         performance: {
             throttleDelay: 50,
             batchSize: 100,
             maxElements: 5000
         },
         
-        // 缓存配置
         cacheEnabled: true,
         cacheVersion: '1.4'
     };
     
-    // 安全域名验证
     function isSafeDomain(url) {
         try {
             const domain = new URL(url).hostname;
@@ -78,7 +71,6 @@
         }
     }
     
-    // 安全的字体加载
     function loadFontSafely(fontUrl) {
         if (!isSafeDomain(fontUrl)) {
             console.warn('不安全的字体源:', fontUrl);
@@ -94,7 +86,6 @@
         return link;
     }
     
-    // 性能优化的实时字体监听器
     function createFontObserver() {
         let observer;
         let timeoutId;
@@ -102,7 +93,6 @@
         
         try {
             observer = new MutationObserver(function(mutations) {
-                // 使用防抖优化性能
                 clearTimeout(timeoutId);
                 timeoutId = setTimeout(function() {
                     const elementsToProcess = new Set();
@@ -112,14 +102,12 @@
                             mutation.addedNodes.forEach(function(node) {
                                 if (node.nodeType === Node.ELEMENT_NODE && !processedElements.has(node)) {
                                     elementsToProcess.add(node);
-                                    // 限制处理元素数量
                                     if (elementsToProcess.size >= fontConfig.performance.batchSize) break;
                                 }
                             });
                         }
                     }
                     
-                    // 批量处理元素
                     if (elementsToProcess.size > 0) {
                         processElementsBatch(Array.from(elementsToProcess));
                     }
@@ -131,7 +119,6 @@
         return observer;
     }
     
-    // 批量处理元素
     function processElementsBatch(elements) {
         let processedCount = 0;
         
@@ -142,12 +129,10 @@
                 processedCount++;
             }
             
-            // 限制总处理元素数量
             if (processedCount >= fontConfig.performance.maxElements) break;
         }
     }
     
-    // 应用字体到单个元素（优化版）
     function applyFontToElement(element) {
         if (!element || !element.style || element.dataset.fontReplaced === 'true') {
             return false;
@@ -158,12 +143,10 @@
             const computedStyle = window.getComputedStyle(element);
             const currentFontFamily = computedStyle.fontFamily;
             
-            // 跳过不可见元素
             if (computedStyle.display === 'none' || computedStyle.visibility === 'hidden') {
                 return false;
             }
             
-            // 根据元素类型应用不同的字体
             if (['code', 'pre', 'kbd', 'samp'].includes(tagName)) {
                 element.style.fontFamily = fontConfig.fontMap['monospace'];
             } else if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(tagName)) {
@@ -173,7 +156,6 @@
                 element.style.fontFamily = fontConfig.fontMap['serif'];
                 element.style.fontStyle = 'italic';
             } else if (['input', 'textarea', 'button', 'select'].includes(tagName)) {
-                // 表单元素特殊处理
                 element.style.fontFamily = fontConfig.fontMap['sans-serif'];
             } else {
                 element.style.fontFamily = fontConfig.fontMap['sans-serif'];
@@ -188,43 +170,33 @@
         }
     }
     
-    // 初始化字体替换
     function initFontReplacement() {
-        // 检查当前网站是否在排除列表中
         const currentHost = window.location.hostname;
         if (fontConfig.excludeSites.some(site => currentHost.includes(site))) {
             console.log('当前网站在排除列表中，跳过字体替换');
             return;
         }
         
-        // 安全检查
         if (!isPageSafe()) {
             console.warn('页面安全检查未通过，跳过字体替换');
             return;
         }
         
-        // 添加艺术字体CSS
         addArtFontCSS();
         
-        // 应用字体替换（原有方法）
         applyFontReplacement();
         
-        // 启动实时字体监听器（新方法）
         startRealTimeFontObserver();
         
-        // 注册菜单命令用于临时禁用
         registerMenuCommands();
     }
     
-    // 页面安全检查
     function isPageSafe() {
         try {
-            // 检查页面是否被篡改
             if (document.documentElement.hasAttribute('data-tampered')) {
                 return false;
             }
             
-            // 检查是否在iframe中
             if (window.self !== window.top) {
                 return false;
             }
@@ -235,25 +207,21 @@
         }
     }
     
-    // 启动实时字体监听器
     function startRealTimeFontObserver() {
         const observer = createFontObserver();
         if (observer) {
             observer.observe(document.body, {
                 childList: true,
                 subtree: true,
-                characterData: false, // 禁用字符数据监听以提高性能
+                characterData: false,
                 attributes: false
             });
             
-            // 存储观察器引用以便清理
             window._fontObserver = observer;
         }
         
-        // 延迟初始应用以提高页面加载速度
         setTimeout(() => {
             try {
-                // 分批处理现有元素
                 const allElements = document.querySelectorAll('*');
                 const totalElements = Math.min(allElements.length, fontConfig.performance.maxElements);
                 
@@ -269,7 +237,6 @@
         }, 1000);
     }
     
-    // 添加艺术字体CSS定义
     function addArtFontCSS() {
         const fontCSS = `
         @import url('https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&family=ZCOOL+KuaiLe&family=Liu+Jian+Mao+Cao&family=Zhi+Mang+Xing&display=swap&display=block');
@@ -281,12 +248,10 @@
             font-feature-settings: "kern" off;
         }
         
-        /* 使用更高效的选择器 */
         body, div, p, span, a, li, td, th {
             font-family: ${fontConfig.fontMap['sans-serif']} !important;
         }
         
-        /* 特殊元素处理 */
         code, pre, kbd, samp {
             font-family: ${fontConfig.fontMap['monospace']} !important;
         }
@@ -309,12 +274,9 @@
         GM_addStyle(fontCSS);
     }
     
-    // 应用字体替换到页面元素（原有方法）
     function applyFontReplacement() {
-        // 使用更新后的 cn-font-replacer 进行高级字体替换
         if (typeof FontReplacer !== 'undefined') {
             try {
-                // 初始化字体替换器
                 const fontReplacer = new FontReplacer({
                     performanceMode: true,
                     safeMode: true
@@ -329,10 +291,9 @@
         }
     }
     
-    // 基础字体替换方法
     function applyBasicFontReplacement() {
         if (document.getElementById('art-font-replacement')) {
-            return; // 避免重复添加
+            return;
         }
         
         const style = document.createElement('style');
@@ -345,7 +306,6 @@
         document.head.appendChild(style);
     }
     
-    // 监听DOM变化以实时应用字体（处理动态内容）
     function observeDOMChanges() {
         const observer = new MutationObserver(function(mutations) {
             let shouldUpdate = false;
@@ -357,7 +317,6 @@
             });
             
             if (shouldUpdate) {
-                // 延迟执行以避免频繁更新
                 setTimeout(applyFontReplacement, 100);
             }
         });
@@ -368,16 +327,13 @@
         });
     }
     
-    // 注册油猴菜单命令
     function registerMenuCommands() {
-        // 切换字体替换开关
         GM_registerMenuCommand('切换艺术字体', function() {
             const disabled = GM_getValue('fontReplacementDisabled', false);
             GM_setValue('fontReplacementDisabled', !disabled);
             
             if (!disabled) {
                 document.getElementById('art-font-replacement')?.remove();
-                // 停止实时监听器
                 if (window._fontObserver) {
                     window._fontObserver.disconnect();
                 }
@@ -387,7 +343,6 @@
             }
         });
         
-        // 临时恢复默认字体
         GM_registerMenuCommand('临时恢复默认字体', function() {
             const originalStyle = document.getElementById('art-font-replacement');
             if (originalStyle) {
@@ -396,30 +351,24 @@
                     if (originalStyle) {
                         originalStyle.disabled = false;
                     }
-                }, 10000); // 10秒后恢复
+                }, 10000);
                 alert('已临时恢复默认字体，10秒后恢复艺术字体');
             }
         });
     }
     
-    // 检查是否被禁用
     if (!GM_getValue('fontReplacementDisabled', false)) {
-        // 等待DOM加载完成
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', initFontReplacement);
         } else {
-            // 延迟初始化以提高页面加载性能
             setTimeout(initFontReplacement, 100);
         }
     }
     
-    // 清理函数
     window.addEventListener('beforeunload', function() {
-        // 清理可能的资源泄露
         if (window._fontObserver) {
             window._fontObserver.disconnect();
         }
-        // 清理全局变量
         delete window._fontObserver;
     });
 })();
