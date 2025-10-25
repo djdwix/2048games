@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         网页安全拦截器
 // @namespace    http://tampermonkey.net/
-// @version      2.1
+// @version      2.2
 // @description  拦截未备案网站和隐藏跳转页面，提升网页浏览安全性
 // @author       You
 // @match        *://*/*
@@ -11,6 +11,8 @@
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_addStyle
+// @grant        GM_deleteValue
+// @grant        GM_listValues
 // @connect      *
 // @connect      miit.gov.cn
 // @connect      beian.miit.gov.cn
@@ -32,11 +34,67 @@
         INTEGRITY_CHECK: false
     };
 
+    const PermissionManager = {
+        grantedPermissions: new Set(),
+
+        checkPermissions() {
+            const requiredGrants = [
+                'GM_xmlhttpRequest', 'GM_notification', 'GM_setValue', 
+                'GM_getValue', 'GM_addStyle', 'GM_deleteValue', 'GM_listValues'
+            ];
+
+            requiredGrants.forEach(grant => {
+                try {
+                    if (typeof window[grant] === 'function' || 
+                        (grant === 'GM_addStyle' && typeof GM_addStyle === 'function')) {
+                        this.grantedPermissions.add(grant);
+                    } else {
+                        console.warn(`权限未授权: ${grant}`);
+                    }
+                } catch (error) {
+                    console.warn(`检查权限失败 ${grant}:`, error);
+                }
+            });
+        },
+
+        hasPermission(grant) {
+            return this.grantedPermissions.has(grant);
+        },
+
+        safeGMOperation(operation, ...args) {
+            try {
+                if (this.hasPermission(operation)) {
+                    switch (operation) {
+                        case 'GM_setValue':
+                            return GM_setValue(...args);
+                        case 'GM_getValue':
+                            return GM_getValue(...args);
+                        case 'GM_addStyle':
+                            return GM_addStyle(...args);
+                        case 'GM_notification':
+                            return GM_notification(...args);
+                        case 'GM_xmlhttpRequest':
+                            return GM_xmlhttpRequest(...args);
+                        case 'GM_deleteValue':
+                            return GM_deleteValue(...args);
+                        case 'GM_listValues':
+                            return GM_listValues(...args);
+                        default:
+                            return null;
+                    }
+                }
+                return null;
+            } catch (error) {
+                console.warn(`GM操作失败 ${operation}:`, error);
+                return null;
+            }
+        }
+    };
+
     const PerformanceOptimizer = {
         init() {
             this.optimizeEventHandling();
             this.optimizeDOMOperations();
-            this.setupPerformanceMonitoring();
         },
 
         optimizeEventHandling() {
@@ -71,21 +129,6 @@
                 updateQueue.push(callback);
                 processQueue();
             };
-        },
-
-        setupPerformanceMonitoring() {
-            if (window.performance) {
-                const observer = new PerformanceObserver((list) => {
-                    list.getEntries().forEach((entry) => {
-                        if (entry.duration > 100) {
-                            console.warn('性能警告:', entry.name, '耗时', entry.duration.toFixed(2), 'ms');
-                        }
-                    });
-                });
-                try {
-                    observer.observe({ entryTypes: ['measure', 'longtask'] });
-                } catch (e) {}
-            }
         }
     };
 
@@ -109,18 +152,6 @@
                     clearTimeout(id);
                 };
             }
-
-            if (!Object.entries) {
-                Object.entries = function(obj) {
-                    const ownProps = Object.keys(obj);
-                    let i = ownProps.length;
-                    const resArray = new Array(i);
-                    while (i--) {
-                        resArray[i] = [ownProps[i], obj[ownProps[i]]];
-                    }
-                    return resArray;
-                };
-            }
         },
 
         fixBrowserSpecificIssues() {
@@ -128,10 +159,6 @@
             
             if (userAgent.includes('ucbrowser')) {
                 this.fixUCBrowserIssues();
-            }
-            
-            if (userAgent.includes('qqbrowser')) {
-                this.fixQQBrowserIssues();
             }
             
             if (userAgent.includes('safari') && !userAgent.includes('chrome')) {
@@ -152,17 +179,6 @@
                 }
                 return element;
             };
-        },
-
-        fixQQBrowserIssues() {
-            if (window.MutationObserver) {
-                const originalDisconnect = MutationObserver.prototype.disconnect;
-                MutationObserver.prototype.disconnect = function() {
-                    try {
-                        originalDisconnect.call(this);
-                    } catch (e) {}
-                };
-            }
         },
 
         fixSafariIssues() {
@@ -186,6 +202,7 @@
             try {
                 const currentScriptContent = this.getCurrentScriptContent();
                 if (!currentScriptContent) {
+                    console.warn('无法获取当前脚本内容，跳过完整性检查');
                     return true;
                 }
 
@@ -193,39 +210,73 @@
                 const remoteChecksum = await this.fetchRemoteChecksum();
                 
                 if (remoteChecksum === null) {
+                    console.warn('无法获取远程校验码，跳过完整性检查');
                     return true;
                 }
 
                 if (localChecksum !== remoteChecksum) {
-                    this.showSecurityWarning('脚本完整性验证失败');
+                    this.showSecurityWarning('脚本完整性验证失败，内容可能被篡改');
                     return false;
                 }
 
-                CoreLibrary.Storage.set('script_checksum', localChecksum);
+                PermissionManager.safeGMOperation('GM_setValue', 'script_checksum', localChecksum);
+                console.log('脚本完整性验证通过');
                 return true;
             } catch (error) {
+                console.error('完整性检查失败:', error);
                 return true;
             }
         },
 
         getCurrentScriptContent() {
             try {
+                let scriptContent = '';
+                
                 const scripts = document.scripts;
                 for (let i = scripts.length - 1; i >= 0; i--) {
                     const script = scripts[i];
-                    if (script.textContent && script.textContent.includes('securityInterceptor')) {
-                        return script.textContent;
+                    if (script.textContent) {
+                        const content = script.textContent;
+                        if (content.includes('securityInterceptor') || 
+                            content.includes('SECURITY_CONFIG') ||
+                            content.includes('FloatingBallManager')) {
+                            scriptContent = content;
+                            break;
+                        }
                     }
                 }
-                return null;
+
+                if (!scriptContent) {
+                    const currentScript = document.currentScript;
+                    if (currentScript && currentScript.textContent) {
+                        scriptContent = currentScript.textContent;
+                    }
+                }
+
+                if (!scriptContent) {
+                    const allScripts = document.getElementsByTagName('script');
+                    for (let script of allScripts) {
+                        if (script.textContent && script.textContent.length > 1000) {
+                            scriptContent = script.textContent;
+                            break;
+                        }
+                    }
+                }
+
+                return scriptContent || null;
             } catch (error) {
+                console.error('获取脚本内容失败:', error);
                 return null;
             }
         },
 
         async fetchRemoteChecksum() {
+            if (!PermissionManager.hasPermission('GM_xmlhttpRequest')) {
+                return null;
+            }
+
             return new Promise((resolve) => {
-                GM_xmlhttpRequest({
+                PermissionManager.safeGMOperation('GM_xmlhttpRequest', {
                     method: 'GET',
                     url: SECURITY_CONFIG.SCRIPT_SOURCE + '?t=' + Date.now(),
                     timeout: 5000,
@@ -382,16 +433,21 @@
 
         Storage: {
             get(key, defaultValue = null) {
-                try {
-                    return GM_getValue(key, defaultValue);
-                } catch {
-                    return defaultValue;
-                }
+                return PermissionManager.safeGMOperation('GM_getValue', key, defaultValue) || defaultValue;
             },
 
             set(key, value) {
+                return PermissionManager.safeGMOperation('GM_setValue', key, value) !== null;
+            },
+
+            remove(key) {
+                return PermissionManager.safeGMOperation('GM_deleteValue', key) !== null;
+            },
+
+            clear() {
                 try {
-                    GM_setValue(key, value);
+                    const keys = PermissionManager.safeGMOperation('GM_listValues') || [];
+                    keys.forEach(key => PermissionManager.safeGMOperation('GM_deleteValue', key));
                     return true;
                 } catch {
                     return false;
@@ -514,9 +570,9 @@
                 }
             `;
             
-            try {
-                GM_addStyle(css);
-            } catch (e) {
+            if (PermissionManager.hasPermission('GM_addStyle')) {
+                PermissionManager.safeGMOperation('GM_addStyle', css);
+            } else {
                 const style = document.createElement('style');
                 style.textContent = css;
                 document.head.appendChild(style);
@@ -844,6 +900,7 @@
 
     const SecurityEngine = {
         async init() {
+            PermissionManager.checkPermissions();
             PerformanceOptimizer.init();
             CompatibilityLayer.init();
 
@@ -892,7 +949,7 @@
     }
 
     window.securityInterceptor = {
-        version: '2.1',
+        version: '2.2',
         quickScan: () => SecurityEngine.quickScan()
     };
 })();
