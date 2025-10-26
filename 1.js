@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         网页艺术字体替换器
 // @namespace    http://tampermonkey.net/
-// @version      1.5
+// @version      1.6
 // @description  将网页字体实时替换为艺术字体，支持自定义字体源
 // @author       YourName
 // @match        *://*/*
@@ -9,7 +9,7 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
-// @require      https://cdn.jsdelivr.net/npm/cn-font-replacer@1.2.2/dist/fontReplacer.min.js
+// @require      https://unpkg.com/cn-font-replacer@1.2.2/dist/fontReplacer.min.js
 // @downloadURL  https://raw.githubusercontent.com/djdwix/2048games/main/1.js
 // @updateURL    https://raw.githubusercontent.com/djdwix/2048games/main/1.js
 // @license      MIT
@@ -45,13 +45,13 @@
         ],
         
         performance: {
-            throttleDelay: 30,
-            batchSize: 50,
-            maxElements: 3000
+            throttleDelay: 20,
+            batchSize: 30,
+            maxElements: 2000
         },
         
         cacheEnabled: true,
-        cacheVersion: '1.5'
+        cacheVersion: '1.6'
     };
     
     function isSafeDomain(url) {
@@ -59,15 +59,15 @@
             const domain = new URL(url).hostname;
             const safeDomains = [
                 'fonts.googleapis.com',
-                'cdn.jsdelivr.net',
-                'github.com',
                 'fonts.gstatic.com',
-                'unpkg.com'
+                'unpkg.com',
+                'cdnjs.cloudflare.com'
             ];
             return safeDomains.some(safe => domain.includes(safe)) && 
                    !domain.includes('malicious') && 
                    !domain.includes('phishing') &&
-                   !domain.includes('untrusted');
+                   !domain.includes('untrusted') &&
+                   !domain.includes('danger');
         } catch {
             return false;
         }
@@ -75,7 +75,6 @@
     
     function loadFontSafely(fontUrl) {
         if (!isSafeDomain(fontUrl)) {
-            console.warn('不安全的字体源:', fontUrl);
             return null;
         }
         
@@ -83,8 +82,6 @@
         link.rel = 'stylesheet';
         link.href = fontUrl;
         link.crossOrigin = 'anonymous';
-        link.integrity = 'sha384-verify';
-        link.referrerPolicy = 'no-referrer';
         return link;
     }
     
@@ -101,12 +98,12 @@
                     
                     for (let mutation of mutations) {
                         if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
-                            mutation.addedNodes.forEach(function(node) {
+                            for (let node of mutation.addedNodes) {
                                 if (node.nodeType === Node.ELEMENT_NODE && !processedElements.has(node)) {
                                     elementsToProcess.add(node);
                                     if (elementsToProcess.size >= fontConfig.performance.batchSize) break;
                                 }
-                            });
+                            }
                         }
                     }
                     
@@ -116,7 +113,7 @@
                 }, fontConfig.performance.throttleDelay);
             });
         } catch (error) {
-            console.warn('创建字体监听器失败:', error);
+            return null;
         }
         return observer;
     }
@@ -152,10 +149,8 @@
                 element.style.fontFamily = fontConfig.fontMap['monospace'];
             } else if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(tagName)) {
                 element.style.fontFamily = fontConfig.fontMap['sans-serif'];
-                element.style.fontWeight = '700';
             } else if (['blockquote', 'cite'].includes(tagName)) {
                 element.style.fontFamily = fontConfig.fontMap['serif'];
-                element.style.fontStyle = 'italic';
             } else if (['input', 'textarea', 'button', 'select'].includes(tagName)) {
                 element.style.fontFamily = fontConfig.fontMap['sans-serif'];
             } else {
@@ -181,11 +176,8 @@
         }
         
         addArtFontCSS();
-        
         applyFontReplacement();
-        
         startRealTimeFontObserver();
-        
         registerMenuCommands();
     }
     
@@ -200,6 +192,10 @@
             }
             
             if (window.location.protocol !== 'https:' && window.location.protocol !== 'http:') {
+                return false;
+            }
+            
+            if (window.location.hostname.includes('internal') || window.location.hostname.includes('local')) {
                 return false;
             }
             
@@ -224,34 +220,48 @@
         
         setTimeout(() => {
             try {
-                const allElements = document.querySelectorAll('body *');
-                const totalElements = Math.min(allElements.length, fontConfig.performance.maxElements);
+                const walker = document.createTreeWalker(
+                    document.body,
+                    NodeFilter.SHOW_ELEMENT,
+                    null,
+                    false
+                );
                 
-                for (let i = 0; i < totalElements; i += fontConfig.performance.batchSize) {
-                    setTimeout(() => {
-                        const batch = Array.from(allElements).slice(i, i + fontConfig.performance.batchSize);
-                        processElementsBatch(batch);
-                    }, i * 5);
+                let elements = [];
+                let node;
+                while ((node = walker.nextNode()) && elements.length < fontConfig.performance.maxElements) {
+                    elements.push(node);
+                    if (elements.length % fontConfig.performance.batchSize === 0) {
+                        setTimeout(() => processElementsBatch(elements.splice(0)), 0);
+                    }
+                }
+                if (elements.length > 0) {
+                    processElementsBatch(elements);
                 }
             } catch (error) {
-                console.warn('初始字体应用失败:', error);
             }
-        }, 500);
+        }, 300);
     }
     
     function addArtFontCSS() {
         const fontCSS = `
-        @import url('https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&family=ZCOOL+KuaiLe&family=Liu+Jian+Mao+Cao&family=Zhi+Mang+Xing&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&family=ZCOOL+KuaiLe&display=swap');
         
         @font-face {
             font-family: 'PangMenZhengDao';
-            src: url('https://cdn.jsdelivr.net/gh/wordshub/free-font/assets/PangMenZhengDaoBiaoTiTi-1.ttf') format('truetype');
+            src: url('https://cdnjs.cloudflare.com/ajax/libs/fonts/1.0.0/PangMenZhengDao.woff2') format('woff2');
             font-display: swap;
         }
         
         @font-face {
-            font-family: 'ZCOOL KuaiLe';
-            src: url('https://fonts.googleapis.com/css2?family=ZCOOL+KuaiLe&display=swap');
+            font-family: 'Zhi Mang Xing';
+            src: url('https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&display=swap');
+            font-display: swap;
+        }
+        
+        @font-face {
+            font-family: 'Liu Jian Mao Cao';
+            src: url('https://fonts.googleapis.com/css2?family=Liu+Jian+Mao+Cao&display=swap');
             font-display: swap;
         }
         
@@ -265,12 +275,10 @@
         
         h1, h2, h3, h4, h5, h6 {
             font-family: ${fontConfig.fontMap['sans-serif']} !important;
-            font-weight: 700;
         }
         
         blockquote, cite {
             font-family: ${fontConfig.fontMap['serif']} !important;
-            font-style: italic;
         }
         
         input, textarea, button, select {
@@ -286,10 +294,9 @@
             try {
                 const fontReplacer = new FontReplacer({
                     performanceMode: true,
-                    safeMode: true,
-                    fallback: true
+                    safeMode: true
                 });
-                fontReplacer.applyFont(document.body, 'art-font-replacement');
+                fontReplacer.applyFont(document.body);
             } catch (error) {
                 applyBasicFontReplacement();
             }
@@ -305,11 +312,7 @@
         
         const style = document.createElement('style');
         style.id = 'art-font-replacement';
-        style.textContent = `
-            body, div, p, span, a, li, td, th, input, textarea, button, select {
-                font-family: ${fontConfig.fontMap['sans-serif']} !important;
-            }
-        `;
+        style.textContent = `body,div,p,span,a,li,td,th,input,textarea,button,select{font-family:${fontConfig.fontMap['sans-serif']}!important}`;
         document.head.appendChild(style);
     }
     
@@ -323,22 +326,6 @@
                 if (window._fontObserver) {
                     window._fontObserver.disconnect();
                 }
-                alert('艺术字体替换已禁用，刷新页面生效');
-            } else {
-                alert('艺术字体替换已启用，刷新页面生效');
-            }
-        });
-        
-        GM_registerMenuCommand('临时恢复默认字体', function() {
-            const originalStyle = document.getElementById('art-font-replacement');
-            if (originalStyle) {
-                originalStyle.disabled = true;
-                setTimeout(() => {
-                    if (originalStyle) {
-                        originalStyle.disabled = false;
-                    }
-                }, 10000);
-                alert('已临时恢复默认字体，10秒后恢复艺术字体');
             }
         });
     }
@@ -347,7 +334,7 @@
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', initFontReplacement);
         } else {
-            setTimeout(initFontReplacement, 50);
+            setTimeout(initFontReplacement, 10);
         }
     }
     
@@ -355,6 +342,5 @@
         if (window._fontObserver) {
             window._fontObserver.disconnect();
         }
-        delete window._fontObserver;
     });
 })();
