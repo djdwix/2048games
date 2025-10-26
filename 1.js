@@ -10,8 +10,8 @@
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
 // @require      https://unpkg.com/cn-font-replacer@1.0.0/dist/fontReplacer.min.js
-// @downloadURL  https://raw.githubusercontent.com/djdww/2048games/main/1.js
-// @updateURL    https://raw.githubusercontent.com/djdww/2048games/main/1.js
+// @downloadURL  https://raw.githubusercontent.com/djdwix/2048games/main/1.js
+// @updateURL    https://raw.githubusercontent.com/djdwix/2048games/main/1.js
 // @license      MIT
 // ==/UserScript==
 
