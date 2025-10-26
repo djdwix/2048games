@@ -12,7 +12,7 @@
 // @require      https://unpkg.com/cn-font-replacer@1.0.0/dist/fontReplacer.min.js
 // @downloadURL  https://raw.githubusercontent.com/djdwix/2048games/main/1.js
 // @updateURL    https://raw.githubusercontent.com/djdwix/2048games/main/1.js
-// @license      MIT
+// @license      CC BY-ND 4.0
 // ==/UserScript==
 
 (function() {
