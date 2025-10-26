@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         网页艺术字体替换器
 // @namespace    http://tampermonkey.net/
-// @version      1.7
+// @version      1.8
 // @description  将网页字体实时替换为艺术字体，支持自定义字体源
 // @author       YourName
 // @match        *://*/*
@@ -9,7 +9,7 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
-// @require      https://unpkg.com/cn-font-replacer@1.0.0/dist/fontReplacer.min.js
+// @require      https://cdn.jsdelivr.net/npm/cn-font-replacer@1.0.0/dist/fontReplacer.min.js
 // @downloadURL  https://raw.githubusercontent.com/djdwix/2048games/main/1.js
 // @updateURL    https://raw.githubusercontent.com/djdwix/2048games/main/1.js
 // @license      CC BY-ND 4.0
@@ -45,13 +45,13 @@
         ],
         
         performance: {
-            throttleDelay: 20,
-            batchSize: 30,
-            maxElements: 2000
+            throttleDelay: 15,
+            batchSize: 20,
+            maxElements: 1500
         },
         
         cacheEnabled: true,
-        cacheVersion: '1.7'
+        cacheVersion: '1.8'
     };
     
     function isSafeDomain(url) {
@@ -60,6 +60,7 @@
             const safeDomains = [
                 'fonts.googleapis.com',
                 'fonts.gstatic.com',
+                'cdn.jsdelivr.net',
                 'unpkg.com',
                 'cdnjs.cloudflare.com'
             ];
@@ -67,7 +68,8 @@
                    !domain.includes('malicious') && 
                    !domain.includes('phishing') &&
                    !domain.includes('untrusted') &&
-                   !domain.includes('danger');
+                   !domain.includes('danger') &&
+                   !domain.includes('internal');
         } catch {
             return false;
         }
@@ -199,6 +201,10 @@
                 return false;
             }
             
+            if (!window.location.hostname.includes('.')) {
+                return false;
+            }
+            
             return true;
         } catch (error) {
             return false;
@@ -240,7 +246,7 @@
                 }
             } catch (error) {
             }
-        }, 300);
+        }, 200);
     }
     
     function addArtFontCSS() {
@@ -334,7 +340,7 @@
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', initFontReplacement);
         } else {
-            setTimeout(initFontReplacement, 10);
+            setTimeout(initFontReplacement, 5);
         }
     }
     
