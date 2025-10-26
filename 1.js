@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         网页艺术字体替换器
 // @namespace    http://tampermonkey.net/
-// @version      1.6
+// @version      1.7
 // @description  将网页字体实时替换为艺术字体，支持自定义字体源
 // @author       YourName
 // @match        *://*/*
@@ -9,9 +9,9 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
-// @require      https://unpkg.com/cn-font-replacer@1.2.2/dist/fontReplacer.min.js
-// @downloadURL  https://raw.githubusercontent.com/djdwix/2048games/main/1.js
-// @updateURL    https://raw.githubusercontent.com/djdwix/2048games/main/1.js
+// @require      https://unpkg.com/cn-font-replacer@1.0.0/dist/fontReplacer.min.js
+// @downloadURL  https://raw.githubusercontent.com/djdww/2048games/main/1.js
+// @updateURL    https://raw.githubusercontent.com/djdww/2048games/main/1.js
 // @license      MIT
 // ==/UserScript==
 
@@ -51,7 +51,7 @@
         },
         
         cacheEnabled: true,
-        cacheVersion: '1.6'
+        cacheVersion: '1.7'
     };
     
     function isSafeDomain(url) {
