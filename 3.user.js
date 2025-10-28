@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         页面安全验证计时器（增强版V4.86）
+// @name         页面安全验证计时器（增强版V4.87）
 // @namespace    http://tampermonkey.net/
-// @version      4.86
+// @version      4.87
 // @description  本地与网页延迟检测+日志功能+点击导出日志+多接口IP/定位+验证重启倒计时【支持后台运行+定位缓存+缓存超时销毁】
 // @author       You
 // @match        *://*/*
@@ -462,23 +462,19 @@ const DELAY_TEST_TIMEOUT = 5000;
 const BACKGROUND_CHECK_INTERVAL = 3000;
 const DESTROY_AFTER_END = 8 * 60;
 const IP_API_LIST = [
-  { url: 'https://api.ipify.org?format=text', parser: (text) => text.trim() },
-  { url: 'https://ipinfo.io/ip', parser: (text) => text.trim() },
-  { url: 'https://icanhazip.com', parser: (text) => text.trim() },
-  { url: 'https://httpbin.org/ip', parser: (json) => json.origin.split(',')[0].trim() },
-  { url: 'https://api.myip.com', parser: (json) => json.ip }
+  { url: 'https://api.ipify.org?format=json', parser: (json) => json.ip },
+  { url: 'https://ipinfo.io/json', parser: (json) => json.ip },
+  { url: 'https://api.myip.com', parser: (json) => json.ip },
+  { url: 'https://httpbin.org/ip', parser: (json) => json.origin.split(',')[0].trim() }
 ];
 const GEO_API_CONFIG = {
   reverseGeocodeList: [
     (lat, lon) => `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&zoom=10&addressdetails=1`,
-    (lat, lon) => `https://geocode.xyz/${lat},${lon}?geoit=json&auth=free`,
     (lat, lon) => `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=zh`
   ],
   ipLocationList: [
     (ip) => `https://ipinfo.io/${ip}/json`,
-    (ip) => `https://ip-api.com/json/${ip}?fields=regionName,city`,
-    (ip) => `https://freegeoip.app/json/${ip}`,
-    (ip) => `https://bigdatacloud.net/data/ip-geolocation-full?ip=${ip}&localityLanguage=zh`
+    (ip) => `https://ip-api.com/json/${ip}?fields=status,message,country,regionName,city`
   ]
 };
 
@@ -753,15 +749,15 @@ class NetworkMonitor {
       if (apiIndex >= IP_API_LIST.length) {
         this.userIP = '查找失败';
         this.modalEl.querySelector('#user-ip-value').textContent = this.userIP;
-        log(`IP获取失败`);
+        log(`IP获取失败：所有接口尝试完毕`);
         return;
       }
 
       const { url, parser } = IP_API_LIST[apiIndex];
-      fetch(url, { method: 'GET', mode: 'cors', cache: 'no-store', timeout: 5000 })
+      fetch(url, { method: 'GET', mode: 'cors', cache: 'no-store', timeout: 8000 })
         .then(response => {
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          return response.headers.get('content-type')?.includes('json') ? response.json() : response.text();
+          return response.json();
         })
         .then(data => {
           const ip = parser(data);
@@ -772,9 +768,15 @@ class NetworkMonitor {
             this.userIP = ip;
             this.modalEl.querySelector('#user-ip-value').textContent = this.userIP;
             log(`IP获取成功：${ip}`);
-          } else throw new Error('IP格式无效');
+            this.fetchIPBasedLocation(ip);
+          } else {
+            throw new Error('IP格式无效');
+          }
         })
-        .catch(() => tryNextApi(apiIndex + 1));
+        .catch((error) => {
+          log(`IP获取接口${apiIndex + 1}失败：${error.message}`);
+          tryNextApi(apiIndex + 1);
+        });
     };
 
     tryNextApi();
@@ -783,14 +785,14 @@ class NetworkMonitor {
   fetchReverseGeocode(lat, lon) {
     const tryNextApi = (apiIndex = 0) => {
       if (apiIndex >= GEO_API_CONFIG.reverseGeocodeList.length) {
-        this.currentArea = '定位无效';
+        this.currentArea = '定位失败';
         this.modalEl.querySelector('#current-area-value').textContent = this.currentArea;
-        log(`逆地理编码失败`);
+        log(`逆地理编码失败：所有接口尝试完毕`);
         return;
       }
 
       const apiUrl = GEO_API_CONFIG.reverseGeocodeList[apiIndex](lat, lon);
-      fetch(apiUrl, { method: 'GET', mode: 'cors', cache: 'no-store', timeout: 5000 })
+      fetch(apiUrl, { method: 'GET', mode: 'cors', cache: 'no-store', timeout: 8000 })
         .then(response => {
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           return response.json();
@@ -803,50 +805,73 @@ class NetworkMonitor {
             area = data.region;
           } else if (data.localityInfo && data.localityInfo.administrative) {
             area = data.localityInfo.administrative[2]?.name || data.localityInfo.administrative[1]?.name || data.localityInfo.administrative[0]?.name;
+          } else if (data.city) {
+            area = data.city;
           }
 
           if (area) {
             this.currentArea = area;
             this.modalEl.querySelector('#current-area-value').textContent = this.currentArea;
             log(`逆地理编码成功：${area}`);
-          } else throw new Error('无法解析位置信息');
+          } else {
+            throw new Error('无法解析位置信息');
+          }
         })
-        .catch(() => tryNextApi(apiIndex + 1));
+        .catch((error) => {
+          log(`逆地理编码接口${apiIndex + 1}失败：${error.message}`);
+          tryNextApi(apiIndex + 1);
+        });
     };
 
     tryNextApi();
   }
 
   fetchIPBasedLocation(ip) {
+    if (!ip || ip === '查找失败') {
+      this.currentArea = 'IP定位失败';
+      this.modalEl.querySelector('#current-area-value').textContent = this.currentArea;
+      log(`IP定位失败：IP无效`);
+      return;
+    }
+
     const tryNextApi = (apiIndex = 0) => {
       if (apiIndex >= GEO_API_CONFIG.ipLocationList.length) {
-        this.currentArea = '定位无效';
+        this.currentArea = 'IP定位失败';
         this.modalEl.querySelector('#current-area-value').textContent = this.currentArea;
-        log(`IP定位失败`);
+        log(`IP定位失败：所有接口尝试完毕`);
         return;
       }
 
       const apiUrl = GEO_API_CONFIG.ipLocationList[apiIndex](ip);
-      fetch(apiUrl, { method: 'GET', mode: 'cors', cache: 'no-store', timeout: 5000 })
+      fetch(apiUrl, { method: 'GET', mode: 'cors', cache: 'no-store', timeout: 8000 })
         .then(response => {
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           return response.json();
         })
         .then(data => {
           let area = '';
-          if (data.city) {
+          if (data.city && data.regionName) {
+            area = `${data.regionName} ${data.city}`;
+          } else if (data.city) {
             area = data.city;
-          } else if (data.regionName) {
-            area = data.regionName;
+          } else if (data.region) {
+            area = data.region;
+          } else if (data.country) {
+            area = data.country;
           }
 
           if (area) {
             this.currentArea = area;
             this.modalEl.querySelector('#current-area-value').textContent = this.currentArea;
             log(`IP定位成功：${area}`);
-          } else throw new Error('无法解析位置信息');
+          } else {
+            throw new Error('无法解析位置信息');
+          }
         })
-        .catch(() => tryNextApi(apiIndex + 1));
+        .catch((error) => {
+          log(`IP定位接口${apiIndex + 1}失败：${error.message}`);
+          tryNextApi(apiIndex + 1);
+        });
     };
 
     tryNextApi();
@@ -867,7 +892,7 @@ class NetworkMonitor {
           this.currentArea = area;
           this.modalEl.querySelector('#location-info-value').textContent = this.locationInfo;
           this.modalEl.querySelector('#current-area-value').textContent = this.currentArea;
-          log(`定位信息从缓存读取`);
+          log(`定位信息从缓存读取：${this.locationInfo} - ${this.currentArea}`);
           return;
         } else {
           localStorage.removeItem(this.GEO_STORAGE_KEY);
@@ -880,7 +905,10 @@ class NetworkMonitor {
     if (!navigator.geolocation) {
       this.locationInfo = '浏览器不支持定位';
       this.modalEl.querySelector('#location-info-value').textContent = this.locationInfo;
-      log(`定位失败`);
+      log(`定位失败：浏览器不支持`);
+      if (this.userIP && this.userIP !== '查找中...' && this.userIP !== '查找失败') {
+        this.fetchIPBasedLocation(this.userIP);
+      }
       return;
     }
 
@@ -890,12 +918,12 @@ class NetworkMonitor {
         const lon = position.coords.longitude;
         this.locationInfo = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
         this.modalEl.querySelector('#location-info-value').textContent = this.locationInfo;
-        log(`定位成功`);
+        log(`定位成功：${this.locationInfo}`);
 
         this.fetchReverseGeocode(lat, lon);
 
         setTimeout(() => {
-          if (this.currentArea && this.currentArea !== '获取中...' && !this.currentArea.startsWith('定位无效')) {
+          if (this.currentArea && this.currentArea !== '获取中...' && !this.currentArea.includes('失败')) {
             const geoData = {
               lat: lat,
               lon: lon,
@@ -903,14 +931,17 @@ class NetworkMonitor {
               timestamp: Date.now()
             };
             localStorage.setItem(this.GEO_STORAGE_KEY, JSON.stringify(geoData));
-            log(`定位信息已缓存`);
+            log(`定位信息已缓存：${this.currentArea}`);
           }
         }, 1000);
       },
       error => {
-        this.locationInfo = `定位失败`;
+        const errorMsg = error.code === 1 ? '用户拒绝权限' : 
+                        error.code === 2 ? '位置不可用' : 
+                        error.code === 3 ? '请求超时' : '未知错误';
+        this.locationInfo = `定位失败（${errorMsg}）`;
         this.modalEl.querySelector('#location-info-value').textContent = this.locationInfo;
-        log(`定位失败`);
+        log(`定位失败：${errorMsg}`);
         if (this.userIP && this.userIP !== '查找中...' && this.userIP !== '查找失败') {
           this.fetchIPBasedLocation(this.userIP);
         }
@@ -994,7 +1025,7 @@ function showCopySuccess() {
 function showInitialVerify() {
   const code = generateVerificationCode();
   const modal = document.createElement('div');
-  modal.className = 'verify-modal active';
+  modal.className = 'verify-modal';
   modal.innerHTML = `
     <div class="modal-box">
       <div class="modal-header">
@@ -1018,6 +1049,10 @@ function showInitialVerify() {
     </div>
   `;
   document.body.appendChild(modal);
+  
+  setTimeout(() => {
+    modal.classList.add('active');
+  }, 10);
 
   const codeEl = modal.querySelector('#verify-code');
   const inputEl = modal.querySelector('#verify-input');
@@ -1081,7 +1116,7 @@ function showInitialVerify() {
 
 function showProgressVerify() {
   const modal = document.createElement('div');
-  modal.className = 'progress-verify-modal active';
+  modal.className = 'progress-verify-modal';
   modal.innerHTML = `
     <div class="progress-modal-box">
       <h2 class="progress-title">安全验证</h2>
@@ -1097,6 +1132,10 @@ function showProgressVerify() {
     </div>
   `;
   document.body.appendChild(modal);
+  
+  setTimeout(() => {
+    modal.classList.add('active');
+  }, 10);
 
   const progressBar = modal.querySelector('#progress-bar');
   const progressStatus = modal.querySelector('#progress-status');
@@ -1106,33 +1145,55 @@ function showProgressVerify() {
   updateLink.href = UPDATE_URL;
 
   let progress = 0;
-  const interval = setInterval(() => {
-    progress += Math.random() * 10;
-    if (progress >= 100) {
-      progress = 100;
-      clearInterval(interval);
-      modal.classList.remove('active');
-      setTimeout(() => {
-        if (modal.parentNode) modal.parentNode.removeChild(modal);
-      }, 400);
-      startTimer();
-      log('进度条验证成功，开始计时');
-    }
-    progressBar.style.width = `${progress}%`;
-    progressStatus.textContent = `${Math.round(progress)}%`;
-  }, 100);
+  const targetProgress = 100;
+  const duration = 3000 + Math.random() * 5000;
+  const intervalTime = 50;
+  const steps = duration / intervalTime;
+  const increment = targetProgress / steps;
 
-  if (Math.random() < 0.1) {
-    clearInterval(interval);
-    errorEl.style.display = 'block';
-    log('进度条验证失败');
+  const interval = setInterval(() => {
+    progress += increment;
+    if (progress >= targetProgress) {
+      progress = targetProgress;
+      clearInterval(interval);
+      progressBar.style.width = `${progress}%`;
+      progressStatus.textContent = `${Math.round(progress)}%`;
+      
+      setTimeout(() => {
+        modal.classList.remove('active');
+        setTimeout(() => {
+          if (modal.parentNode) modal.parentNode.removeChild(modal);
+        }, 400);
+        startTimer();
+        log('进度条验证成功，开始计时');
+      }, 500);
+    } else {
+      progressBar.style.width = `${progress}%`;
+      progressStatus.textContent = `${Math.round(progress)}%`;
+    }
+  }, intervalTime);
+
+  if (Math.random() < 0.15) {
+    setTimeout(() => {
+      clearInterval(interval);
+      errorEl.style.display = 'block';
+      log('进度条验证失败');
+      
+      setTimeout(() => {
+        modal.classList.remove('active');
+        setTimeout(() => {
+          if (modal.parentNode) modal.parentNode.removeChild(modal);
+          showProgressVerify();
+        }, 400);
+      }, 2000);
+    }, 1000 + Math.random() * 2000);
   }
 }
 
 function startTimer() {
   const endTime = Date.now() + TOTAL_TIME * 1000;
   localStorage.setItem(STORAGE_KEY, endTime.toString());
-  log(`计时开始`);
+  log(`计时开始，结束时间：${new Date(endTime).toLocaleString()}`);
   initTimer();
 }
 
@@ -1155,6 +1216,17 @@ function initTimer() {
 
   updateTimerDisplay(remainingTime);
   log(`初始化倒计时，剩余时间：${remainingTime}秒`);
+
+  window.addEventListener('storage', (e) => {
+    if (e.key === STORAGE_KEY) {
+      log('检测到多标签页存储变化，同步倒计时');
+      const newEndTime = parseInt(e.newValue);
+      if (newEndTime) {
+        const newRemaining = Math.max(0, Math.ceil((newEndTime - Date.now()) / 1000));
+        updateTimerDisplay(newRemaining);
+      }
+    }
+  });
 }
 
 function updateTimerDisplay(remainingSeconds) {
@@ -1192,7 +1264,15 @@ function updateTimerDisplay(remainingSeconds) {
 
   if (remainingSeconds > 0) {
     setTimeout(() => {
-      const newRemaining = Math.max(0, remainingSeconds - 1);
+      const storedEndTime = localStorage.getItem(STORAGE_KEY);
+      if (!storedEndTime) {
+        showInitialVerify();
+        return;
+      }
+      
+      const endTime = parseInt(storedEndTime);
+      const now = Date.now();
+      const newRemaining = Math.max(0, Math.ceil((endTime - now) / 1000));
       updateTimerDisplay(newRemaining);
     }, 1000);
   } else {
@@ -1202,13 +1282,13 @@ function updateTimerDisplay(remainingSeconds) {
 }
 
 function init() {
-  log('安全计时器脚本开始初始化');
+  log('安全计时器脚本开始初始化（版本：4.87）');
 
   window.backgroundRunner = new BackgroundRunner();
   window.networkMonitor = new NetworkMonitor();
   initTimer();
 
-  log('安全计时器脚本初始化完成');
+  log('安全计时器脚本初始化完成（版本：4.87）');
 }
 
 if (document.readyState === 'loading') {
