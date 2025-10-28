@@ -15,4 +15,4 @@
 
 ## 许可证
 
-MIT许可证 - 详情请见[LICENSE](LICENSE)文件。
+CC BY-ND 4.0许可证 - 详情请见[LICENSE](LICENSE)文件。
