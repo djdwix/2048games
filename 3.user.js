@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         页面安全验证计时器（增强版V4.87）
+// @name         页面安全验证计时器（增强版V4.88）
 // @namespace    http://tampermonkey.net/
-// @version      4.87
+// @version      4.88
 // @description  本地与网页延迟检测+日志功能+点击导出日志+多接口IP/定位+验证重启倒计时【支持后台运行+定位缓存+缓存超时销毁】
 // @author       You
 // @match        *://*/*
@@ -152,6 +152,24 @@ GM_addStyle(`
   .net-info-value.dynamic {
     color: #4cc9f0;
     text-shadow: 0 0 3px rgba(76, 201, 240, 0.4);
+  }
+  .location-refresh-btn {
+    background: rgba(76, 201, 240, 0.2);
+    border: 1px solid rgba(76, 201, 240, 0.5);
+    color: #4cc9f0;
+    font-size: 12px;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-left: 8px;
+    transition: all 0.2s ease;
+  }
+  .location-refresh-btn:hover {
+    background: rgba(76, 201, 240, 0.3);
+    box-shadow: 0 0 6px rgba(76, 201, 240, 0.3);
+  }
+  .location-refresh-btn:active {
+    transform: scale(0.95);
   }
   .verify-modal {
     position: fixed;
@@ -649,6 +667,18 @@ class NetworkMonitor {
         </div>
       `;
       document.body.appendChild(this.modalEl);
+      
+      // 添加重新获取定位按钮
+      const locationItem = this.modalEl.querySelector('#location-info-value').closest('.net-info-item');
+      const refreshBtn = document.createElement('button');
+      refreshBtn.className = 'location-refresh-btn';
+      refreshBtn.textContent = '重新获取';
+      refreshBtn.title = '重新获取定位权限';
+      locationItem.querySelector('.net-info-value').appendChild(refreshBtn);
+      
+      refreshBtn.addEventListener('click', () => {
+        this.refreshLocation();
+      });
     }
 
     this.modalEl.querySelector('.net-modal-close').addEventListener('click', () => {
@@ -670,6 +700,20 @@ class NetworkMonitor {
       navigator.connection.removeEventListener('change', handleConnectionChange);
       navigator.connection.addEventListener('change', handleConnectionChange);
     }
+  }
+
+  refreshLocation() {
+    log('用户手动触发重新获取定位');
+    this.locationInfo = '重新获取中...';
+    this.currentArea = '重新获取中...';
+    this.modalEl.querySelector('#location-info-value').textContent = this.locationInfo;
+    this.modalEl.querySelector('#current-area-value').textContent = this.currentArea;
+    
+    // 清除缓存
+    localStorage.removeItem(this.GEO_STORAGE_KEY);
+    
+    // 重新获取定位
+    this.fetchLocation();
   }
 
   updateStatus(online) {
@@ -834,7 +878,7 @@ class NetworkMonitor {
       return;
     }
 
-    const tryNextApi = (apiIndex = 0) => {
+    const tryNextApi = (apiIndex = 0) {
       if (apiIndex >= GEO_API_CONFIG.ipLocationList.length) {
         this.currentArea = 'IP定位失败';
         this.modalEl.querySelector('#current-area-value').textContent = this.currentArea;
@@ -1282,13 +1326,13 @@ function updateTimerDisplay(remainingSeconds) {
 }
 
 function init() {
-  log('安全计时器脚本开始初始化（版本：4.87）');
+  log('安全计时器脚本开始初始化（版本：4.88）');
 
   window.backgroundRunner = new BackgroundRunner();
   window.networkMonitor = new NetworkMonitor();
   initTimer();
 
-  log('安全计时器脚本初始化完成（版本：4.87）');
+  log('安全计时器脚本初始化完成（版本：4.88）');
 }
 
 if (document.readyState === 'loading') {
