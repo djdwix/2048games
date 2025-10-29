@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         页面安全验证计时器（增强版V4.89）
+// @name         页面安全验证计时器（增强版V4.90）
 // @namespace    http://tampermonkey.net/
-// @version      4.89
+// @version      4.90
 // @description  本地与网页延迟检测+日志功能+点击导出日志+多接口IP/定位+验证重启倒计时【支持后台运行+定位缓存+缓存超时销毁】
 // @author       You
 // @match        *://*/*
@@ -48,6 +48,30 @@
             }
             .safe-timer:hover {
                 box-shadow: 0 0 12px rgba(76, 201, 240, 0.4);
+            }
+            .location-refresh-btn-standalone {
+                position: fixed;
+                top: 60px;
+                left: 12px;
+                background: rgba(15, 23, 42, 0.95);
+                border: 1px solid rgba(76, 201, 240, 0.5);
+                border-radius: 8px;
+                padding: 6px 12px;
+                font-size: 12px;
+                font-weight: 600;
+                color: #4cc9f0;
+                box-shadow: 0 2px 8px rgba(76, 201, 240, 0.2);
+                z-index: 9999;
+                user-select: none;
+                cursor: pointer;
+                transition: all 0.3s ease;
+            }
+            .location-refresh-btn-standalone:hover {
+                background: rgba(76, 201, 240, 0.1);
+                box-shadow: 0 0 12px rgba(76, 201, 240, 0.4);
+            }
+            .location-refresh-btn-standalone:active {
+                transform: scale(0.95);
             }
             .net-status {
                 position: fixed;
@@ -485,6 +509,7 @@
             }
         `);
 
+        // 常量声明
         const STORAGE_KEY = 'safeTimerEndTime';
         const LOG_STORAGE_KEY = 'safeTimerLogs';
         const LOG_MAX_LENGTH = 3000;
@@ -494,7 +519,7 @@
         const FAST_VERIFY_THRESHOLD = 3000;
         const LOCAL_DELAY_INTERVAL = 5000;
         const DELAY_TEST_TIMEOUT = 5000;
-        const BACKGROUND_CHECK_INTERVAL = 5000; // 优化：延长后台检查间隔
+        const BACKGROUND_CHECK_INTERVAL = 5000;
         const DESTROY_AFTER_END = 8 * 60;
         const IP_API_LIST = [
             { url: 'https://api.ipify.org?format=json', parser: (json) => json.ip },
@@ -511,6 +536,10 @@
                 (ip) => `https://ip-api.com/json/${ip}?fields=status,message,country,regionName,city`
             ]
         };
+
+        // 全局变量声明
+        let backgroundRunner = null;
+        let networkMonitor = null;
 
         function log(content, isBackground = false) {
             try {
@@ -538,6 +567,30 @@
             } catch (e) {
                 console.log('安全计时器日志记录失败:', e);
             }
+        }
+
+        // 创建独立的重新获取定位按钮
+        function createLocationRefreshButton() {
+            const existingBtn = document.querySelector('.location-refresh-btn-standalone');
+            if (existingBtn) {
+                existingBtn.remove();
+            }
+
+            const refreshBtn = document.createElement('button');
+            refreshBtn.className = 'location-refresh-btn-standalone';
+            refreshBtn.textContent = '重新获取定位';
+            refreshBtn.title = '重新获取定位权限';
+            
+            refreshBtn.addEventListener('click', () => {
+                if (networkMonitor && typeof networkMonitor.refreshLocation === 'function') {
+                    networkMonitor.refreshLocation();
+                } else {
+                    log('网络监测模块未正确初始化，无法重新获取定位');
+                }
+            });
+
+            document.body.appendChild(refreshBtn);
+            log('独立重新获取定位按钮创建完成');
         }
 
         class BackgroundRunner {
@@ -571,7 +624,7 @@
                             return;
                         }
 
-                        if (remainingTime % 60 === 0) { // 优化：减少日志频率
+                        if (remainingTime % 60 === 0) {
                             log(`后台倒计时同步：剩余${remainingTime}秒`, true);
                         }
                     } catch (e) {
@@ -633,7 +686,7 @@
                 setTimeout(() => {
                     this.fetchUserIPWithAI();
                     this.fetchLocation();
-                }, 1000); // 优化：延迟加载网络请求
+                }, 1000);
                 log('网络监测模块初始化完成', false);
             }
 
@@ -695,7 +748,7 @@
                 `;
                 document.body.appendChild(this.modalEl);
                 
-                // 添加重新获取定位按钮
+                // 添加重新获取定位按钮到网络状态弹窗
                 const locationItem = this.modalEl.querySelector('#location-info-value').closest('.net-info-item');
                 const refreshBtn = document.createElement('button');
                 refreshBtn.className = 'location-refresh-btn';
@@ -703,7 +756,8 @@
                 refreshBtn.title = '重新获取定位权限';
                 locationItem.querySelector('.net-info-value').appendChild(refreshBtn);
                 
-                refreshBtn.addEventListener('click', () => {
+                refreshBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
                     this.refreshLocation();
                 });
 
@@ -1299,7 +1353,7 @@
             updateTimerDisplay(remainingTime);
             log(`初始化倒计时，剩余时间：${remainingTime}秒`);
 
-            // 优化：使用防抖的storage事件监听
+            // 使用防抖的storage事件监听
             let storageTimeout;
             const handleStorage = (e) => {
                 if (e.key === STORAGE_KEY) {
@@ -1371,12 +1425,14 @@
             }
         }
 
-        log('安全计时器脚本开始初始化（版本：4.89）');
+        log('安全计时器脚本开始初始化（版本：4.90）');
 
-        window.backgroundRunner = new BackgroundRunner();
-        window.networkMonitor = new NetworkMonitor();
-        setTimeout(initTimer, 500); // 优化：延迟初始化计时器
+        // 初始化模块
+        backgroundRunner = new BackgroundRunner();
+        networkMonitor = new NetworkMonitor();
+        createLocationRefreshButton();
+        setTimeout(initTimer, 500);
 
-        log('安全计时器脚本初始化完成（版本：4.89）');
+        log('安全计时器脚本初始化完成（版本：4.90）');
     }
 })();
