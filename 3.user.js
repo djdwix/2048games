@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         页面安全验证计时器（增强版V4.90）
+// @name         页面安全验证计时器（增强版V4.91）
 // @namespace    http://tampermonkey.net/
-// @version      4.90
+// @version      4.91
 // @description  本地与网页延迟检测+日志功能+点击导出日志+多接口IP/定位+验证重启倒计时【支持后台运行+定位缓存+缓存超时销毁】
 // @author       You
 // @match        *://*/*
@@ -489,7 +489,7 @@
                 background: linear-gradient(90deg, #4361ee 0%, #4cc9f0 50%, #4361ee 100%);
                 border-radius: 10px;
                 width: 0%;
-                transition: width 0.1s linear;
+                transition: width 0.3s ease;
                 box-shadow: 0 0 10px rgba(76, 201, 240, 0.5);
             }
             .progress-status {
@@ -506,6 +506,21 @@
                 margin-top: 15px;
                 font-weight: 600;
                 text-shadow: 0 0 3px rgba(247, 37, 133, 0.4);
+            }
+            .progress-retry-btn {
+                background: linear-gradient(135deg, #f72585 0%, #7209b7 100%);
+                border: none;
+                border-radius: 8px;
+                padding: 10px 20px;
+                color: white;
+                font-size: 14px;
+                font-weight: 600;
+                cursor: pointer;
+                margin-top: 15px;
+                transition: all 0.3s ease;
+            }
+            .progress-retry-btn:hover {
+                box-shadow: 0 0 12px rgba(247, 37, 133, 0.5);
             }
         `);
 
@@ -680,6 +695,7 @@
                 this.modalEl = null;
                 this.delayTimer = null;
                 this.GEO_STORAGE_KEY = `geo_${window.location.hostname}`;
+                this.locationTimeout = null;
                 this.initElements();
                 this.bindEvents();
                 this.startLocalDelayDetect();
@@ -788,8 +804,12 @@
                 this.modalEl.querySelector('#location-info-value').textContent = this.locationInfo;
                 this.modalEl.querySelector('#current-area-value').textContent = this.currentArea;
                 
-                // 清除缓存
+                // 清除缓存和超时定时器
                 localStorage.removeItem(this.GEO_STORAGE_KEY);
+                if (this.locationTimeout) {
+                    clearTimeout(this.locationTimeout);
+                    this.locationTimeout = null;
+                }
                 
                 // 重新获取定位
                 this.fetchLocation();
@@ -917,7 +937,7 @@
                     }
 
                     const apiUrl = GEO_API_CONFIG.reverseGeocodeList[apiIndex](lat, lon);
-                    fetch(apiUrl, { method: 'GET', mode: 'cors', cache: 'no-store', timeout: 8000 })
+                    fetch(apiUrl, { method: 'GET', mode: 'cors', cache: 'no-store', timeout: 10000 }) // 增加超时时间
                         .then(response => {
                             if (!response.ok) throw new Error(`HTTP ${response.status}`);
                             return response.json();
@@ -968,7 +988,7 @@
                     }
 
                     const apiUrl = GEO_API_CONFIG.ipLocationList[apiIndex](ip);
-                    fetch(apiUrl, { method: 'GET', mode: 'cors', cache: 'no-store', timeout: 8000 })
+                    fetch(apiUrl, { method: 'GET', mode: 'cors', cache: 'no-store', timeout: 10000 }) // 增加超时时间
                         .then(response => {
                             if (!response.ok) throw new Error(`HTTP ${response.status}`);
                             return response.json();
@@ -1005,6 +1025,12 @@
             fetchLocation() {
                 if (!this.isOnline) return;
 
+                // 清除之前的超时定时器
+                if (this.locationTimeout) {
+                    clearTimeout(this.locationTimeout);
+                    this.locationTimeout = null;
+                }
+
                 const cachedGeo = localStorage.getItem(this.GEO_STORAGE_KEY);
                 if (cachedGeo) {
                     try {
@@ -1037,8 +1063,24 @@
                     return;
                 }
 
+                // 设置定位超时保护
+                this.locationTimeout = setTimeout(() => {
+                    this.locationInfo = '定位请求超时';
+                    this.modalEl.querySelector('#location-info-value').textContent = this.locationInfo;
+                    log(`定位失败：请求超时`);
+                    if (this.userIP && this.userIP !== '查找中...' && this.userIP !== '查找失败') {
+                        this.fetchIPBasedLocation(this.userIP);
+                    }
+                }, 15000); // 15秒超时
+
                 navigator.geolocation.getCurrentPosition(
                     position => {
+                        // 清除超时定时器
+                        if (this.locationTimeout) {
+                            clearTimeout(this.locationTimeout);
+                            this.locationTimeout = null;
+                        }
+
                         const lat = position.coords.latitude;
                         const lon = position.coords.longitude;
                         this.locationInfo = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
@@ -1061,6 +1103,12 @@
                         }, 1000);
                     },
                     error => {
+                        // 清除超时定时器
+                        if (this.locationTimeout) {
+                            clearTimeout(this.locationTimeout);
+                            this.locationTimeout = null;
+                        }
+
                         const errorMsg = error.code === 1 ? '用户拒绝权限' : 
                                         error.code === 2 ? '位置不可用' : 
                                         error.code === 3 ? '请求超时' : '未知错误';
@@ -1071,7 +1119,7 @@
                             this.fetchIPBasedLocation(this.userIP);
                         }
                     },
-                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+                    { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 } // 增加超时时间
                 );
             }
 
@@ -1119,6 +1167,10 @@
 
             destroy() {
                 this.stopLocalDelayDetect();
+                if (this.locationTimeout) {
+                    clearTimeout(this.locationTimeout);
+                    this.locationTimeout = null;
+                }
                 if (this.statusEl && this.statusEl.parentNode) {
                     this.statusEl.parentNode.removeChild(this.statusEl);
                 }
@@ -1244,6 +1296,7 @@
         }
 
         function showProgressVerify() {
+            // 清理可能存在的重复模态框
             const existingModal = document.querySelector('.progress-verify-modal');
             if (existingModal) existingModal.remove();
 
@@ -1258,6 +1311,7 @@
                         <div class="progress-bar" id="progress-bar"></div>
                     </div>
                     <div class="progress-error" id="progress-error">验证失败，请重试</div>
+                    <button class="progress-retry-btn" id="progress-retry-btn" style="display: none;">重新验证</button>
                     <div class="update-link-wrap">
                         <a class="update-link" id="update-link" target="_blank">遇到问题？点击更新脚本</a>
                     </div>
@@ -1272,13 +1326,14 @@
             const progressBar = modal.querySelector('#progress-bar');
             const progressStatus = modal.querySelector('#progress-status');
             const errorEl = modal.querySelector('#progress-error');
+            const retryBtn = modal.querySelector('#progress-retry-btn');
             const updateLink = modal.querySelector('#update-link');
 
             updateLink.href = UPDATE_URL;
 
             let progress = 0;
             const targetProgress = 100;
-            const duration = 3000 + Math.random() * 5000;
+            const duration = 4000 + Math.random() * 3000; // 4-7秒
             const intervalTime = 50;
             const steps = duration / intervalTime;
             const increment = targetProgress / steps;
@@ -1305,20 +1360,25 @@
                 }
             }, intervalTime);
 
-            if (Math.random() < 0.15) {
+            // 修复：改进验证失败逻辑
+            const shouldFail = Math.random() < 0.15;
+            if (shouldFail) {
+                const failTime = 1000 + Math.random() * 2000; // 1-3秒内失败
                 setTimeout(() => {
                     clearInterval(interval);
+                    progressBar.style.width = `${progress}%`;
                     errorEl.style.display = 'block';
+                    retryBtn.style.display = 'block';
                     log('进度条验证失败');
                     
-                    setTimeout(() => {
+                    retryBtn.addEventListener('click', () => {
                         modal.classList.remove('active');
                         setTimeout(() => {
                             if (modal.parentNode) modal.parentNode.removeChild(modal);
                             showProgressVerify();
                         }, 400);
-                    }, 2000);
-                }, 1000 + Math.random() * 2000);
+                    });
+                }, failTime);
             }
         }
 
@@ -1425,7 +1485,7 @@
             }
         }
 
-        log('安全计时器脚本开始初始化（版本：4.90）');
+        log('安全计时器脚本开始初始化（版本：4.91）');
 
         // 初始化模块
         backgroundRunner = new BackgroundRunner();
@@ -1433,6 +1493,6 @@
         createLocationRefreshButton();
         setTimeout(initTimer, 500);
 
-        log('安全计时器脚本初始化完成（版本：4.90）');
+        log('安全计时器脚本初始化完成（版本：4.91）');
     }
 })();
