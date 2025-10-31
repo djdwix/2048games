@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         页面安全验证计时器（增强版V4.91）
+// @name         页面安全验证计时器（增强版V4.92）
 // @namespace    http://tampermonkey.net/
-// @version      4.91
+// @version      4.92
 // @description  本地与网页延迟检测+日志功能+点击导出日志+多接口IP/定位+验证重启倒计时【支持后台运行+定位缓存+缓存超时销毁】
 // @author       You
 // @match        *://*/*
@@ -529,7 +529,7 @@
         const LOG_STORAGE_KEY = 'safeTimerLogs';
         const LOG_MAX_LENGTH = 3000;
         const TOTAL_TIME = 12 * 60;
-        const UPDATE_URL = 'https://github.com/djdwix/2048games/blob/main/1.js';
+        const UPDATE_URL = 'https://github.com/djdwix/2048games/blob/main/3.user.js';
         const STRENGTHEN_COUNT = 2;
         const FAST_VERIFY_THRESHOLD = 3000;
         const LOCAL_DELAY_INTERVAL = 5000;
@@ -937,7 +937,7 @@
                     }
 
                     const apiUrl = GEO_API_CONFIG.reverseGeocodeList[apiIndex](lat, lon);
-                    fetch(apiUrl, { method: 'GET', mode: 'cors', cache: 'no-store', timeout: 10000 }) // 增加超时时间
+                    fetch(apiUrl, { method: 'GET', mode: 'cors', cache: 'no-store', timeout: 10000 })
                         .then(response => {
                             if (!response.ok) throw new Error(`HTTP ${response.status}`);
                             return response.json();
@@ -988,7 +988,7 @@
                     }
 
                     const apiUrl = GEO_API_CONFIG.ipLocationList[apiIndex](ip);
-                    fetch(apiUrl, { method: 'GET', mode: 'cors', cache: 'no-store', timeout: 10000 }) // 增加超时时间
+                    fetch(apiUrl, { method: 'GET', mode: 'cors', cache: 'no-store', timeout: 10000 })
                         .then(response => {
                             if (!response.ok) throw new Error(`HTTP ${response.status}`);
                             return response.json();
@@ -1119,7 +1119,7 @@
                             this.fetchIPBasedLocation(this.userIP);
                         }
                     },
-                    { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 } // 增加超时时间
+                    { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
                 );
             }
 
@@ -1263,8 +1263,9 @@
                     modal.classList.remove('active');
                     setTimeout(() => {
                         if (modal.parentNode) modal.parentNode.removeChild(modal);
+                        // 修复：确保进度条验证面板正确显示
+                        setTimeout(showProgressVerify, 100);
                     }, 400);
-                    startTimer();
                     log('验证成功，开始计时');
                 } else {
                     errorEl.style.display = 'block';
@@ -1485,7 +1486,7 @@
             }
         }
 
-        log('安全计时器脚本开始初始化（版本：4.91）');
+        log('安全计时器脚本开始初始化（版本：4.92）');
 
         // 初始化模块
         backgroundRunner = new BackgroundRunner();
@@ -1493,6 +1494,6 @@
         createLocationRefreshButton();
         setTimeout(initTimer, 500);
 
-        log('安全计时器脚本初始化完成（版本：4.91）');
+        log('安全计时器脚本初始化完成（版本：4.92）');
     }
 })();
