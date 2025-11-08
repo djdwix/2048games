@@ -7,27 +7,28 @@
 // @match        *://*/*
 // @grant        GM_addStyle
 // @grant        GM_registerBackgroundScript
+// @grant        GM_setValue
+// @grant        GM_getValue
+// @grant        GM_deleteValue
 // @downloadURL  https://raw.githubusercontent.com/djdwix/2048games/main/3.user.js
 // @updateURL    https://raw.githubusercontent.com/djdwix/2048games/main/3.user.js
 // ==/UserScript==
 
 (function() {
     'use strict';
-    
-    // 确保DOM完全加载后再执行
+
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);
     } else {
         setTimeout(init, 100);
     }
-    
+
     function init() {
-        // 防止重复初始化
         if (window.safeTimerInitialized) {
             return;
         }
         window.safeTimerInitialized = true;
-        
+
         GM_addStyle(`
             .safe-timer {
                 position: fixed;
@@ -524,9 +525,9 @@
             }
         `);
 
-        // 常量声明
         const STORAGE_KEY = 'safeTimerEndTime';
         const LOG_STORAGE_KEY = 'safeTimerLogs';
+        const VERIFY_COOLDOWN_KEY = 'safeTimerVerifyCooldown';
         const LOG_MAX_LENGTH = 3000;
         const TOTAL_TIME = 12 * 60;
         const UPDATE_URL = 'https://github.com/djdwix/2048games/blob/main/3.user.js';
@@ -536,23 +537,31 @@
         const DELAY_TEST_TIMEOUT = 5000;
         const BACKGROUND_CHECK_INTERVAL = 5000;
         const DESTROY_AFTER_END = 8 * 60;
+        const VERIFY_COOLDOWN_TIME = 30 * 60 * 1000; // 30分钟免验证
         const IP_API_LIST = [
             { url: 'https://api.ipify.org?format=json', parser: (json) => json.ip },
             { url: 'https://ipinfo.io/json', parser: (json) => json.ip },
-            { url: 'https://api.myip.com', parser: (json) => json.ip }
+            { url: 'https://api.myip.com', parser: (json) => json.ip },
+            { url: 'https://api64.ipify.org?format=json', parser: (json) => json.ip },
+            { url: 'https://ipapi.co/json/', parser: (json) => json.ip }
         ];
         const GEO_API_CONFIG = {
             reverseGeocodeList: [
                 (lat, lon) => `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&zoom=10&addressdetails=1`,
-                (lat, lon) => `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=zh`
+                (lat, lon) => `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=zh`,
+                (lat, lon) => `https://geocode.maps.co/reverse?lat=${lat}&lon=${lon}&format=json`,
+                (lat, lon) => `https://api.opentopodata.org/v1/aster30m?locations=${lat},${lon}`,
+                (lat, lon) => `https://geocoding-api.open-meteo.com/v1/reverse?latitude=${lat}&longitude=${lon}&language=zh`
             ],
             ipLocationList: [
                 (ip) => `https://ipinfo.io/${ip}/json`,
-                (ip) => `https://ip-api.com/json/${ip}?fields=status,message,country,regionName,city`
+                (ip) => `https://ip-api.com/json/${ip}?fields=status,message,country,regionName,city`,
+                (ip) => `https://api.ipapi.com/${ip}?access_key=demo`,
+                (ip) => `https://ipapi.co/${ip}/json/`,
+                (ip) => `https://api.iplocation.net/?ip=${ip}`
             ]
         };
 
-        // 全局变量声明
         let backgroundRunner = null;
         let networkMonitor = null;
 
@@ -584,7 +593,6 @@
             }
         }
 
-        // 创建独立的重新获取定位按钮
         function createLocationRefreshButton() {
             const existingBtn = document.querySelector('.location-refresh-btn-standalone');
             if (existingBtn) {
@@ -595,7 +603,7 @@
             refreshBtn.className = 'location-refresh-btn-standalone';
             refreshBtn.textContent = '重新获取定位';
             refreshBtn.title = '重新获取定位权限';
-            
+
             refreshBtn.addEventListener('click', () => {
                 if (networkMonitor && typeof networkMonitor.refreshLocation === 'function') {
                     networkMonitor.refreshLocation();
@@ -621,7 +629,7 @@
             initBackgroundSync() {
                 this.backgroundTimer = setInterval(() => {
                     try {
-                        const storedEndTime = localStorage.getItem(STORAGE_KEY);
+                        const storedEndTime = GM_getValue(STORAGE_KEY, null);
                         if (!storedEndTime) return;
 
                         const endTime = parseInt(storedEndTime);
@@ -652,11 +660,12 @@
                 if (this.backgroundTimer) {
                     clearInterval(this.backgroundTimer);
                 }
-                localStorage.removeItem(STORAGE_KEY);
+                GM_deleteValue(STORAGE_KEY);
+                GM_deleteValue(VERIFY_COOLDOWN_KEY);
                 log(`后台检测到缓存超时，自动销毁缓存`, true);
 
                 if (this.isForeground) {
-                    setTimeout(showInitialVerify, 100);
+                    setTimeout(checkVerificationStatus, 100);
                 }
             }
 
@@ -707,7 +716,6 @@
             }
 
             initElements() {
-                // 清理可能存在的重复元素
                 const oldStatus = document.querySelector('.net-status');
                 if (oldStatus) oldStatus.remove();
                 const oldModal = document.querySelector('.net-modal');
@@ -763,15 +771,14 @@
                     </div>
                 `;
                 document.body.appendChild(this.modalEl);
-                
-                // 添加重新获取定位按钮到网络状态弹窗
+
                 const locationItem = this.modalEl.querySelector('#location-info-value').closest('.net-info-item');
                 const refreshBtn = document.createElement('button');
                 refreshBtn.className = 'location-refresh-btn';
                 refreshBtn.textContent = '重新获取';
                 refreshBtn.title = '重新获取定位权限';
                 locationItem.querySelector('.net-info-value').appendChild(refreshBtn);
-                
+
                 refreshBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
                     this.refreshLocation();
@@ -803,15 +810,13 @@
                 this.currentArea = '重新获取中...';
                 this.modalEl.querySelector('#location-info-value').textContent = this.locationInfo;
                 this.modalEl.querySelector('#current-area-value').textContent = this.currentArea;
-                
-                // 清除缓存和超时定时器
+
                 localStorage.removeItem(this.GEO_STORAGE_KEY);
                 if (this.locationTimeout) {
                     clearTimeout(this.locationTimeout);
                     this.locationTimeout = null;
                 }
-                
-                // 重新获取定位
+
                 this.fetchLocation();
             }
 
@@ -952,6 +957,8 @@
                                 area = data.localityInfo.administrative[2]?.name || data.localityInfo.administrative[1]?.name || data.localityInfo.administrative[0]?.name;
                             } else if (data.city) {
                                 area = data.city;
+                            } else if (data.results && data.results[0]) {
+                                area = data.results[0].formatted;
                             }
 
                             if (area) {
@@ -1003,6 +1010,8 @@
                                 area = data.region;
                             } else if (data.country) {
                                 area = data.country;
+                            } else if (data.location) {
+                                area = data.location;
                             }
 
                             if (area) {
@@ -1025,7 +1034,6 @@
             fetchLocation() {
                 if (!this.isOnline) return;
 
-                // 清除之前的超时定时器
                 if (this.locationTimeout) {
                     clearTimeout(this.locationTimeout);
                     this.locationTimeout = null;
@@ -1063,7 +1071,6 @@
                     return;
                 }
 
-                // 设置定位超时保护
                 this.locationTimeout = setTimeout(() => {
                     this.locationInfo = '定位请求超时';
                     this.modalEl.querySelector('#location-info-value').textContent = this.locationInfo;
@@ -1071,11 +1078,10 @@
                     if (this.userIP && this.userIP !== '查找中...' && this.userIP !== '查找失败') {
                         this.fetchIPBasedLocation(this.userIP);
                     }
-                }, 15000); // 15秒超时
+                }, 15000);
 
                 navigator.geolocation.getCurrentPosition(
                     position => {
-                        // 清除超时定时器
                         if (this.locationTimeout) {
                             clearTimeout(this.locationTimeout);
                             this.locationTimeout = null;
@@ -1103,7 +1109,6 @@
                         }, 1000);
                     },
                     error => {
-                        // 清除超时定时器
                         if (this.locationTimeout) {
                             clearTimeout(this.locationTimeout);
                             this.locationTimeout = null;
@@ -1199,8 +1204,22 @@
             }, 1500);
         }
 
+        function checkVerificationStatus() {
+            const lastVerifyTime = GM_getValue(VERIFY_COOLDOWN_KEY, 0);
+            const currentTime = Date.now();
+            const timeSinceLastVerify = currentTime - lastVerifyTime;
+
+            if (timeSinceLastVerify < VERIFY_COOLDOWN_TIME) {
+                const remainingMinutes = Math.ceil((VERIFY_COOLDOWN_TIME - timeSinceLastVerify) / 60000);
+                log(`免验证期内，剩余${remainingMinutes}分钟免验证`);
+                startTimer();
+                return;
+            }
+
+            showInitialVerify();
+        }
+
         function showInitialVerify() {
-            // 清理可能存在的重复模态框
             const existingModal = document.querySelector('.verify-modal');
             if (existingModal) existingModal.remove();
 
@@ -1230,7 +1249,7 @@
                 </div>
             `;
             document.body.appendChild(modal);
-            
+
             setTimeout(() => {
                 modal.classList.add('active');
             }, 10);
@@ -1263,7 +1282,6 @@
                     modal.classList.remove('active');
                     setTimeout(() => {
                         if (modal.parentNode) modal.parentNode.removeChild(modal);
-                        // 修复：确保进度条验证面板正确显示
                         setTimeout(showProgressVerify, 100);
                     }, 400);
                     log('验证成功，开始计时');
@@ -1297,7 +1315,6 @@
         }
 
         function showProgressVerify() {
-            // 清理可能存在的重复模态框
             const existingModal = document.querySelector('.progress-verify-modal');
             if (existingModal) existingModal.remove();
 
@@ -1319,7 +1336,7 @@
                 </div>
             `;
             document.body.appendChild(modal);
-            
+
             setTimeout(() => {
                 modal.classList.add('active');
             }, 10);
@@ -1334,7 +1351,7 @@
 
             let progress = 0;
             const targetProgress = 100;
-            const duration = 4000 + Math.random() * 3000; // 4-7秒
+            const duration = 4000 + Math.random() * 3000;
             const intervalTime = 50;
             const steps = duration / intervalTime;
             const increment = targetProgress / steps;
@@ -1346,12 +1363,13 @@
                     clearInterval(interval);
                     progressBar.style.width = `${progress}%`;
                     progressStatus.textContent = `${Math.round(progress)}%`;
-                    
+
                     setTimeout(() => {
                         modal.classList.remove('active');
                         setTimeout(() => {
                             if (modal.parentNode) modal.parentNode.removeChild(modal);
                         }, 400);
+                        GM_setValue(VERIFY_COOLDOWN_KEY, Date.now());
                         startTimer();
                         log('进度条验证成功，开始计时');
                     }, 500);
@@ -1361,17 +1379,16 @@
                 }
             }, intervalTime);
 
-            // 修复：改进验证失败逻辑
             const shouldFail = Math.random() < 0.15;
             if (shouldFail) {
-                const failTime = 1000 + Math.random() * 2000; // 1-3秒内失败
+                const failTime = 1000 + Math.random() * 2000;
                 setTimeout(() => {
                     clearInterval(interval);
                     progressBar.style.width = `${progress}%`;
                     errorEl.style.display = 'block';
                     retryBtn.style.display = 'block';
                     log('进度条验证失败');
-                    
+
                     retryBtn.addEventListener('click', () => {
                         modal.classList.remove('active');
                         setTimeout(() => {
@@ -1385,19 +1402,18 @@
 
         function startTimer() {
             const endTime = Date.now() + TOTAL_TIME * 1000;
-            localStorage.setItem(STORAGE_KEY, endTime.toString());
+            GM_setValue(STORAGE_KEY, endTime.toString());
             log(`计时开始，结束时间：${new Date(endTime).toLocaleString()}`);
             initTimer();
         }
 
         function initTimer() {
-            // 清理可能存在的重复计时器
             const oldTimer = document.querySelector('.safe-timer');
             if (oldTimer) oldTimer.remove();
 
-            const storedEndTime = localStorage.getItem(STORAGE_KEY);
+            const storedEndTime = GM_getValue(STORAGE_KEY, null);
             if (!storedEndTime) {
-                showInitialVerify();
+                checkVerificationStatus();
                 return;
             }
 
@@ -1406,32 +1422,13 @@
             const remainingTime = Math.max(0, Math.ceil((endTime - now) / 1000));
 
             if (remainingTime <= 0) {
-                localStorage.removeItem(STORAGE_KEY);
-                showInitialVerify();
+                GM_deleteValue(STORAGE_KEY);
+                checkVerificationStatus();
                 return;
             }
 
             updateTimerDisplay(remainingTime);
             log(`初始化倒计时，剩余时间：${remainingTime}秒`);
-
-            // 使用防抖的storage事件监听
-            let storageTimeout;
-            const handleStorage = (e) => {
-                if (e.key === STORAGE_KEY) {
-                    clearTimeout(storageTimeout);
-                    storageTimeout = setTimeout(() => {
-                        log('检测到多标签页存储变化，同步倒计时');
-                        const newEndTime = parseInt(e.newValue);
-                        if (newEndTime) {
-                            const newRemaining = Math.max(0, Math.ceil((newEndTime - Date.now()) / 1000));
-                            updateTimerDisplay(newRemaining);
-                        }
-                    }, 100);
-                }
-            };
-            
-            window.removeEventListener('storage', handleStorage);
-            window.addEventListener('storage', handleStorage);
         }
 
         function updateTimerDisplay(remainingSeconds) {
@@ -1469,26 +1466,25 @@
 
             if (remainingSeconds > 0) {
                 setTimeout(() => {
-                    const storedEndTime = localStorage.getItem(STORAGE_KEY);
+                    const storedEndTime = GM_getValue(STORAGE_KEY, null);
                     if (!storedEndTime) {
-                        showInitialVerify();
+                        checkVerificationStatus();
                         return;
                     }
-                    
+
                     const endTime = parseInt(storedEndTime);
                     const now = Date.now();
                     const newRemaining = Math.max(0, Math.ceil((endTime - now) / 1000));
                     updateTimerDisplay(newRemaining);
                 }, 1000);
             } else {
-                localStorage.removeItem(STORAGE_KEY);
-                showInitialVerify();
+                GM_deleteValue(STORAGE_KEY);
+                checkVerificationStatus();
             }
         }
 
         log('安全计时器脚本开始初始化（版本：4.92）');
 
-        // 初始化模块
         backgroundRunner = new BackgroundRunner();
         networkMonitor = new NetworkMonitor();
         createLocationRefreshButton();
