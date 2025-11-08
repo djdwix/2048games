@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         页面安全验证计时器（增强版V4.92）
+// @name         页面安全验证计时器（增强版V5.0）
 // @namespace    http://tampermonkey.net/
-// @version      4.92
+// @version      5.0
 // @description  本地与网页延迟检测+日志功能+点击导出日志+多接口IP/定位+验证重启倒计时【支持后台运行+定位缓存+缓存超时销毁】
 // @author       You
 // @match        *://*/*
@@ -295,6 +295,8 @@
                 user-select: none;
                 box-shadow: 0 0 12px rgba(76, 201, 240, 0.2), inset 0 0 8px rgba(76, 201, 240, 0.4);
                 text-shadow: 0 0 5px rgba(76, 201, 240, 0.7);
+                position: relative;
+                overflow: hidden;
             }
             .verify-code:active {
                 transform: scale(0.98);
@@ -308,6 +310,22 @@
                 border-color: rgba(76, 201, 240, 0.3);
                 pointer-events: none;
                 box-shadow: inset 0 0 6px rgba(76, 201, 240, 0.2);
+            }
+            .verify-code.copying {
+                background: linear-gradient(135deg, #3a0ca3 0%, #4361ee 100%);
+            }
+            .verify-code.progress {
+                background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            }
+            .verify-code.progress::after {
+                content: '';
+                position: absolute;
+                bottom: 0;
+                left: 0;
+                height: 4px;
+                background: #4cc9f0;
+                transition: width 0.1s linear;
+                box-shadow: 0 0 10px rgba(76, 201, 240, 0.8);
             }
             .verify-input-wrap {
                 margin: 15px 0 5px;
@@ -346,6 +364,14 @@
                 margin: 0 0 25px;
                 font-style: italic;
                 opacity: 0.8;
+            }
+            .long-press-tip {
+                font-size: 12px;
+                color: #4cc9f0;
+                text-align: center;
+                margin: 5px 0 0;
+                font-weight: 600;
+                text-shadow: 0 0 3px rgba(76, 201, 240, 0.5);
             }
             .modal-btns {
                 display: flex;
@@ -527,7 +553,7 @@
 
         const STORAGE_KEY = 'safeTimerEndTime';
         const LOG_STORAGE_KEY = 'safeTimerLogs';
-        const VERIFY_COOLDOWN_KEY = 'safeTimerVerifyCooldown';
+        const SESSION_KEY = 'safeTimerSession';
         const LOG_MAX_LENGTH = 3000;
         const TOTAL_TIME = 12 * 60;
         const UPDATE_URL = 'https://github.com/djdwix/2048games/blob/main/3.user.js';
@@ -537,7 +563,7 @@
         const DELAY_TEST_TIMEOUT = 5000;
         const BACKGROUND_CHECK_INTERVAL = 5000;
         const DESTROY_AFTER_END = 8 * 60;
-        const VERIFY_COOLDOWN_TIME = 30 * 60 * 1000; // 30分钟免验证
+        const LONG_PRESS_TIME = 5000; // 5秒长按
         const IP_API_LIST = [
             { url: 'https://api.ipify.org?format=json', parser: (json) => json.ip },
             { url: 'https://ipinfo.io/json', parser: (json) => json.ip },
@@ -661,11 +687,11 @@
                     clearInterval(this.backgroundTimer);
                 }
                 GM_deleteValue(STORAGE_KEY);
-                GM_deleteValue(VERIFY_COOLDOWN_KEY);
+                GM_deleteValue(SESSION_KEY);
                 log(`后台检测到缓存超时，自动销毁缓存`, true);
 
                 if (this.isForeground) {
-                    setTimeout(checkVerificationStatus, 100);
+                    setTimeout(checkSessionStatus, 100);
                 }
             }
 
@@ -1204,18 +1230,22 @@
             }, 1500);
         }
 
-        function checkVerificationStatus() {
-            const lastVerifyTime = GM_getValue(VERIFY_COOLDOWN_KEY, 0);
-            const currentTime = Date.now();
-            const timeSinceLastVerify = currentTime - lastVerifyTime;
-
-            if (timeSinceLastVerify < VERIFY_COOLDOWN_TIME) {
-                const remainingMinutes = Math.ceil((VERIFY_COOLDOWN_TIME - timeSinceLastVerify) / 60000);
-                log(`免验证期内，剩余${remainingMinutes}分钟免验证`);
-                startTimer();
-                return;
+        function checkSessionStatus() {
+            const sessionData = GM_getValue(SESSION_KEY, null);
+            const storedEndTime = GM_getValue(STORAGE_KEY, null);
+            
+            if (sessionData && storedEndTime) {
+                const endTime = parseInt(storedEndTime);
+                const now = Date.now();
+                const remainingTime = Math.max(0, Math.ceil((endTime - now) / 1000));
+                
+                if (remainingTime > 0) {
+                    log(`检测到有效会话，剩余时间：${remainingTime}秒`);
+                    initTimer();
+                    return;
+                }
             }
-
+            
             showInitialVerify();
         }
 
@@ -1234,7 +1264,8 @@
                     </div>
                     <p class="modal-desc">请复制下方验证码并输入以继续访问</p>
                     <div class="verify-code" id="verify-code">${code}</div>
-                    <p class="copy-tip">点击验证码复制</p>
+                    <p class="copy-tip">长按5秒验证码复制</p>
+                    <p class="long-press-tip">长按过程中请勿松开</p>
                     <div class="verify-input-wrap">
                         <input type="text" class="verify-input" id="verify-input" placeholder="请输入验证码" maxlength="6">
                         <div class="verify-error" id="verify-error">验证码错误，请重新输入</div>
@@ -1263,9 +1294,55 @@
 
             updateLink.href = UPDATE_URL;
 
-            codeEl.addEventListener('click', () => {
+            let pressTimer = null;
+            let pressStartTime = 0;
+
+            codeEl.addEventListener('mousedown', startLongPress);
+            codeEl.addEventListener('touchstart', startLongPress);
+            codeEl.addEventListener('mouseup', cancelLongPress);
+            codeEl.addEventListener('mouseleave', cancelLongPress);
+            codeEl.addEventListener('touchend', cancelLongPress);
+            codeEl.addEventListener('touchcancel', cancelLongPress);
+
+            function startLongPress(e) {
+                e.preventDefault();
+                pressStartTime = Date.now();
+                codeEl.classList.add('copying');
+                
+                pressTimer = setTimeout(() => {
+                    codeEl.classList.remove('copying');
+                    codeEl.classList.add('progress');
+                    
+                    const progressTimer = setInterval(() => {
+                        const elapsed = Date.now() - pressStartTime;
+                        const progress = Math.min((elapsed / LONG_PRESS_TIME) * 100, 100);
+                        codeEl.style.setProperty('--progress-width', `${progress}%`);
+                        
+                        if (elapsed >= LONG_PRESS_TIME) {
+                            clearInterval(progressTimer);
+                            completeLongPress();
+                        }
+                    }, 50);
+                    
+                    pressTimer = progressTimer;
+                }, 100);
+            }
+
+            function cancelLongPress() {
+                if (pressTimer) {
+                    clearTimeout(pressTimer);
+                    pressTimer = null;
+                }
+                codeEl.classList.remove('copying', 'progress');
+                codeEl.style.setProperty('--progress-width', '0%');
+            }
+
+            function completeLongPress() {
                 navigator.clipboard.writeText(code).then(() => {
                     showCopySuccess();
+                    codeEl.classList.remove('progress');
+                    codeEl.style.setProperty('--progress-width', '0%');
+                    log('验证码长按复制成功');
                 }).catch(() => {
                     codeEl.classList.add('uncopyable');
                     codeEl.textContent = '复制失败，请手动输入';
@@ -1273,8 +1350,9 @@
                         codeEl.classList.remove('uncopyable');
                         codeEl.textContent = code;
                     }, 2000);
+                    log('验证码复制失败');
                 });
-            });
+            }
 
             confirmBtn.addEventListener('click', () => {
                 const inputCode = inputEl.value.trim();
@@ -1369,7 +1447,11 @@
                         setTimeout(() => {
                             if (modal.parentNode) modal.parentNode.removeChild(modal);
                         }, 400);
-                        GM_setValue(VERIFY_COOLDOWN_KEY, Date.now());
+                        GM_setValue(SESSION_KEY, {
+                            verified: true,
+                            timestamp: Date.now(),
+                            domain: window.location.hostname
+                        });
                         startTimer();
                         log('进度条验证成功，开始计时');
                     }, 500);
@@ -1413,7 +1495,7 @@
 
             const storedEndTime = GM_getValue(STORAGE_KEY, null);
             if (!storedEndTime) {
-                checkVerificationStatus();
+                checkSessionStatus();
                 return;
             }
 
@@ -1423,7 +1505,8 @@
 
             if (remainingTime <= 0) {
                 GM_deleteValue(STORAGE_KEY);
-                checkVerificationStatus();
+                GM_deleteValue(SESSION_KEY);
+                checkSessionStatus();
                 return;
             }
 
@@ -1468,7 +1551,7 @@
                 setTimeout(() => {
                     const storedEndTime = GM_getValue(STORAGE_KEY, null);
                     if (!storedEndTime) {
-                        checkVerificationStatus();
+                        checkSessionStatus();
                         return;
                     }
 
@@ -1479,17 +1562,18 @@
                 }, 1000);
             } else {
                 GM_deleteValue(STORAGE_KEY);
-                checkVerificationStatus();
+                GM_deleteValue(SESSION_KEY);
+                checkSessionStatus();
             }
         }
 
-        log('安全计时器脚本开始初始化（版本：4.92）');
+        log('安全计时器脚本开始初始化（版本：5.0）');
 
         backgroundRunner = new BackgroundRunner();
         networkMonitor = new NetworkMonitor();
         createLocationRefreshButton();
-        setTimeout(initTimer, 500);
+        setTimeout(checkSessionStatus, 500);
 
-        log('安全计时器脚本初始化完成（版本：4.92）');
+        log('安全计时器脚本初始化完成（版本：5.0）');
     }
 })();
