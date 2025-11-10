@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         页面安全验证计时器（增强版V5.1）
+// @name         页面安全验证计时器（增强版V5.2）
 // @namespace    http://tampermonkey.net/
-// @version      5.1
+// @version      5.2
 // @description  本地与网页延迟检测+日志功能+点击导出日志+多接口IP/定位+验证重启倒计时【支持后台运行+定位缓存+缓存超时销毁】
 // @author       You
 // @match        *://*/*
@@ -49,6 +49,24 @@
             }
             .safe-timer:hover {
                 box-shadow: 0 0 12px rgba(76, 201, 240, 0.4);
+            }
+            .safe-timer.warning {
+                color: #ffd60a;
+                animation: pulse-warning 1s infinite;
+            }
+            .safe-timer.danger {
+                color: #f72585;
+                animation: pulse-danger 0.8s infinite;
+            }
+            @keyframes pulse-warning {
+                0% { color: #ffd60a; }
+                50% { color: #ffea80; }
+                100% { color: #ffd60a; }
+            }
+            @keyframes pulse-danger {
+                0% { color: #f72585; }
+                50% { color: #ff6ba9; }
+                100% { color: #f72585; }
             }
             .location-refresh-btn-standalone {
                 position: fixed;
@@ -311,23 +329,6 @@
                 pointer-events: none;
                 box-shadow: inset 0 0 6px rgba(76, 201, 240, 0.2);
             }
-            .verify-code.copying {
-                background: linear-gradient(135deg, #3a0ca3 0%, #4361ee 100%);
-            }
-            .verify-code.progress {
-                background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-            }
-            .verify-code.progress::after {
-                content: '';
-                position: absolute;
-                bottom: 0;
-                left: 0;
-                height: 4px;
-                background: #4cc9f0;
-                transition: width 0.1s linear;
-                box-shadow: 0 0 10px rgba(76, 201, 240, 0.8);
-                width: var(--progress-width, 0%);
-            }
             .verify-input-wrap {
                 margin: 15px 0 5px;
             }
@@ -365,14 +366,6 @@
                 margin: 0 0 25px;
                 font-style: italic;
                 opacity: 0.8;
-            }
-            .long-press-tip {
-                font-size: 12px;
-                color: #4cc9f0;
-                text-align: center;
-                margin: 5px 0 0;
-                font-weight: 600;
-                text-shadow: 0 0 3px rgba(76, 201, 240, 0.5);
             }
             .double-click-tip {
                 font-size: 12px;
@@ -429,7 +422,7 @@
                 padding: 12px 24px;
                 border-radius: 8px;
                 font-size: 15px;
-                z-index: 10001;
+                z-index: 10003;
                 opacity: 0;
                 box-shadow: 0 0 15px rgba(76, 201, 240, 0.4);
                 animation: fadeInOut 1.5s ease;
@@ -692,7 +685,7 @@
         const SESSION_KEY = 'safeTimerSession';
         const ADMIN_PASSWORD = '739164'; // 6位复杂数字密码
         const LOG_MAX_LENGTH = 3000;
-        const TOTAL_TIME = 12 * 60;
+        const TOTAL_TIME = 15 * 60; // 15分钟
         const UPDATE_URL = 'https://github.com/djdwix/2048games/blob/main/3.user.js';
         const STRENGTHEN_COUNT = 2;
         const FAST_VERIFY_THRESHOLD = 3000;
@@ -700,7 +693,6 @@
         const DELAY_TEST_TIMEOUT = 5000;
         const BACKGROUND_CHECK_INTERVAL = 5000;
         const DESTROY_AFTER_END = 8 * 60;
-        const LONG_PRESS_TIME = 5000; // 5秒长按
         const IP_API_LIST = [
             { url: 'https://api.ipify.org?format=json', parser: (json) => json.ip },
             { url: 'https://ipinfo.io/json', parser: (json) => json.ip },
@@ -1482,8 +1474,7 @@
                     </div>
                     <p class="modal-desc">请复制下方验证码并输入以继续访问</p>
                     <div class="verify-code" id="verify-code">${code}</div>
-                    <p class="copy-tip">长按5秒验证码复制 或 双击使用管理员密码复制</p>
-                    <p class="long-press-tip">长按过程中请勿松开</p>
+                    <p class="copy-tip">双击验证码使用管理员密码复制</p>
                     <p class="double-click-tip">双击验证码可输入管理员密码快速复制</p>
                     <div class="verify-input-wrap">
                         <input type="text" class="verify-input" id="verify-input" placeholder="请输入验证码" maxlength="6">
@@ -1513,20 +1504,10 @@
 
             updateLink.href = UPDATE_URL;
 
-            let pressTimer = null;
-            let pressStartTime = 0;
             let lastClickTime = 0;
-
-            codeEl.addEventListener('mousedown', startLongPress);
-            codeEl.addEventListener('touchstart', startLongPress);
-            codeEl.addEventListener('mouseup', cancelLongPress);
-            codeEl.addEventListener('mouseleave', cancelLongPress);
-            codeEl.addEventListener('touchend', cancelLongPress);
-            codeEl.addEventListener('touchcancel', cancelLongPress);
 
             codeEl.addEventListener('dblclick', (e) => {
                 e.preventDefault();
-                cancelLongPress();
                 showAdminModal(code);
             });
 
@@ -1534,61 +1515,10 @@
                 const currentTime = new Date().getTime();
                 if (currentTime - lastClickTime < 300) {
                     e.preventDefault();
-                    cancelLongPress();
                     showAdminModal(code);
                 }
                 lastClickTime = currentTime;
             });
-
-            function startLongPress(e) {
-                e.preventDefault();
-                pressStartTime = Date.now();
-                codeEl.classList.add('copying');
-                
-                pressTimer = setTimeout(() => {
-                    codeEl.classList.remove('copying');
-                    codeEl.classList.add('progress');
-                    
-                    const progressTimer = setInterval(() => {
-                        const elapsed = Date.now() - pressStartTime;
-                        const progress = Math.min((elapsed / LONG_PRESS_TIME) * 100, 100);
-                        codeEl.style.setProperty('--progress-width', `${progress}%`);
-                        
-                        if (elapsed >= LONG_PRESS_TIME) {
-                            clearInterval(progressTimer);
-                            completeLongPress();
-                        }
-                    }, 50);
-                    
-                    pressTimer = progressTimer;
-                }, 100);
-            }
-
-            function cancelLongPress() {
-                if (pressTimer) {
-                    clearTimeout(pressTimer);
-                    pressTimer = null;
-                }
-                codeEl.classList.remove('copying', 'progress');
-                codeEl.style.setProperty('--progress-width', '0%');
-            }
-
-            function completeLongPress() {
-                navigator.clipboard.writeText(code).then(() => {
-                    showCopySuccess();
-                    codeEl.classList.remove('progress');
-                    codeEl.style.setProperty('--progress-width', '0%');
-                    log('验证码长按复制成功');
-                }).catch(() => {
-                    codeEl.classList.add('uncopyable');
-                    codeEl.textContent = '复制失败，请手动输入';
-                    setTimeout(() => {
-                        codeEl.classList.remove('uncopyable');
-                        codeEl.textContent = code;
-                    }, 2000);
-                    log('验证码复制失败');
-                });
-            }
 
             confirmBtn.addEventListener('click', () => {
                 const inputCode = inputEl.value.trim();
@@ -1775,12 +1705,13 @@
             const seconds = remainingSeconds % 60;
             timerEl.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 
+            // 完善倒计时器字体颜色标识
             if (remainingSeconds <= 60) {
-                timerEl.style.color = '#f72585';
-                timerEl.style.animation = 'pulse 1s infinite';
+                timerEl.className = 'safe-timer danger';
+            } else if (remainingSeconds <= 300) { // 5分钟内显示警告色
+                timerEl.className = 'safe-timer warning';
             } else {
-                timerEl.style.color = '#e0f2fe';
-                timerEl.style.animation = 'none';
+                timerEl.className = 'safe-timer';
             }
 
             if (remainingSeconds > 0) {
@@ -1803,13 +1734,13 @@
             }
         }
 
-        log('安全计时器脚本开始初始化（版本：5.1）');
+        log('安全计时器脚本开始初始化（版本：5.2）');
 
         backgroundRunner = new BackgroundRunner();
         networkMonitor = new NetworkMonitor();
         createLocationRefreshButton();
         setTimeout(checkSessionStatus, 500);
 
-        log('安全计时器脚本初始化完成（版本：5.1）');
+        log('安全计时器脚本初始化完成（版本：5.2）');
     }
 })();
