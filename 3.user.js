@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         页面安全验证计时器（增强版V5.0）
+// @name         页面安全验证计时器（增强版V5.1）
 // @namespace    http://tampermonkey.net/
-// @version      5.0
+// @version      5.1
 // @description  本地与网页延迟检测+日志功能+点击导出日志+多接口IP/定位+验证重启倒计时【支持后台运行+定位缓存+缓存超时销毁】
 // @author       You
 // @match        *://*/*
@@ -326,6 +326,7 @@
                 background: #4cc9f0;
                 transition: width 0.1s linear;
                 box-shadow: 0 0 10px rgba(76, 201, 240, 0.8);
+                width: var(--progress-width, 0%);
             }
             .verify-input-wrap {
                 margin: 15px 0 5px;
@@ -372,6 +373,14 @@
                 margin: 5px 0 0;
                 font-weight: 600;
                 text-shadow: 0 0 3px rgba(76, 201, 240, 0.5);
+            }
+            .double-click-tip {
+                font-size: 12px;
+                color: #f72585;
+                text-align: center;
+                margin: 5px 0 0;
+                font-weight: 600;
+                text-shadow: 0 0 3px rgba(247, 37, 133, 0.4);
             }
             .modal-btns {
                 display: flex;
@@ -549,11 +558,139 @@
             .progress-retry-btn:hover {
                 box-shadow: 0 0 12px rgba(247, 37, 133, 0.5);
             }
+            .admin-modal {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(10, 15, 30, 0.95);
+                backdrop-filter: blur(12px);
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                z-index: 10002;
+                padding: 0 15px;
+                opacity: 0;
+                visibility: hidden;
+                transition: opacity 0.4s ease, visibility 0.4s ease;
+            }
+            .admin-modal.active {
+                opacity: 1;
+                visibility: visible;
+            }
+            .admin-modal-box {
+                width: 100%;
+                max-width: 320px;
+                background: linear-gradient(135deg, #1a103d 0%, #0f172a 100%);
+                border: 1px solid rgba(76, 201, 240, 0.7);
+                border-radius: 16px;
+                padding: 25px 20px;
+                box-shadow: 0 0 30px rgba(76, 201, 240, 0.4), inset 0 0 20px rgba(76, 201, 240, 0.15);
+                transform: scale(0.9) translateY(15px);
+                transition: transform 0.4s ease, box-shadow 0.4s ease;
+            }
+            .admin-modal.active .admin-modal-box {
+                transform: scale(1) translateY(0);
+                box-shadow: 0 0 40px rgba(76, 201, 240, 0.5), inset 0 0 25px rgba(76, 201, 240, 0.2);
+            }
+            .admin-modal-header {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                margin-bottom: 20px;
+                gap: 12px;
+            }
+            .admin-modal-icon {
+                font-size: 24px;
+                color: #4cc9f0;
+                text-shadow: 0 0 8px rgba(76, 201, 240, 0.6);
+            }
+            .admin-modal-title {
+                font-size: 20px;
+                font-weight: bold;
+                color: #4cc9f0;
+                margin: 0;
+                text-shadow: 0 0 6px rgba(76, 201, 240, 0.5);
+                letter-spacing: 0.5px;
+            }
+            .admin-modal-desc {
+                font-size: 14px;
+                color: #e0e7ff;
+                text-align: center;
+                margin: 0 0 20px;
+                line-height: 1.5;
+                padding: 0 10px;
+                opacity: 0.9;
+            }
+            .admin-input-wrap {
+                margin: 15px 0 5px;
+            }
+            .admin-input {
+                width: 100%;
+                padding: 12px 0;
+                background: #1e293b;
+                border: 1px solid rgba(76, 201, 240, 0.6);
+                border-radius: 8px;
+                font-size: 16px;
+                text-align: center;
+                outline: none;
+                transition: all 0.3s ease;
+                color: #f8fafc;
+                box-shadow: inset 0 0 8px rgba(76, 201, 240, 0.1);
+                letter-spacing: 2px;
+            }
+            .admin-input:focus {
+                border-color: #4cc9f0;
+                box-shadow: 0 0 12px rgba(76, 201, 240, 0.5), inset 0 0 10px rgba(76, 201, 240, 0.2);
+            }
+            .admin-error {
+                display: none;
+                color: #f72585;
+                text-align: center;
+                font-size: 13px;
+                margin-top: 10px;
+                margin-bottom: 15px;
+                font-weight: 600;
+                text-shadow: 0 0 3px rgba(247, 37, 133, 0.4);
+            }
+            .admin-btns {
+                display: flex;
+                gap: 12px;
+                margin-top: 15px;
+            }
+            .admin-btn {
+                flex: 1;
+                padding: 12px 0;
+                border: none;
+                border-radius: 8px;
+                font-size: 15px;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 0.3s ease;
+                color: #fff;
+                letter-spacing: 0.5px;
+            }
+            .admin-confirm-btn {
+                background: linear-gradient(135deg, #4361ee 0%, #3a0ca3 100%);
+                box-shadow: 0 0 10px rgba(67, 97, 238, 0.5);
+            }
+            .admin-confirm-btn:hover {
+                box-shadow: 0 0 15px rgba(67, 97, 238, 0.7);
+            }
+            .admin-cancel-btn {
+                background: linear-gradient(135deg, #f72585 0%, #7209b7 100%);
+                box-shadow: 0 0 10px rgba(247, 37, 133, 0.5);
+            }
+            .admin-cancel-btn:hover {
+                box-shadow: 0 0 15px rgba(247, 37, 133, 0.7);
+            }
         `);
 
         const STORAGE_KEY = 'safeTimerEndTime';
         const LOG_STORAGE_KEY = 'safeTimerLogs';
         const SESSION_KEY = 'safeTimerSession';
+        const ADMIN_PASSWORD = '739164'; // 6位复杂数字密码
         const LOG_MAX_LENGTH = 3000;
         const TOTAL_TIME = 12 * 60;
         const UPDATE_URL = 'https://github.com/djdwix/2048games/blob/main/3.user.js';
@@ -590,6 +727,7 @@
 
         let backgroundRunner = null;
         let networkMonitor = null;
+        let currentVerificationCode = '';
 
         function log(content, isBackground = false) {
             try {
@@ -1230,6 +1368,85 @@
             }, 1500);
         }
 
+        function showAdminModal(code) {
+            const existingModal = document.querySelector('.admin-modal');
+            if (existingModal) existingModal.remove();
+
+            const modal = document.createElement('div');
+            modal.className = 'admin-modal';
+            modal.innerHTML = `
+                <div class="admin-modal-box">
+                    <div class="admin-modal-header">
+                        <div class="admin-modal-icon">🔑</div>
+                        <h2 class="admin-modal-title">管理员验证</h2>
+                    </div>
+                    <p class="admin-modal-desc">请输入管理员密码以复制验证码</p>
+                    <div class="admin-input-wrap">
+                        <input type="password" class="admin-input" id="admin-password-input" placeholder="请输入6位管理员密码" maxlength="6" inputmode="numeric">
+                        <div class="admin-error" id="admin-error">密码错误，请重新输入</div>
+                    </div>
+                    <div class="admin-btns">
+                        <button class="admin-btn admin-confirm-btn" id="admin-confirm">确认</button>
+                        <button class="admin-btn admin-cancel-btn" id="admin-cancel">取消</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+
+            setTimeout(() => {
+                modal.classList.add('active');
+            }, 10);
+
+            const passwordInput = modal.querySelector('#admin-password-input');
+            const errorEl = modal.querySelector('#admin-error');
+            const confirmBtn = modal.querySelector('#admin-confirm');
+            const cancelBtn = modal.querySelector('#admin-cancel');
+
+            const handleConfirm = () => {
+                const inputPassword = passwordInput.value.trim();
+                if (inputPassword === ADMIN_PASSWORD) {
+                    navigator.clipboard.writeText(code).then(() => {
+                        showCopySuccess();
+                        modal.classList.remove('active');
+                        setTimeout(() => {
+                            if (modal.parentNode) modal.parentNode.removeChild(modal);
+                        }, 400);
+                        log('管理员验证成功，验证码已复制');
+                    }).catch(() => {
+                        errorEl.textContent = '复制失败，请手动输入';
+                        errorEl.style.display = 'block';
+                        log('管理员验证成功但复制失败');
+                    });
+                } else {
+                    errorEl.textContent = '密码错误，请重新输入';
+                    errorEl.style.display = 'block';
+                    passwordInput.value = '';
+                    log('管理员密码验证失败');
+                }
+            };
+
+            confirmBtn.addEventListener('click', handleConfirm);
+            cancelBtn.addEventListener('click', () => {
+                modal.classList.remove('active');
+                setTimeout(() => {
+                    if (modal.parentNode) modal.parentNode.removeChild(modal);
+                }, 400);
+            });
+
+            passwordInput.addEventListener('input', () => {
+                errorEl.style.display = 'none';
+                passwordInput.value = passwordInput.value.replace(/[^0-9]/g, '');
+            });
+
+            passwordInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    handleConfirm();
+                }
+            });
+
+            passwordInput.focus();
+        }
+
         function checkSessionStatus() {
             const sessionData = GM_getValue(SESSION_KEY, null);
             const storedEndTime = GM_getValue(STORAGE_KEY, null);
@@ -1254,6 +1471,7 @@
             if (existingModal) existingModal.remove();
 
             const code = generateVerificationCode();
+            currentVerificationCode = code;
             const modal = document.createElement('div');
             modal.className = 'verify-modal';
             modal.innerHTML = `
@@ -1264,8 +1482,9 @@
                     </div>
                     <p class="modal-desc">请复制下方验证码并输入以继续访问</p>
                     <div class="verify-code" id="verify-code">${code}</div>
-                    <p class="copy-tip">长按5秒验证码复制</p>
+                    <p class="copy-tip">长按5秒验证码复制 或 双击使用管理员密码复制</p>
                     <p class="long-press-tip">长按过程中请勿松开</p>
+                    <p class="double-click-tip">双击验证码可输入管理员密码快速复制</p>
                     <div class="verify-input-wrap">
                         <input type="text" class="verify-input" id="verify-input" placeholder="请输入验证码" maxlength="6">
                         <div class="verify-error" id="verify-error">验证码错误，请重新输入</div>
@@ -1296,6 +1515,7 @@
 
             let pressTimer = null;
             let pressStartTime = 0;
+            let lastClickTime = 0;
 
             codeEl.addEventListener('mousedown', startLongPress);
             codeEl.addEventListener('touchstart', startLongPress);
@@ -1303,6 +1523,22 @@
             codeEl.addEventListener('mouseleave', cancelLongPress);
             codeEl.addEventListener('touchend', cancelLongPress);
             codeEl.addEventListener('touchcancel', cancelLongPress);
+
+            codeEl.addEventListener('dblclick', (e) => {
+                e.preventDefault();
+                cancelLongPress();
+                showAdminModal(code);
+            });
+
+            codeEl.addEventListener('click', (e) => {
+                const currentTime = new Date().getTime();
+                if (currentTime - lastClickTime < 300) {
+                    e.preventDefault();
+                    cancelLongPress();
+                    showAdminModal(code);
+                }
+                lastClickTime = currentTime;
+            });
 
             function startLongPress(e) {
                 e.preventDefault();
@@ -1567,13 +1803,13 @@
             }
         }
 
-        log('安全计时器脚本开始初始化（版本：5.0）');
+        log('安全计时器脚本开始初始化（版本：5.1）');
 
         backgroundRunner = new BackgroundRunner();
         networkMonitor = new NetworkMonitor();
         createLocationRefreshButton();
         setTimeout(checkSessionStatus, 500);
 
-        log('安全计时器脚本初始化完成（版本：5.0）');
+        log('安全计时器脚本初始化完成（版本：5.1）');
     }
 })();
