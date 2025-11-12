@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         页面安全验证计时器（增强版V5.2）
+// @name         页面安全验证计时器（增强版V5.3）
 // @namespace    http://tampermonkey.net/
-// @version      5.2
+// @version      5.3
 // @description  本地与网页延迟检测+日志功能+点击导出日志+多接口IP/定位+验证重启倒计时【支持后台运行+定位缓存+缓存超时销毁】
 // @author       You
 // @match        *://*/*
@@ -67,30 +67,6 @@
                 0% { color: #f72585; }
                 50% { color: #ff6ba9; }
                 100% { color: #f72585; }
-            }
-            .location-refresh-btn-standalone {
-                position: fixed;
-                top: 60px;
-                left: 12px;
-                background: rgba(15, 23, 42, 0.95);
-                border: 1px solid rgba(76, 201, 240, 0.5);
-                border-radius: 8px;
-                padding: 6px 12px;
-                font-size: 12px;
-                font-weight: 600;
-                color: #4cc9f0;
-                box-shadow: 0 2px 8px rgba(76, 201, 240, 0.2);
-                z-index: 9999;
-                user-select: none;
-                cursor: pointer;
-                transition: all 0.3s ease;
-            }
-            .location-refresh-btn-standalone:hover {
-                background: rgba(76, 201, 240, 0.1);
-                box-shadow: 0 0 12px rgba(76, 201, 240, 0.4);
-            }
-            .location-refresh-btn-standalone:active {
-                transform: scale(0.95);
             }
             .net-status {
                 position: fixed;
@@ -212,24 +188,6 @@
             .net-info-value.dynamic {
                 color: #4cc9f0;
                 text-shadow: 0 0 3px rgba(76, 201, 240, 0.4);
-            }
-            .location-refresh-btn {
-                background: rgba(76, 201, 240, 0.2);
-                border: 1px solid rgba(76, 201, 240, 0.5);
-                color: #4cc9f0;
-                font-size: 12px;
-                cursor: pointer;
-                padding: 2px 6px;
-                border-radius: 4px;
-                margin-left: 8px;
-                transition: all 0.2s ease;
-            }
-            .location-refresh-btn:hover {
-                background: rgba(76, 201, 240, 0.3);
-                box-shadow: 0 0 6px rgba(76, 201, 240, 0.3);
-            }
-            .location-refresh-btn:active {
-                transform: scale(0.95);
             }
             .verify-modal {
                 position: fixed;
@@ -684,7 +642,7 @@
         const LOG_STORAGE_KEY = 'safeTimerLogs';
         const SESSION_KEY = 'safeTimerSession';
         const ADMIN_PASSWORD = '739164'; // 6位复杂数字密码
-        const LOG_MAX_LENGTH = 3000;
+        const LOG_MAX_SIZE = 150 * 1024; // 150KB
         const TOTAL_TIME = 15 * 60; // 15分钟
         const UPDATE_URL = 'https://github.com/djdwix/2048games/blob/main/3.user.js';
         const STRENGTHEN_COUNT = 2;
@@ -692,7 +650,7 @@
         const LOCAL_DELAY_INTERVAL = 5000;
         const DELAY_TEST_TIMEOUT = 5000;
         const BACKGROUND_CHECK_INTERVAL = 5000;
-        const DESTROY_AFTER_END = 8 * 60;
+        const DESTROY_AFTER_END = 8 * 60; // 倒计时结束后8分钟自动销毁
         const IP_API_LIST = [
             { url: 'https://api.ipify.org?format=json', parser: (json) => json.ip },
             { url: 'https://ipinfo.io/json', parser: (json) => json.ip },
@@ -738,8 +696,14 @@
                 let logs = JSON.parse(localStorage.getItem(LOG_STORAGE_KEY) || '[]');
                 logs.push(logItem);
 
-                if (logs.length > LOG_MAX_LENGTH) {
-                    logs = logs.slice(logs.length - LOG_MAX_LENGTH);
+                // 优化日志系统，限制日志储存最大为150kb
+                const logsSize = new Blob([JSON.stringify(logs)]).size;
+                if (logsSize > LOG_MAX_SIZE) {
+                    // 从最早的日志开始删除，直到大小小于限制
+                    while (logs.length > 0 && new Blob([JSON.stringify(logs)]).size > LOG_MAX_SIZE) {
+                        logs.shift(); // 删除最早的日志
+                    }
+                    log('日志文件超过150KB限制，已自动清理最早日志');
                 }
 
                 localStorage.setItem(LOG_STORAGE_KEY, JSON.stringify(logs));
@@ -747,29 +711,6 @@
             } catch (e) {
                 console.log('安全计时器日志记录失败:', e);
             }
-        }
-
-        function createLocationRefreshButton() {
-            const existingBtn = document.querySelector('.location-refresh-btn-standalone');
-            if (existingBtn) {
-                existingBtn.remove();
-            }
-
-            const refreshBtn = document.createElement('button');
-            refreshBtn.className = 'location-refresh-btn-standalone';
-            refreshBtn.textContent = '重新获取定位';
-            refreshBtn.title = '重新获取定位权限';
-
-            refreshBtn.addEventListener('click', () => {
-                if (networkMonitor && typeof networkMonitor.refreshLocation === 'function') {
-                    networkMonitor.refreshLocation();
-                } else {
-                    log('网络监测模块未正确初始化，无法重新获取定位');
-                }
-            });
-
-            document.body.appendChild(refreshBtn);
-            log('独立重新获取定位按钮创建完成');
         }
 
         class BackgroundRunner {
@@ -792,6 +733,7 @@
                         const now = Date.now();
                         const remainingTime = Math.max(0, Math.ceil((endTime - now) / 1000));
 
+                        // 后台运行为倒计时器剩余时间加8分钟自动销毁
                         const destroyTime = endTime + (DESTROY_AFTER_END * 1000);
                         if (now >= destroyTime) {
                             this.destroyStorage();
@@ -928,18 +870,6 @@
                 `;
                 document.body.appendChild(this.modalEl);
 
-                const locationItem = this.modalEl.querySelector('#location-info-value').closest('.net-info-item');
-                const refreshBtn = document.createElement('button');
-                refreshBtn.className = 'location-refresh-btn';
-                refreshBtn.textContent = '重新获取';
-                refreshBtn.title = '重新获取定位权限';
-                locationItem.querySelector('.net-info-value').appendChild(refreshBtn);
-
-                refreshBtn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    this.refreshLocation();
-                });
-
                 this.modalEl.querySelector('.net-modal-close').addEventListener('click', () => {
                     this.modalEl.classList.remove('active');
                 });
@@ -958,22 +888,6 @@
                     };
                     navigator.connection.addEventListener('change', handleConnectionChange);
                 }
-            }
-
-            refreshLocation() {
-                log('用户手动触发重新获取定位');
-                this.locationInfo = '重新获取中...';
-                this.currentArea = '重新获取中...';
-                this.modalEl.querySelector('#location-info-value').textContent = this.locationInfo;
-                this.modalEl.querySelector('#current-area-value').textContent = this.currentArea;
-
-                localStorage.removeItem(this.GEO_STORAGE_KEY);
-                if (this.locationTimeout) {
-                    clearTimeout(this.locationTimeout);
-                    this.locationTimeout = null;
-                }
-
-                this.fetchLocation();
             }
 
             updateStatus(online) {
@@ -1534,7 +1448,7 @@
                     inputEl.value = '';
                     log('验证失败：验证码错误');
                 }
-            });
+            };
 
             cancelBtn.addEventListener('click', () => {
                 modal.classList.remove('active');
@@ -1734,13 +1648,12 @@
             }
         }
 
-        log('安全计时器脚本开始初始化（版本：5.2）');
+        log('安全计时器脚本开始初始化（版本：5.3）');
 
         backgroundRunner = new BackgroundRunner();
         networkMonitor = new NetworkMonitor();
-        createLocationRefreshButton();
         setTimeout(checkSessionStatus, 500);
 
-        log('安全计时器脚本初始化完成（版本：5.2）');
+        log('安全计时器脚本初始化完成（版本：5.3）');
     }
 })();
