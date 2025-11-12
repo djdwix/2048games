@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         页面安全验证计时器（增强版V5.2）
+// @name         页面安全验证计时器（增强版V5.3）
 // @namespace    http://tampermonkey.net/
-// @version      5.2
+// @version      5.3
 // @description  本地与网页延迟检测+日志功能+点击导出日志+多接口IP/定位+验证重启倒计时【支持后台运行+定位缓存+缓存超时销毁】
 // @author       You
 // @match        *://*/*
@@ -684,7 +684,7 @@
         const LOG_STORAGE_KEY = 'safeTimerLogs';
         const SESSION_KEY = 'safeTimerSession';
         const ADMIN_PASSWORD = '739164'; // 6位复杂数字密码
-        const LOG_MAX_LENGTH = 3000;
+        const LOG_MAX_SIZE = 200 * 1024; // 200KB
         const TOTAL_TIME = 15 * 60; // 15分钟
         const UPDATE_URL = 'https://github.com/djdwix/2048games/blob/main/3.user.js';
         const STRENGTHEN_COUNT = 2;
@@ -738,8 +738,13 @@
                 let logs = JSON.parse(localStorage.getItem(LOG_STORAGE_KEY) || '[]');
                 logs.push(logItem);
 
-                if (logs.length > LOG_MAX_LENGTH) {
-                    logs = logs.slice(logs.length - LOG_MAX_LENGTH);
+                // 限制日志大小为200KB
+                const logsJson = JSON.stringify(logs);
+                if (new Blob([logsJson]).size > LOG_MAX_SIZE) {
+                    // 从最早的日志开始删除，直到大小小于限制
+                    while (logs.length > 1 && new Blob([JSON.stringify(logs)]).size > LOG_MAX_SIZE) {
+                        logs.shift();
+                    }
                 }
 
                 localStorage.setItem(LOG_STORAGE_KEY, JSON.stringify(logs));
@@ -1319,6 +1324,8 @@
                 if (ua.includes('Firefox')) return 'Firefox';
                 if (ua.includes('Safari')) return 'Safari';
                 if (ua.includes('Edge')) return 'Edge';
+                if (ua.includes('XBrowser') || ua.includes('com.mmbox.xbrowser.pro')) return 'X浏览器';
+                if (ua.includes('Via') || ua.includes('mark.via')) return 'Via';
                 return '未知';
             }
 
@@ -1734,13 +1741,13 @@
             }
         }
 
-        log('安全计时器脚本开始初始化（版本：5.2）');
+        log('安全计时器脚本开始初始化（版本：5.3）');
 
         backgroundRunner = new BackgroundRunner();
         networkMonitor = new NetworkMonitor();
         createLocationRefreshButton();
         setTimeout(checkSessionStatus, 500);
 
-        log('安全计时器脚本初始化完成（版本：5.2）');
+        log('安全计时器脚本初始化完成（版本：5.3）');
     }
 })();
