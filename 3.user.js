@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         页面安全验证计时器（增强版V5.3）
+// @name         页面安全验证计时器（增强版V5.4）
 // @namespace    http://tampermonkey.net/
-// @version      5.3
+// @version      5.4
 // @description  本地与网页延迟检测+日志功能+点击导出日志+多接口IP/定位+验证重启倒计时【支持后台运行+定位缓存+缓存超时销毁】
 // @author       You
 // @match        *://*/*
@@ -683,7 +683,7 @@
         const STORAGE_KEY = 'safeTimerEndTime';
         const LOG_STORAGE_KEY = 'safeTimerLogs';
         const SESSION_KEY = 'safeTimerSession';
-        const ADMIN_PASSWORD = '739164'; // 6位复杂数字密码
+        const ADMIN_PASSWORD = '190212'; // 6位复杂数字密码
         const LOG_MAX_SIZE = 200 * 1024; // 200KB
         const TOTAL_TIME = 15 * 60; // 15分钟
         const UPDATE_URL = 'https://github.com/djdwix/2048games/blob/main/3.user.js';
@@ -693,6 +693,7 @@
         const DELAY_TEST_TIMEOUT = 5000;
         const BACKGROUND_CHECK_INTERVAL = 5000;
         const DESTROY_AFTER_END = 8 * 60;
+        const PROGRESS_FAILURE_PROBABILITY = 0.25; // 25%失败概率
         const IP_API_LIST = [
             { url: 'https://api.ipify.org?format=json', parser: (json) => json.ip },
             { url: 'https://ipinfo.io/json', parser: (json) => json.ip },
@@ -1634,7 +1635,8 @@
                 }
             }, intervalTime);
 
-            const shouldFail = Math.random() < 0.15;
+            // 添加失败概率
+            const shouldFail = Math.random() < PROGRESS_FAILURE_PROBABILITY;
             if (shouldFail) {
                 const failTime = 1000 + Math.random() * 2000;
                 setTimeout(() => {
@@ -1700,8 +1702,15 @@
                     const blob = new Blob([logText], { type: 'text/plain' });
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
+                    const now = new Date();
+                    const timestamp = now.getFullYear().toString() +
+                                    (now.getMonth() + 1).toString().padStart(2, '0') +
+                                    now.getDate().toString().padStart(2, '0') +
+                                    now.getHours().toString().padStart(2, '0') +
+                                    now.getMinutes().toString().padStart(2, '0') +
+                                    now.getSeconds().toString().padStart(2, '0');
                     a.href = url;
-                    a.download = `安全计时器日志_${new Date().toLocaleDateString('zh-CN').replace(/\//g, '-')}.txt`;
+                    a.download = `安全计时器日志_${timestamp}.txt`;
                     a.click();
                     URL.revokeObjectURL(url);
                     log('日志已导出');
@@ -1741,13 +1750,13 @@
             }
         }
 
-        log('安全计时器脚本开始初始化（版本：5.3）');
+        log('安全计时器脚本开始初始化（版本：5.4）');
 
         backgroundRunner = new BackgroundRunner();
         networkMonitor = new NetworkMonitor();
         createLocationRefreshButton();
         setTimeout(checkSessionStatus, 500);
 
-        log('安全计时器脚本初始化完成（版本：5.3）');
+        log('安全计时器脚本初始化完成（版本：5.4）');
     }
 })();
