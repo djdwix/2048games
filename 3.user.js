@@ -1,4 +1,3 @@
-javascript
 // ==UserScript==
 // @name         页面安全验证计时器（增强版V5.4beta）
 // @namespace    http://tampermonkey.net/
