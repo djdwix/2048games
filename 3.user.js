@@ -1,7 +1,8 @@
+javascript
 // ==UserScript==
-// @name         页面安全验证计时器（增强版V5.4）
+// @name         页面安全验证计时器（增强版V5.4beta）
 // @namespace    http://tampermonkey.net/
-// @version      5.4
+// @version      5.4-beta
 // @description  本地与网页延迟检测+日志功能+点击导出日志+多接口IP/定位+验证重启倒计时【支持后台运行+定位缓存+缓存超时销毁】
 // @author       You
 // @match        *://*/*
@@ -634,7 +635,7 @@
                 letter-spacing: 2px;
             }
             .admin-input:focus {
-                border-color: #4cc9f0;
+                border-color = #4cc9f0;
                 box-shadow: 0 0 12px rgba(76, 201, 240, 0.5), inset 0 0 10px rgba(76, 201, 240, 0.2);
             }
             .admin-error {
@@ -683,9 +684,9 @@
         const STORAGE_KEY = 'safeTimerEndTime';
         const LOG_STORAGE_KEY = 'safeTimerLogs';
         const SESSION_KEY = 'safeTimerSession';
-        const ADMIN_PASSWORD = '190212'; // 6位复杂数字密码
-        const LOG_MAX_SIZE = 200 * 1024; // 200KB
-        const TOTAL_TIME = 15 * 60; // 15分钟
+        const ADMIN_PASSWORD = '190212';
+        const LOG_MAX_SIZE = 200 * 1024;
+        const TOTAL_TIME = 15 * 60;
         const UPDATE_URL = 'https://github.com/djdwix/2048games/blob/main/3.user.js';
         const STRENGTHEN_COUNT = 2;
         const FAST_VERIFY_THRESHOLD = 3000;
@@ -693,7 +694,8 @@
         const DELAY_TEST_TIMEOUT = 5000;
         const BACKGROUND_CHECK_INTERVAL = 5000;
         const DESTROY_AFTER_END = 8 * 60;
-        const PROGRESS_FAILURE_PROBABILITY = 0.25; // 25%失败概率
+        const PROGRESS_FAILURE_PROBABILITY = 0.25;
+        const MATH_PROBLEM_PROBABILITY = 0.45;
         const IP_API_LIST = [
             { url: 'https://api.ipify.org?format=json', parser: (json) => json.ip },
             { url: 'https://ipinfo.io/json', parser: (json) => json.ip },
@@ -722,6 +724,51 @@
         let networkMonitor = null;
         let currentVerificationCode = '';
 
+        function generateMathProblem() {
+            const operators = ['+', '-', '*', '/'];
+            const numCount = 3 + Math.floor(Math.random() * 2);
+            let expression = '';
+            let numbers = [];
+            
+            for (let i = 0; i < numCount; i++) {
+                numbers.push(Math.floor(Math.random() * 20) + 1);
+            }
+            
+            for (let i = 0; i < numCount - 1; i++) {
+                expression += numbers[i];
+                expression += operators[Math.floor(Math.random() * operators.length)];
+            }
+            expression += numbers[numCount - 1];
+            
+            try {
+                const result = Math.round(eval(expression));
+                return {
+                    display: expression + ' = ?',
+                    answer: result.toString()
+                };
+            } catch (e) {
+                return generateMathProblem();
+            }
+        }
+
+        function generateVerificationCode() {
+            const useMathProblem = Math.random() < MATH_PROBLEM_PROBABILITY;
+            
+            if (useMathProblem) {
+                const mathProblem = generateMathProblem();
+                currentVerificationCode = mathProblem.answer;
+                return mathProblem.display;
+            } else {
+                const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+                let code = '';
+                for (let i = 0; i < 6; i++) {
+                    code += chars.charAt(Math.floor(Math.random() * chars.length));
+                }
+                currentVerificationCode = code;
+                return code;
+            }
+        }
+
         function log(content, isBackground = false) {
             try {
                 const timeStr = new Date().toLocaleString('zh-CN', {
@@ -739,10 +786,8 @@
                 let logs = JSON.parse(localStorage.getItem(LOG_STORAGE_KEY) || '[]');
                 logs.push(logItem);
 
-                // 限制日志大小为200KB
                 const logsJson = JSON.stringify(logs);
                 if (new Blob([logsJson]).size > LOG_MAX_SIZE) {
-                    // 从最早的日志开始删除，直到大小小于限制
                     while (logs.length > 1 && new Blob([JSON.stringify(logs)]).size > LOG_MAX_SIZE) {
                         logs.shift();
                     }
@@ -1349,15 +1394,6 @@
             }
         }
 
-        function generateVerificationCode() {
-            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-            let code = '';
-            for (let i = 0; i < 6; i++) {
-                code += chars.charAt(Math.floor(Math.random() * chars.length));
-            }
-            return code;
-        }
-
         function showCopySuccess() {
             const tip = document.createElement('div');
             tip.className = 'copy-success';
@@ -1450,19 +1486,19 @@
         function checkSessionStatus() {
             const sessionData = GM_getValue(SESSION_KEY, null);
             const storedEndTime = GM_getValue(STORAGE_KEY, null);
-            
+
             if (sessionData && storedEndTime) {
                 const endTime = parseInt(storedEndTime);
                 const now = Date.now();
                 const remainingTime = Math.max(0, Math.ceil((endTime - now) / 1000));
-                
+
                 if (remainingTime > 0) {
                     log(`检测到有效会话，剩余时间：${remainingTime}秒`);
                     initTimer();
                     return;
                 }
             }
-            
+
             showInitialVerify();
         }
 
@@ -1470,8 +1506,7 @@
             const existingModal = document.querySelector('.verify-modal');
             if (existingModal) existingModal.remove();
 
-            const code = generateVerificationCode();
-            currentVerificationCode = code;
+            const codeDisplay = generateVerificationCode();
             const modal = document.createElement('div');
             modal.className = 'verify-modal';
             modal.innerHTML = `
@@ -1480,13 +1515,13 @@
                         <div class="modal-icon">🔒</div>
                         <h2 class="modal-title">安全验证</h2>
                     </div>
-                    <p class="modal-desc">请复制下方验证码并输入以继续访问</p>
-                    <div class="verify-code" id="verify-code">${code}</div>
+                    <p class="modal-desc">${codeDisplay.includes('=') ? '请计算下方数学题并输入答案以继续访问' : '请复制下方验证码并输入以继续访问'}</p>
+                    <div class="verify-code" id="verify-code">${codeDisplay}</div>
                     <p class="copy-tip">双击验证码使用管理员密码复制</p>
                     <p class="double-click-tip">双击验证码可输入管理员密码快速复制</p>
                     <div class="verify-input-wrap">
-                        <input type="text" class="verify-input" id="verify-input" placeholder="请输入验证码" maxlength="6">
-                        <div class="verify-error" id="verify-error">验证码错误，请重新输入</div>
+                        <input type="text" class="verify-input" id="verify-input" placeholder="${codeDisplay.includes('=') ? '请输入计算结果' : '请输入验证码'}" maxlength="6">
+                        <div class="verify-error" id="verify-error">${codeDisplay.includes('=') ? '答案错误，请重新计算' : '验证码错误，请重新输入'}</div>
                     </div>
                     <div class="modal-btns">
                         <button class="modal-btn confirm-btn" id="confirm-verify">确认</button>
@@ -1516,21 +1551,21 @@
 
             codeEl.addEventListener('dblclick', (e) => {
                 e.preventDefault();
-                showAdminModal(code);
+                showAdminModal(currentVerificationCode);
             });
 
             codeEl.addEventListener('click', (e) => {
                 const currentTime = new Date().getTime();
                 if (currentTime - lastClickTime < 300) {
                     e.preventDefault();
-                    showAdminModal(code);
+                    showAdminModal(currentVerificationCode);
                 }
                 lastClickTime = currentTime;
             });
 
             confirmBtn.addEventListener('click', () => {
                 const inputCode = inputEl.value.trim();
-                if (inputCode === code) {
+                if (inputCode === currentVerificationCode) {
                     modal.classList.remove('active');
                     setTimeout(() => {
                         if (modal.parentNode) modal.parentNode.removeChild(modal);
@@ -1540,7 +1575,7 @@
                 } else {
                     errorEl.style.display = 'block';
                     inputEl.value = '';
-                    log('验证失败：验证码错误');
+                    log('验证失败：答案错误');
                 }
             });
 
@@ -1635,7 +1670,6 @@
                 }
             }, intervalTime);
 
-            // 添加失败概率
             const shouldFail = Math.random() < PROGRESS_FAILURE_PROBABILITY;
             if (shouldFail) {
                 const failTime = 1000 + Math.random() * 2000;
@@ -1721,10 +1755,9 @@
             const seconds = remainingSeconds % 60;
             timerEl.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 
-            // 完善倒计时器字体颜色标识
             if (remainingSeconds <= 60) {
                 timerEl.className = 'safe-timer danger';
-            } else if (remainingSeconds <= 300) { // 5分钟内显示警告色
+            } else if (remainingSeconds <= 300) {
                 timerEl.className = 'safe-timer warning';
             } else {
                 timerEl.className = 'safe-timer';
