@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         页面安全验证计时器（增强版V5.5）
+// @name         页面安全验证计时器（增强版V5.6）
 // @namespace    http://tampermonkey.net/
-// @version      5.5
+// @version      5.6
 // @description  本地与网页延迟检测+日志功能+点击导出日志+多接口IP/定位+验证重启倒计时【支持后台运行+定位缓存+缓存超时销毁+智能风险检测】
 // @author       You
 // @match        *://*/*
@@ -993,7 +993,8 @@
         const RISK_HISTORY_KEY = 'safeTimerRiskHistory';
         const ADMIN_PASSWORD = '190212';
         const LOG_MAX_SIZE = 200 * 1024;
-        const TOTAL_TIME = 15 * 60;
+        // 修复点1：将倒计时从15分钟修改至12分钟
+        const TOTAL_TIME = 12 * 60;
         const UPDATE_URL = 'https://github.com/djdwix/2048games/blob/main/3.user.js';
         const STRENGTHEN_COUNT = 2;
         const FAST_VERIFY_THRESHOLD = 3000;
@@ -1370,25 +1371,54 @@
             return { type: VERIFY_TYPES.SIMPLE_CODE, display: code };
         }
 
+        // 修复点1：修复计算题验证答案出现小数位的bug
         function generateMathProblem() {
-            const operators = ['+', '-', '*', '/'];
-            const numCount = 3 + Math.floor(Math.random() * 2);
+            const operators = ['+', '-', '*'];
+            const numCount = 2 + Math.floor(Math.random() * 2); // 2-3个数字
             let expression = '';
             let numbers = [];
+            
+            // 确保计算结果是整数
             for (let i = 0; i < numCount; i++) {
                 numbers.push(Math.floor(Math.random() * 20) + 1);
             }
+            
+            // 构建表达式，避免产生小数
             for (let i = 0; i < numCount - 1; i++) {
                 expression += numbers[i];
-                expression += operators[Math.floor(Math.random() * operators.length)];
+                const operator = operators[Math.floor(Math.random() * operators.length)];
+                
+                // 如果使用除法，确保结果是整数
+                if (operator === '/') {
+                    // 确保被除数能被除数整除
+                    const divisor = Math.floor(Math.random() * 5) + 1;
+                    numbers[i + 1] = numbers[i] * divisor;
+                    expression += '÷';
+                } else {
+                    expression += operator;
+                }
             }
             expression += numbers[numCount - 1];
+            
             try {
-                const result = Math.round(eval(expression));
+                // 使用安全的计算方式
+                const result = Math.round(eval(expression.replace('÷', '/')));
+                // 确保结果不是NaN或无限大
+                if (isNaN(result) || !isFinite(result)) {
+                    // 如果结果无效，返回一个简单的加法题
+                    const num1 = Math.floor(Math.random() * 10) + 1;
+                    const num2 = Math.floor(Math.random() * 10) + 1;
+                    currentVerificationCode = (num1 + num2).toString();
+                    return { type: VERIFY_TYPES.MATH_PROBLEM, display: `${num1} + ${num2} = ?` };
+                }
                 currentVerificationCode = result.toString();
-                return { type: VERIFY_TYPES.MATH_PROBLEM, display: expression + ' = ?' };
+                return { type: VERIFY_TYPES.MATH_PROBLEM, display: expression.replace('/', '÷') + ' = ?' };
             } catch (e) {
-                return generateMathProblem();
+                // 如果计算失败，返回一个简单的加法题
+                const num1 = Math.floor(Math.random() * 10) + 1;
+                const num2 = Math.floor(Math.random() * 10) + 1;
+                currentVerificationCode = (num1 + num2).toString();
+                return { type: VERIFY_TYPES.MATH_PROBLEM, display: `${num1} + ${num2} = ?` };
             }
         }
 
@@ -1965,7 +1995,7 @@
                     return;
                 }
 
-                const tryNextApi = (apiIndex = 0) => {
+                const tryNextApi = (apiIndex = 0) {
                     if (apiIndex >= GEO_API_CONFIG.ipLocationList.length) {
                         this.currentArea = 'IP定位失败';
                         this.modalEl.querySelector('#current-area-value').textContent = this.currentArea;
@@ -2631,13 +2661,13 @@
         loadRiskHistory();
         createRiskIndicator();
         
-        log('安全计时器脚本开始初始化（版本：5.4 - 智能风险检测版）');
+        log('安全计时器脚本开始初始化（版本：5.6）');
 
         backgroundRunner = new BackgroundRunner();
         networkMonitor = new NetworkMonitor();
         createLocationRefreshButton();
         setTimeout(checkSessionStatus, 500);
 
-        log('安全计时器脚本初始化完成（版本：5.4 - 智能风险检测版）');
+        log('安全计时器脚本初始化完成（版本：5.6）');
     }
 })();
