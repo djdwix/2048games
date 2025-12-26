@@ -1,0 +1,1277 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>刮彩票 - 彩票模拟系统</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        .network-status {
+            position: fixed;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(255, 0, 0, 0.1);
+            color: #dc3545;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 12px;
+            z-index: 1000;
+            display: none;
+            border: 1px solid #dc3545;
+        }
+        
+        .network-status.online {
+            background: rgba(40, 167, 69, 0.1);
+            color: #28a745;
+            border-color: #28a745;
+        }
+        
+        .god-lottery-info {
+            background: linear-gradient(135deg, #8B0000 0%, #FF4500 100%);
+            color: #FFD700;
+            padding: 15px;
+            border-radius: 12px;
+            margin: 15px 0;
+            text-align: center;
+            box-shadow: 0 4px 12px rgba(139, 0, 0, 0.3);
+            border: 2px solid #FFD700;
+        }
+        
+        .god-lottery-info i {
+            font-size: 1.5em;
+            margin-right: 10px;
+        }
+        
+        .lucky-king-info {
+            background: linear-gradient(135deg, #4B0082 0%, #8A2BE2 100%);
+            color: #FFD700;
+            padding: 15px;
+            border-radius: 12px;
+            margin: 15px 0;
+            text-align: center;
+            box-shadow: 0 4px 12px rgba(75, 0, 130, 0.3);
+            border: 2px solid #FFD700;
+        }
+        
+        .lucky-king-info i {
+            font-size: 1.5em;
+            margin-right: 10px;
+        }
+        
+        .god-lottery-card .lottery-icon {
+            color: #FFD700;
+            text-shadow: 0 0 10px #FF4500;
+        }
+        
+        .lucky-king-card .lottery-icon {
+            color: #FFD700;
+            text-shadow: 0 0 10px #8A2BE2;
+        }
+        
+        .god-lottery-card {
+            border: 3px solid #FFD700;
+            background: linear-gradient(135deg, #8B0000 0%, #B22222 100%);
+            color: #FFD700;
+        }
+        
+        .lucky-king-card {
+            border: 3px solid #FFD700;
+            background: linear-gradient(135deg, #4B0082 0%, #8A2BE2 100%);
+            color: #FFD700;
+        }
+        
+        .god-lottery-card .lottery-name {
+            color: #FFD700;
+        }
+        
+        .lucky-king-card .lottery-name {
+            color: #FFD700;
+        }
+        
+        .god-lottery-card .lottery-price {
+            color: #FF6347;
+            font-size: 1.2em;
+        }
+        
+        .lucky-king-card .lottery-price {
+            color: #FFB6C1;
+            font-size: 1.2em;
+        }
+        
+        .god-lottery-card .lottery-description {
+            color: #FFB6C1;
+        }
+        
+        .lucky-king-card .lottery-description {
+            color: #E6E6FA;
+        }
+        
+        .god-lottery-card.selected {
+            background: linear-gradient(135deg, #DC143C 0%, #FF4500 100%);
+            box-shadow: 0 0 20px #FFD700;
+        }
+        
+        .lucky-king-card.selected {
+            background: linear-gradient(135deg, #8A2BE2 0%, #9370DB 100%);
+            box-shadow: 0 0 20px #FFD700;
+        }
+        
+        .price-tag {
+            display: inline-block;
+            background: #FFD700;
+            color: #8B0000;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.8em;
+            font-weight: bold;
+            margin-left: 5px;
+            vertical-align: middle;
+        }
+        
+        .price-tag.premium {
+            background: #FF4500;
+            color: #FFFFFF;
+        }
+        
+        .price-tag.lucky-king {
+            background: #8A2BE2;
+            color: #FFFFFF;
+        }
+        
+        .limit-warning {
+            background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
+            color: #856404;
+            padding: 10px 15px;
+            border-radius: 10px;
+            margin: 10px 0;
+            border: 1px solid #ffeaa7;
+            font-size: 0.9em;
+            text-align: center;
+        }
+        
+        .limit-warning i {
+            color: #ffc107;
+            margin-right: 5px;
+        }
+        
+        .identity-required-notice {
+            background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+            color: #1565c0;
+            padding: 15px;
+            border-radius: 12px;
+            margin: 15px 0;
+            text-align: center;
+            border: 2px solid #90caf9;
+            box-shadow: 0 4px 12px rgba(30, 136, 229, 0.2);
+        }
+        
+        .identity-required-notice i {
+            font-size: 1.5em;
+            margin-right: 10px;
+            color: #1565c0;
+        }
+        
+        .welfare-info {
+            background: linear-gradient(135deg, #e0f7fa 0%, #b2ebf2 100%);
+            border: 2px solid #26c6da;
+            color: #006064;
+            padding: 15px;
+            border-radius: 12px;
+            margin: 15px 0;
+            text-align: center;
+            box-shadow: 0 4px 12px rgba(38, 198, 218, 0.3);
+        }
+        
+        .welfare-info i {
+            font-size: 1.5em;
+            margin-right: 10px;
+            color: #006064;
+        }
+        
+        .welfare-bonus {
+            background: linear-gradient(135deg, #fff9c4 0%, #fff59d 100%);
+            border: 2px solid #ffd600;
+            color: #f57f17;
+            padding: 15px;
+            border-radius: 12px;
+            margin: 15px 0;
+            text-align: center;
+            box-shadow: 0 4px 12px rgba(255, 214, 0, 0.3);
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.02); }
+            100% { transform: scale(1); }
+        }
+        
+        .welfare-bonus i {
+            font-size: 1.5em;
+            margin-right: 10px;
+            color: #f57f17;
+        }
+        
+        .lucky-king-bonus {
+            background: linear-gradient(135deg, #e6e6fa 0%, #d8bfd8 100%);
+            border: 2px solid #8a2be2;
+            color: #4b0082;
+            padding: 15px;
+            border-radius: 12px;
+            margin: 15px 0;
+            text-align: center;
+            box-shadow: 0 4px 12px rgba(138, 43, 226, 0.3);
+            animation: pulse 2s infinite;
+        }
+        
+        .lucky-king-bonus i {
+            font-size: 1.5em;
+            margin-right: 10px;
+            color: #8a2be2;
+        }
+        
+        .anti-code {
+            background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+            border: 2px solid #4CAF50;
+            color: #2e7d32;
+            padding: 15px;
+            border-radius: 12px;
+            margin: 15px 0;
+            text-align: center;
+            box-shadow: 0 4px 12px rgba(76, 175, 80, 0.3);
+        }
+        
+        .anti-code i {
+            font-size: 1.5em;
+            margin-right: 10px;
+            color: #2e7d32;
+        }
+        
+        .anti-code-code {
+            font-family: 'Courier New', monospace;
+            font-size: 1.5em;
+            font-weight: bold;
+            letter-spacing: 2px;
+            background: white;
+            padding: 8px 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+            border: 2px solid #2e7d32;
+            display: inline-block;
+        }
+        
+        .anti-code-info {
+            font-size: 0.9em;
+            color: #666;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div id="networkStatus" class="network-status">
+        <i class="fas fa-wifi"></i> 网络连接中...
+    </div>
+    
+    <button onclick="logout()" class="logout-btn">
+        <i class="fas fa-sign-out-alt"></i> 登出
+    </button>
+    
+    <div class="container">
+        <h1><i class="fas fa-dice"></i> 刮彩票游戏</h1>
+        <p class="subtitle">选择彩票类型，点击刮开按钮，试试你的运气！<br><small><i class="fas fa-exclamation-triangle"></i> 注意：中奖金额超过4000元需缴纳22%税费（其中2%转为公益金）</small></p>
+        
+        <div id="identityRequiredNotice" class="identity-required-notice" style="display: none;">
+            <i class="fas fa-id-card"></i>
+            <span id="identityRequiredMessage"></span>
+        </div>
+        
+        <div id="godLotteryInfo" class="god-lottery-info" style="display: none;">
+            <i class="fas fa-crown"></i>
+            <span id="godLotteryMessage"></span>
+        </div>
+        
+        <div id="luckyKingInfo" class="lucky-king-info" style="display: none;">
+            <i class="fas fa-crown"></i>🌟
+            <span id="luckyKingMessage"></span>
+        </div>
+        
+        <div id="welfareInfo" class="welfare-info" style="display: none;">
+            <i class="fas fa-hands-helping"></i>
+            <span id="welfareMessage"></span>
+        </div>
+        
+        <div id="welfareBonus" class="welfare-bonus" style="display: none;">
+            <i class="fas fa-gift"></i>
+            <span id="welfareBonusMessage"></span>
+        </div>
+        
+        <div id="limitWarning" class="limit-warning" style="display: none;">
+            <i class="fas fa-exclamation-triangle"></i>
+            <span id="limitMessage"></span>
+        </div>
+        
+        <div id="antiCodeInfo" class="anti-code" style="display: none;">
+            <i class="fas fa-shield-alt"></i>
+            <div id="antiCodeMessage"></div>
+            <div class="anti-code-code" id="antiCodeValue"></div>
+            <div class="anti-code-info">
+                <i class="fas fa-info-circle"></i> 此防伪码用于验证彩票真伪，请妥善保管<br>
+                <a href="anti_verify.html" target="_blank" style="color: #2e7d32; text-decoration: underline;">
+                    <i class="fas fa-search"></i> 点击这里验证防伪码
+                </a>
+            </div>
+        </div>
+        
+        <div class="user-stats">
+            <div class="stat-item">
+                <div class="stat-label">用户名</div>
+                <div class="stat-value" id="statUsername">-</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">当前余额</div>
+                <div class="stat-value" id="statBalance">-</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">购买次数</div>
+                <div class="stat-value" id="statTickets">0</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">累计中奖</div>
+                <div class="stat-value" id="statWinnings">0元</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">累计缴税</div>
+                <div class="stat-value" id="statTax">0元</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">公益贡献</div>
+                <div class="stat-value" id="statWelfare">0元</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">神豪彩票</div>
+                <div class="stat-value" id="statGodTickets">0张</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">欧皇奖</div>
+                <div class="stat-value" id="statLuckyKingTickets">0张</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">身份认证</div>
+                <div class="stat-value" id="statIdentity">未认证</div>
+            </div>
+        </div>
+        
+        <div class="game-info">
+            <div class="balance" id="currentBalance">0.00 元</div>
+            <p class="ticket-price" id="selectedTicketPrice">请选择彩票类型</p>
+            <p><i class="fas fa-info-circle"></i> 谨慎投注，理性购彩 | <i class="fas fa-file-invoice-dollar"></i> 中奖超4000元需缴22%税（其中2%转为公益金） | <i class="fas fa-id-card"></i> 购买彩票需要完成身份认证 | <i class="fas fa-hands-helping"></i> 公益金满5万赠送神豪彩票购买次数 | <i class="fas fa-shield-alt"></i> 每张彩票都有唯一防伪码</p>
+        </div>
+        
+        <div id="message" class="message"></div>
+        
+        <div class="lottery-types" id="lotteryTypes">
+        </div>
+        
+        <div class="lottery-ticket">
+            <div id="ticketCover">
+                <h2><i class="fas fa-ticket-alt"></i> 幸运彩票</h2>
+                <p>选择彩票类型后点击下方按钮刮开</p>
+                <div style="font-size: 48px; margin: 20px 0; opacity: 0.2;">
+                    <i class="fas fa-question-circle"></i>
+                </div>
+            </div>
+            <div id="prizeResult" class="prize-result" style="display: none;"></div>
+        </div>
+        
+        <button onclick="buyTicket()" id="buyButton" class="buy-btn">
+            <i class="fas fa-play"></i> 购买并刮开彩票
+        </button>
+        
+        <div class="history-list">
+            <h3><i class="fas fa-history"></i> 近期记录 <small>(含税费及公益金信息)</small></h3>
+            <div id="historyList">
+                <p style="text-align: center; color: #666; padding: 30px;">
+                    <i class="fas fa-clock" style="font-size: 2em; margin-bottom: 10px; display: block;"></i>
+                    暂无购买记录
+                </p>
+            </div>
+        </div>
+        
+        <div class="nav-links">
+            <a href="index.html"><i class="fas fa-home"></i> 返回首页</a>
+            <a href="account_management.html"><i class="fas fa-user-cog"></i> 账户管理</a>
+            <a href="identity_verification.html"><i class="fas fa-id-card"></i> 身份认证</a>
+            <a href="second.html"><i class="fas fa-info-circle"></i> 彩票说明</a>
+            <a href="changelog.html"><i class="fas fa-history"></i> 更新日志</a>
+            <a href="anti_verify.html" target="_blank"><i class="fas fa-shield-alt"></i> 防伪码验证</a>
+        </div>
+    </div>
+    <script>
+        let currentUser = null;
+        let selectedLotteryType = 'standard';
+        let lotteryTypes = {};
+        
+        function formatAmount(amount) {
+            if (amount === undefined || amount === null) {
+                return "0元";
+            }
+            
+            const num = parseFloat(amount);
+            if (isNaN(num)) {
+                return "0元";
+            }
+            
+            if (num >= 100000) {
+                return `${(num / 10000).toFixed(2)}万元`;
+            } else {
+                return `${num.toFixed(2)}元`;
+            }
+        }
+        
+        function updateNetworkStatus(online) {
+            const networkStatus = document.getElementById('networkStatus');
+            if (online) {
+                networkStatus.innerHTML = '<i class="fas fa-wifi"></i> 网络连接正常';
+                networkStatus.className = 'network-status online';
+                networkStatus.style.display = 'block';
+                setTimeout(() => {
+                    networkStatus.style.display = 'none';
+                }, 3000);
+            } else {
+                networkStatus.innerHTML = '<i class="fas fa-wifi-slash"></i> 网络连接失败，请检查网络';
+                networkStatus.className = 'network-status';
+                networkStatus.style.display = 'block';
+            }
+        }
+        
+        async function checkAuth() {
+            try {
+                updateNetworkStatus(true);
+                const response = await fetch('/api/check_auth');
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP错误: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.authenticated) {
+                    currentUser = data;
+                    await loadLotteryTypes();
+                    updateUserInfo(data);
+                    await loadUserInfo();
+                    await updateGodLotteryInfo();
+                    await updateLuckyKingInfo();
+                    await updateWelfareInfo();
+                } else {
+                    window.location.href = 'login.html';
+                }
+            } catch (error) {
+                console.error('检查登录状态失败:', error);
+                updateNetworkStatus(false);
+                showMessage('网络连接失败，请检查网络后刷新页面', 'error');
+            }
+        }
+        
+        async function checkIdentityStatus() {
+            try {
+                const response = await fetch('/api/check_identity_status');
+                const data = await response.json();
+                
+                if (data.success && data.authenticated) {
+                    const identityNotice = document.getElementById('identityRequiredNotice');
+                    const identityMessage = document.getElementById('identityRequiredMessage');
+                    const statIdentity = document.getElementById('statIdentity');
+                    
+                    statIdentity.textContent = data.id_verified ? '已认证' : '未认证';
+                    
+                    if (!data.id_verified) {
+                        identityMessage.innerHTML = `
+                            <strong>需要身份认证！</strong> 购买所有彩票都需要先完成身份认证（需满16岁且不超过75岁）。<br>
+                            <button onclick="window.location.href='identity_verification.html'" style="background: #007bff; color: white; border: none; padding: 12px 20px; border-radius: 10px; font-weight: bold; cursor: pointer; margin-top: 10px; width: auto; display: inline-block;">
+                                <i class="fas fa-id-card"></i> 前往身份认证
+                            </button>
+                        `;
+                        identityNotice.style.display = 'block';
+                    } else {
+                        identityNotice.style.display = 'none';
+                    }
+                    
+                    return data.id_verified;
+                }
+                return false;
+            } catch (error) {
+                console.error('检查身份认证状态失败:', error);
+                return false;
+            }
+        }
+        
+        async function updateWelfareInfo() {
+            try {
+                const response = await fetch('/api/user_info');
+                const data = await response.json();
+                
+                if (data.success) {
+                    const welfareFund = data.public_welfare_fund || 0;
+                    const welfareBonusGiven = data.welfare_bonus_given || 0;
+                    const welfareInfo = document.getElementById('welfareInfo');
+                    const welfareMessage = document.getElementById('welfareMessage');
+                    const statWelfare = document.getElementById('statWelfare');
+                    
+                    statWelfare.textContent = formatAmount(welfareFund);
+                    
+                    if (welfareFund > 0) {
+                        const formattedWelfareFund = formatAmount(welfareFund);
+                        welfareMessage.innerHTML = `
+                            <strong>公益贡献：${formattedWelfareFund}</strong><br>
+                            <small>❤️ 您的2%税费已转为公益金，每累计5万元可兑换神豪彩票购买次数</small>
+                        `;
+                        welfareInfo.style.display = 'block';
+                    } else {
+                        welfareInfo.style.display = 'none';
+                    }
+                    
+                    if (data.welfare_bonus) {
+                        const bonusDiv = document.getElementById('welfareBonus');
+                        const bonusMessage = document.getElementById('welfareBonusMessage');
+                        const godMaxPurchases = data.god_max_purchases || 10;
+                        
+                        bonusMessage.innerHTML = `
+                            <strong>🎉 公益贡献奖励！</strong><br>
+                            <small>您的公益金累计${formatAmount(welfareFund)}，获得${data.welfare_bonus_count}次神豪彩票购买次数奖励！</small><br>
+                            <small>现在最多可购买${godMaxPurchases}张神豪彩票！</small>
+                        `;
+                        bonusDiv.style.display = 'block';
+                        
+                        setTimeout(() => {
+                            bonusDiv.style.display = 'none';
+                        }, 5000);
+                    }
+                }
+            } catch (error) {
+                console.error('更新公益金信息失败:', error);
+            }
+        }
+        
+        async function updateGodLotteryInfo() {
+            try {
+                const response = await fetch('/api/user_info');
+                const data = await response.json();
+                
+                if (data.success) {
+                    const godPurchases = data.god_lottery_purchases || 0;
+                    const godRemaining = data.god_remaining || 10;
+                    const godDiscountRemaining = data.god_discount_remaining || 2;
+                    const godMaxPurchases = data.god_max_purchases || 10;
+                    const godInfo = document.getElementById('godLotteryInfo');
+                    const godMessage = document.getElementById('godLotteryMessage');
+                    const statGodTickets = document.getElementById('statGodTickets');
+                    const limitWarning = document.getElementById('limitWarning');
+                    const limitMessage = document.getElementById('limitMessage');
+                    
+                    statGodTickets.textContent = `${godPurchases}张（剩余${godRemaining}张）`;
+                    
+                    if (godRemaining <= 0) {
+                        limitMessage.innerHTML = `<strong>⚠️ 已达到购买上限！</strong> 神豪彩票终身限购${godMaxPurchases}张，您已达到购买上限`;
+                        limitWarning.style.display = 'block';
+                        godMessage.innerHTML = `
+                            <strong><i class="fas fa-crown"></i> 神豪彩票已售罄</strong> 您已购买${godMaxPurchases}张神豪彩票<br>
+                            <small>🎯 已达到终身限购上限，无法继续购买</small>
+                        `;
+                        godInfo.style.display = 'block';
+                    } else if (godPurchases < 2) {
+                        godMessage.innerHTML = `
+                            <strong>神豪彩票限时特惠！</strong> 前2张仅需200元/张<br>
+                            <small>🎯 必中奖！最低5000元，最高5亿元！您已购买${godPurchases}张，剩余${godDiscountRemaining}张优惠，终身剩余${godRemaining}张</small>
+                        `;
+                        godInfo.style.display = 'block';
+                        limitWarning.style.display = 'none';
+                    } else if (godPurchases < godMaxPurchases) {
+                        godMessage.innerHTML = `
+                            <strong><i class="fas fa-crown"></i> 神豪彩票高级版</strong> 您已购买${godPurchases}张神豪彩票<br>
+                            <small>🎯 必中奖！最低5,000元，最高5亿元！高级价格：3,000元/张，终身剩余${godRemaining}张</small>
+                        `;
+                        godInfo.style.display = 'block';
+                        limitWarning.style.display = 'none';
+                    }
+                }
+            } catch (error) {
+                console.error('更新神豪彩票信息失败:', error);
+            }
+        }
+        
+        async function updateLuckyKingInfo() {
+            try {
+                const response = await fetch('/api/user_info');
+                const data = await response.json();
+                
+                if (data.success) {
+                    const luckyKingPurchases = data.lucky_king_purchases || 0;
+                    const luckyKingRemaining = data.lucky_king_remaining || 5;
+                    const luckyKingInfo = document.getElementById('luckyKingInfo');
+                    const luckyKingMessage = document.getElementById('luckyKingMessage');
+                    const statLuckyKingTickets = document.getElementById('statLuckyKingTickets');
+                    const limitWarning = document.getElementById('limitWarning');
+                    const limitMessage = document.getElementById('limitMessage');
+                    
+                    statLuckyKingTickets.textContent = `${luckyKingPurchases}张（剩余${luckyKingRemaining}张）`;
+                    
+                    if (luckyKingRemaining <= 0) {
+                        limitMessage.innerHTML = `<strong>⚠️ 已达到购买上限！</strong> 欧皇奖终身限购5张，您已达到购买上限`;
+                        limitWarning.style.display = 'block';
+                        luckyKingMessage.innerHTML = `
+                            <strong><i class="fas fa-crown"></i>🌟 欧皇奖已售罄</strong> 您已购买5张欧皇奖<br>
+                            <small>🎯 已达到终身限购上限，无法继续购买</small>
+                        `;
+                        luckyKingInfo.style.display = 'block';
+                    } else if (luckyKingPurchases < 5) {
+                        luckyKingMessage.innerHTML = `
+                            <strong><i class="fas fa-crown"></i>🌟 欧皇奖震撼上线！</strong> 必中万元大奖！<br>
+                            <small>🎯 99.5%概率获得10000元，0.5%概率获得500万元！您已购买${luckyKingPurchases}张，终身剩余${luckyKingRemaining}张</small>
+                        `;
+                        luckyKingInfo.style.display = 'block';
+                        limitWarning.style.display = 'none';
+                    }
+                }
+            } catch (error) {
+                console.error('更新欧皇奖信息失败:', error);
+            }
+        }
+        
+        async function loadLotteryTypes() {
+            try {
+                const response = await fetch('/api/lottery_types');
+                const data = await response.json();
+                
+                if (data.success) {
+                    lotteryTypes = data.lottery_types;
+                    const container = document.getElementById('lotteryTypes');
+                    container.innerHTML = '';
+                    
+                    Object.entries(lotteryTypes).forEach(([type, lottery]) => {
+                        const card = document.createElement('div');
+                        card.className = 'lottery-type-card';
+                        
+                        if (type === 'god') {
+                            card.classList.add('god-lottery-card');
+                        } else if (type === 'lucky_king') {
+                            card.classList.add('lucky-king-card');
+                        }
+                        
+                        if (type === selectedLotteryType) {
+                            card.classList.add('selected');
+                        }
+                        card.onclick = () => selectLottery(type, card);
+                        
+                        let description = lottery.description;
+                        let priceInfo = '';
+                        let probabilityInfo = '';
+                        
+                        if (type === 'god') {
+                            description = `🎯 必中奖！${lottery.description}`;
+                            const maxDiscount = lottery.max_discount_purchases || 2;
+                            const maxTotal = lottery.max_total_purchases || 10;
+                            priceInfo = `前${maxDiscount}张：${lottery.price}元/张，之后：${lottery.premium_price || 3000}元/张<br><small>终身限购${maxTotal}张</small>`;
+                            probabilityInfo = '必中奖！最低5,000元，最高5亿元';
+                        } else if (type === 'lucky_king') {
+                            description = `👑🌟 欧皇专属，必中大奖！${lottery.description}`;
+                            const maxTotal = lottery.max_total_purchases || 5;
+                            priceInfo = `价格：${lottery.price}元/张<br><small>终身限购${maxTotal}张</small>`;
+                            probabilityInfo = '必中奖！99.5%得1万，0.5%得500万';
+                        } else {
+                            priceInfo = `价格：${lottery.price}元/张`;
+                            const totalPrizes = lottery.prizes || [];
+                            const lastPrize = totalPrizes[totalPrizes.length - 1];
+                            const loseProbability = lastPrize && lastPrize.name === '未中奖' ? lastPrize.probability || 0 : 0;
+                            const winProbability = (1 - loseProbability) * 100;
+                            probabilityInfo = `中奖概率：${winProbability.toFixed(2)}%`;
+                        }
+                        
+                        card.innerHTML = `
+                            <span class="lottery-icon">${lottery.icon}</span>
+                            <div class="lottery-name">${lottery.name}</div>
+                            <div class="lottery-price">
+                                ${priceInfo}
+                            </div>
+                            <div class="lottery-description">${description}</div>
+                            <div class="lottery-probability">
+                                <i class="fas fa-chart-line"></i> ${probabilityInfo}
+                            </div>
+                        `;
+                        container.appendChild(card);
+                    });
+                    
+                    updateTicketPrice();
+                }
+            } catch (error) {
+                console.error('加载彩票类型失败:', error);
+                updateNetworkStatus(false);
+            }
+        }
+        
+        function selectLottery(type, element) {
+            selectedLotteryType = type;
+            
+            document.querySelectorAll('.lottery-type-card').forEach(card => {
+                card.classList.remove('selected');
+            });
+            
+            element.classList.add('selected');
+            
+            updateTicketPrice();
+            
+            document.getElementById('ticketCover').style.display = 'block';
+            document.getElementById('prizeResult').style.display = 'none';
+            document.getElementById('antiCodeInfo').style.display = 'none';
+        }
+        
+        async function updateTicketPrice() {
+            const lottery = lotteryTypes[selectedLotteryType];
+            if (lottery) {
+                if (selectedLotteryType === 'god') {
+                    try {
+                        const response = await fetch('/api/user_info');
+                        const data = await response.json();
+                        
+                        if (data.success) {
+                            const godPurchases = data.god_lottery_purchases || 0;
+                            const godRemaining = data.god_remaining || 10;
+                            const godDiscountRemaining = data.god_discount_remaining || 2;
+                            const godMaxPurchases = data.god_max_purchases || 10;
+                            let currentPrice = 200;
+                            let priceTag = '';
+                            let priceInfo = '';
+                            
+                            if (godRemaining <= 0) {
+                                currentPrice = 0;
+                                priceInfo = `<span style="color: #dc3545;"><i class="fas fa-ban"></i> 已售罄（达到购买上限${godMaxPurchases}张）</span>`;
+                            } else if (godPurchases < 2) {
+                                currentPrice = 200;
+                                priceTag = `<span class="price-tag">优惠价</span>`;
+                                priceInfo = `<i class="fas fa-tag"></i> 当前选择：${lottery.name} - <strong>${currentPrice}元/张</strong> ${priceTag} (第${godPurchases + 1}张，优惠剩余${godDiscountRemaining}张，终身剩余${godRemaining}张)`;
+                            } else {
+                                currentPrice = 3000;
+                                priceTag = `<span class="price-tag premium">高级价</span>`;
+                                priceInfo = `<i class="fas fa-tag"></i> 当前选择：${lottery.name} - <strong>${currentPrice}元/张</strong> ${priceTag} (第${godPurchases + 1}张，终身剩余${godRemaining}张)`;
+                            }
+                            document.getElementById('selectedTicketPrice').innerHTML = priceInfo;
+                        }
+                    } catch (error) {
+                        console.error('获取用户信息失败:', error);
+                        document.getElementById('selectedTicketPrice').innerHTML = 
+                            `<i class="fas fa-tag"></i> 当前选择：${lottery.name} - <strong>200元/张起</strong>`;
+                    }
+                } else if (selectedLotteryType === 'lucky_king') {
+                    try {
+                        const response = await fetch('/api/user_info');
+                        const data = await response.json();
+                        
+                        if (data.success) {
+                            const luckyKingPurchases = data.lucky_king_purchases || 0;
+                            const luckyKingRemaining = data.lucky_king_remaining || 5;
+                            const currentPrice = 5000;
+                            let priceTag = '';
+                            let priceInfo = '';
+                            
+                            if (luckyKingRemaining <= 0) {
+                                priceInfo = `<span style="color: #dc3545;"><i class="fas fa-ban"></i> 已售罄（达到购买上限5张）</span>`;
+                            } else {
+                                priceTag = `<span class="price-tag lucky-king">欧皇价</span>`;
+                                priceInfo = `<i class="fas fa-tag"></i> 当前选择：${lottery.name} - <strong>${currentPrice}元/张</strong> ${priceTag} (第${luckyKingPurchases + 1}张，终身剩余${luckyKingRemaining}张)`;
+                            }
+                            document.getElementById('selectedTicketPrice').innerHTML = priceInfo;
+                        }
+                    } catch (error) {
+                        console.error('获取用户信息失败:', error);
+                        document.getElementById('selectedTicketPrice').innerHTML = 
+                            `<i class="fas fa-tag"></i> 当前选择：${lottery.name} - <strong>5000元/张</strong>`;
+                    }
+                } else {
+                    document.getElementById('selectedTicketPrice').innerHTML = 
+                        `<i class="fas fa-tag"></i> 当前选择：${lottery.name} - <strong>${lottery.price}元/张</strong>`;
+                }
+            }
+        }
+        
+        function updateUserInfo(userData) {
+            if (!userData) return;
+            
+            document.getElementById('statUsername').textContent = userData.username || '-';
+            
+            const balance = userData.balance || 0;
+            document.getElementById('statBalance').textContent = formatAmount(balance);
+            document.getElementById('currentBalance').textContent = formatAmount(balance);
+        }
+        
+        async function buyTicket() {
+            const messageDiv = document.getElementById('message');
+            const buyButton = document.getElementById('buyButton');
+            const lottery = lotteryTypes[selectedLotteryType];
+            
+            if (!lottery) {
+                showMessage('请先选择彩票类型', 'error');
+                return;
+            }
+            
+            const identityVerified = await checkIdentityStatus();
+            if (!identityVerified) {
+                showMessage('购买彩票需要先完成身份认证（需满16岁且不超过75岁）', 'error');
+                setTimeout(() => {
+                    if (confirm('您需要完成身份认证才能购买彩票，是否前往身份认证页面？')) {
+                        window.location.href = 'identity_verification.html';
+                    }
+                }, 1000);
+                return;
+            }
+            
+            if (selectedLotteryType === 'god') {
+                try {
+                    const response = await fetch('/api/user_info');
+                    const data = await response.json();
+                    
+                    if (data.success && data.god_remaining !== undefined && data.god_remaining <= 0) {
+                        showMessage(`神豪彩票终身限购${data.god_max_purchases || 10}张，您已达到购买上限！`, 'error');
+                        return;
+                    }
+                } catch (error) {
+                    console.error('检查神豪彩票剩余次数失败:', error);
+                }
+            }
+            
+            if (selectedLotteryType === 'lucky_king') {
+                try {
+                    const response = await fetch('/api/user_info');
+                    const data = await response.json();
+                    
+                    if (data.success && data.lucky_king_remaining !== undefined && data.lucky_king_remaining <= 0) {
+                        showMessage('欧皇奖终身限购5张，您已达到购买上限！', 'error');
+                        return;
+                    }
+                } catch (error) {
+                    console.error('检查欧皇奖剩余次数失败:', error);
+                }
+            }
+            
+            if (buyButton.disabled) return;
+            
+            buyButton.disabled = true;
+            buyButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 正在刮开...';
+            
+            try {
+                const response = await fetch('/api/buy_ticket', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ type: selectedLotteryType })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    if (currentUser) {
+                        currentUser.balance = data.balance;
+                        updateUserInfo(currentUser);
+                    }
+                    
+                    if (selectedLotteryType === 'god') {
+                        await updateGodLotteryInfo();
+                    } else if (selectedLotteryType === 'lucky_king') {
+                        await updateLuckyKingInfo();
+                    }
+                    
+                    await updateWelfareInfo();
+                    
+                    const ticketCover = document.getElementById('ticketCover');
+                    const prizeResult = document.getElementById('prizeResult');
+                    const antiCodeInfo = document.getElementById('antiCodeInfo');
+                    const antiCodeValue = document.getElementById('antiCodeValue');
+                    const antiCodeMessage = document.getElementById('antiCodeMessage');
+                    
+                    ticketCover.style.display = 'none';
+                    prizeResult.style.display = 'block';
+                    
+                    let taxInfo = '';
+                    if (data.tax_applied) {
+                        const welfareFund = data.welfare_fund || 0;
+                        const incomeTax = data.income_tax || 0;
+                        taxInfo = `<div style="font-size: 0.9em; color: #DC3545; margin-top: 5px;">
+                            <i class="fas fa-file-invoice-dollar"></i> 税费：${data.tax}元 (其中公益金${welfareFund.toFixed(2)}元，个人所得税${incomeTax.toFixed(2)}元)
+                        </div>`;
+                    }
+                    
+                    const netAmount = data.net_amount || data.amount || 0;
+                    const prizeName = data.prize || '未中奖';
+                    
+                    let lotteryIcon = '';
+                    let resultStyle = '';
+                    let priceInfo = '';
+                    let remainingInfo = '';
+                    
+                    if (selectedLotteryType === 'god') {
+                        lotteryIcon = '👑 ';
+                        resultStyle = 'background: linear-gradient(135deg, #8B0000 0%, #FF4500 100%); color: #FFD700; border: 3px solid #FFD700;';
+                        
+                        if (data.is_premium_price) {
+                            priceInfo = `<div style="font-size: 0.8em; color: #FFD700; margin-top: 5px;">
+                                <i class="fas fa-crown"></i> 高级神豪彩票 (3,000元)
+                            </div>`;
+                        } else {
+                            priceInfo = `<div style="font-size: 0.8em; color: #FFD700; margin-top: 5px;">
+                                <i class="fas fa-crown"></i> 神豪彩票 (第${data.god_purchases_count}张，${data.ticket_price}元)
+                            </div>`;
+                        }
+                        
+                        if (data.god_remaining !== undefined) {
+                            remainingInfo = `<div style="font-size: 0.8em; color: #FFB6C1; margin-top: 5px;">
+                                <i class="fas fa-shopping-cart"></i> 终身剩余购买次数：${data.god_remaining}张
+                            </div>`;
+                        }
+                    } else if (selectedLotteryType === 'lucky_king') {
+                        lotteryIcon = '👑🌟 ';
+                        resultStyle = 'background: linear-gradient(135deg, #4B0082 0%, #8A2BE2 100%); color: #FFD700; border: 3px solid #FFD700;';
+                        
+                        priceInfo = `<div style="font-size: 0.8em; color: #FFD700; margin-top: 5px;">
+                            <i class="fas fa-crown"></i>🌟 欧皇奖 (第${data.lucky_king_purchases_count}张，5,000元)
+                        </div>`;
+                        
+                        if (data.lucky_king_remaining !== undefined) {
+                            remainingInfo = `<div style="font-size: 0.8em; color: #E6E6FA; margin-top: 5px;">
+                                <i class="fas fa-shopping-cart"></i> 终身剩余购买次数：${data.lucky_king_remaining}张
+                            </div>`;
+                        }
+                    } else {
+                        resultStyle = `background-color: ${data.color || '#FFD700'}; color: #000; border-color: ${data.color || '#FFD700'};`;
+                    }
+                    
+                    prizeResult.innerHTML = `
+                        <div style="font-size: 2em; margin-bottom: 10px;">
+                            ${lotteryIcon}${netAmount > 0 ? '🎉' : (selectedLotteryType === 'god' || selectedLotteryType === 'lucky_king' ? '💰' : '😊')}
+                        </div>
+                        <div>${data.message || '购买成功！'}</div>
+                        <div style="font-size: 1.5em; margin-top: 10px; font-weight: bold;">
+                            ${netAmount > 0 ? '+' + formatAmount(netAmount) : formatAmount(netAmount)}
+                        </div>
+                        ${taxInfo}
+                        ${priceInfo}
+                        ${remainingInfo}
+                        <div style="margin-top: 15px; font-size: 0.9em; opacity: 0.8;">
+                            <i class="fas fa-ticket-alt"></i> ${data.lottery_name || '未知彩票'}
+                        </div>
+                    `;
+                    prizeResult.style = resultStyle;
+                    
+                    if (data.anti_code) {
+                        antiCodeValue.textContent = data.anti_code;
+                        antiCodeMessage.innerHTML = `<strong>🔒 彩票防伪码</strong><br>`;
+                        antiCodeInfo.style.display = 'block';
+                    }
+                    
+                    if (netAmount > 0) {
+                        createCoinAnimation(netAmount);
+                    }
+                    
+                    playSoundEffect(netAmount > 0 ? 'win' : 'lose');
+                    
+                    let message = `购买成功！彩票：${data.lottery_name || '未知彩票'}，花费：${data.ticket_price || lottery.price}元`;
+                    if (selectedLotteryType === 'god') {
+                        message += `，第${data.god_purchases_count || 1}张神豪彩票`;
+                        if (data.is_premium_price) {
+                            message += ` (高级价格：3,000元)`;
+                        }
+                        if (data.god_remaining !== undefined) {
+                            message += `，终身剩余${data.god_remaining}张`;
+                        }
+                    } else if (selectedLotteryType === 'lucky_king') {
+                        message += `，第${data.lucky_king_purchases_count || 1}张欧皇奖`;
+                        if (data.lucky_king_remaining !== undefined) {
+                            message += `，终身剩余${data.lucky_king_remaining}张`;
+                        }
+                    }
+                    if (data.tax_applied) {
+                        const welfareFund = data.welfare_fund || 0;
+                        const incomeTax = data.income_tax || 0;
+                        message += `，中奖：${formatAmount(data.amount || 0)}，实得：${formatAmount(netAmount)} (缴税${formatAmount(data.tax)}元，其中公益金${formatAmount(welfareFund)}元，个人所得税${formatAmount(incomeTax)}元)`;
+                    } else {
+                        message += `，中奖：${formatAmount(netAmount)}`;
+                    }
+                    
+                    if (data.public_welfare_fund) {
+                        message += `，累计公益贡献：${formatAmount(data.public_welfare_fund)}`;
+                    }
+                    
+                    if (data.anti_code) {
+                        message += `，防伪码：${data.anti_code}`;
+                    }
+                    
+                    showMessage(message, netAmount > 0 ? 'success' : 'info');
+                    
+                    await loadUserInfo();
+                    
+                    await updateTicketPrice();
+                    
+                    updateNetworkStatus(true);
+                    
+                    if (data.welfare_bonus) {
+                        const bonusDiv = document.getElementById('welfareBonus');
+                        const bonusMessage = document.getElementById('welfareBonusMessage');
+                        
+                        bonusMessage.innerHTML = `
+                            <strong>🎉 公益贡献奖励！</strong><br>
+                            <small>您的公益金累计${formatAmount(data.public_welfare_fund)}，获得${data.welfare_bonus_count}次神豪彩票购买次数奖励！</small><br>
+                            <small>现在最多可购买${data.god_max_purchases}张神豪彩票！</small>
+                        `;
+                        bonusDiv.style.display = 'block';
+                        
+                        setTimeout(() => {
+                            bonusDiv.style.display = 'none';
+                        }, 5000);
+                    }
+                } else {
+                    if (data.needs_identity_verification) {
+                        showMessage(data.message || '购买彩票需要先完成身份认证', 'warning');
+                        setTimeout(() => {
+                            if (confirm('您需要完成身份认证才能购买彩票，是否前往身份认证页面？')) {
+                                window.location.href = 'identity_verification.html';
+                            }
+                        }, 1000);
+                    } else if (data.message && data.message.includes('达到购买上限')) {
+                        showMessage(data.message, 'error');
+                        if (selectedLotteryType === 'god') {
+                            await updateGodLotteryInfo();
+                        } else if (selectedLotteryType === 'lucky_king') {
+                            await updateLuckyKingInfo();
+                        }
+                    } else {
+                        showMessage(data.message || '购买失败', 'error');
+                    }
+                    
+                    if (data.message && data.message.includes('余额不足')) {
+                        setTimeout(() => {
+                            const lotteryName = selectedLotteryType === 'god' ? '神豪彩票' : 
+                                               (selectedLotteryType === 'lucky_king' ? '欧皇奖' : lottery.name);
+                            const price = data.ticket_price || lottery.price;
+                            if (confirm(`余额不足购买${lotteryName}（${price}元），是否返回首页？`)) {
+                                window.location.href = 'index.html';
+                            }
+                        }, 1000);
+                    }
+                }
+            } catch (error) {
+                console.error('购买彩票失败:', error);
+                showMessage('网络错误，请稍后重试', 'error');
+                updateNetworkStatus(false);
+            } finally {
+                setTimeout(() => {
+                    buyButton.disabled = false;
+                    buyButton.innerHTML = '<i class="fas fa-play"></i> 购买并刮开彩票';
+                }, 2000);
+            }
+        }
+        
+        function createCoinAnimation(amount) {
+            const coinsCount = Math.min(Math.floor(amount / 10), 20);
+            
+            for (let i = 0; i < coinsCount; i++) {
+                setTimeout(() => {
+                    const coin = document.createElement('div');
+                    coin.className = 'coin-animation';
+                    coin.innerHTML = '💰';
+                    coin.style.left = Math.random() * 100 + 'vw';
+                    coin.style.top = '-50px';
+                    coin.style.fontSize = (20 + Math.random() * 20) + 'px';
+                    
+                    document.body.appendChild(coin);
+                    
+                    setTimeout(() => {
+                        coin.remove();
+                    }, 2000);
+                }, i * 100);
+            }
+        }
+        
+        async function loadUserInfo() {
+            try {
+                const response = await fetch('/api/user_info');
+                const data = await response.json();
+                
+                if (data.success) {
+                    document.getElementById('statTickets').textContent = data.total_tickets_bought || 0;
+                    
+                    document.getElementById('statWinnings').textContent = data.total_winnings_formatted || formatAmount(data.total_winnings || 0);
+                    document.getElementById('statTax').textContent = data.total_tax_paid_formatted || formatAmount(data.total_tax_paid || 0);
+                    document.getElementById('statWelfare').textContent = data.public_welfare_fund_formatted || formatAmount(data.public_welfare_fund || 0);
+                    
+                    const godPurchases = data.god_lottery_purchases || 0;
+                    const godRemaining = data.god_remaining || 10;
+                    const godMaxPurchases = data.god_max_purchases || 10;
+                    document.getElementById('statGodTickets').textContent = `${godPurchases}张（剩余${godRemaining}张）`;
+                    
+                    const luckyKingPurchases = data.lucky_king_purchases || 0;
+                    const luckyKingRemaining = data.lucky_king_remaining || 5;
+                    document.getElementById('statLuckyKingTickets').textContent = `${luckyKingPurchases}张（剩余${luckyKingRemaining}张）`;
+                    
+                    document.getElementById('statIdentity').textContent = 
+                        data.id_verified ? '已认证' : '未认证';
+                    
+                    if (currentUser && data.balance) {
+                        currentUser.balance = data.balance;
+                        updateUserInfo(currentUser);
+                    }
+                    
+                    const historyList = document.getElementById('historyList');
+                    
+                    if (data.history && data.history.length > 0) {
+                        historyList.innerHTML = '';
+                        data.history.forEach(item => {
+                            const historyItem = document.createElement('div');
+                            historyItem.className = 'history-item';
+                            
+                            let taxInfo = '';
+                            if (item.tax_applied) {
+                                const welfareFund = item.welfare_fund || 0;
+                                const incomeTax = item.income_tax || 0;
+                                taxInfo = `<div style="font-size: 0.8em; color: #DC3545; margin-top: 3px;">
+                                    <i class="fas fa-file-invoice-dollar"></i> 税费：${formatAmount(item.tax || 0)} (公益金${formatAmount(welfareFund)}，个税${formatAmount(incomeTax)})
+                                </div>`;
+                            }
+                            
+                            let godTag = '';
+                            let luckyKingTag = '';
+                            let remainingInfo = '';
+                            if (item.god_lottery) {
+                                if (item.god_price_tier === 'premium') {
+                                    godTag = `<span style="background: #FF4500; color: #FFFFFF; padding: 2px 6px; border-radius: 10px; font-size: 0.7em; margin-left: 5px;"><i class="fas fa-crown"></i> 高级神豪</span>`;
+                                } else {
+                                    godTag = `<span style="background: #FFD700; color: #8B0000; padding: 2px 6px; border-radius: 10px; font-size: 0.7em; margin-left: 5px;"><i class="fas fa-crown"></i> 神豪</span>`;
+                                }
+                                
+                                if (item.god_remaining !== undefined) {
+                                    remainingInfo = `<div style="font-size: 0.7em; color: #666; margin-top: 2px;">
+                                        <i class="fas fa-box"></i> 剩余：${item.god_remaining}张
+                                    </div>`;
+                                }
+                            } else if (item.lucky_king_lottery) {
+                                luckyKingTag = `<span style="background: #8A2BE2; color: #FFFFFF; padding: 2px 6px; border-radius: 10px; font-size: 0.7em; margin-left: 5px;"><i class="fas fa-crown"></i>🌟 欧皇</span>`;
+                                
+                                if (item.lucky_king_remaining !== undefined) {
+                                    remainingInfo = `<div style="font-size: 0.7em; color: #666; margin-top: 2px;">
+                                        <i class="fas fa-box"></i> 剩余：${item.lucky_king_remaining}张
+                                    </div>`;
+                                }
+                            }
+                            
+                            let antiInfo = '';
+                            if (item.anti_code) {
+                                antiInfo = `<div style="font-size: 0.7em; color: #2e7d32; margin-top: 3px;">
+                                    <i class="fas fa-shield-alt"></i> 防伪码：${item.anti_code}
+                                </div>`;
+                            }
+                            
+                            historyItem.innerHTML = `
+                                <div style="text-align: left; flex: 1;">
+                                    <div style="font-size: 0.9em; color: #666; margin-bottom: 5px;">
+                                        <i class="far fa-clock"></i> ${item.time || ''}
+                                    </div>
+                                    <div style="font-weight: bold; color: #333;">
+                                        <i class="fas fa-ticket-alt"></i> ${item.lottery_name || ''} ${godTag}${luckyKingTag}
+                                    </div>
+                                    <div style="font-size: 0.8em; color: #999;">
+                                        花费：${item.ticket_cost || 0}元
+                                    </div>
+                                    ${remainingInfo}
+                                    ${antiInfo}
+                                </div>
+                                <div style="text-align: right;">
+                                    <div style="font-weight: bold; color: ${item.color || '#333'}; font-size: 1.1em;">
+                                        ${(item.net_amount || 0) > 0 ? '+' + formatAmount(item.net_amount || 0) : formatAmount(item.net_amount || 0)}
+                                    </div>
+                                    <div style="font-size: 0.85em; color: #999;">
+                                        ${item.prize_name || ''}
+                                    </div>
+                                    ${taxInfo}
+                                </div>
+                            `;
+                            historyList.appendChild(historyItem);
+                        });
+                    } else {
+                        historyList.innerHTML = `
+                            <p style="text-align: center; color: #666; padding: 30px;">
+                                <i class="fas fa-clock" style="font-size: 2em; margin-bottom: 10px; display: block;"></i>
+                                暂无购买记录
+                            </p>
+                        `;
+                    }
+                }
+            } catch (error) {
+                console.error('加载用户信息失败:', error);
+                updateNetworkStatus(false);
+            }
+        }
+        
+        async function logout() {
+            try {
+                await fetch('/api/logout', { method: 'POST' });
+                window.location.href = 'login.html';
+            } catch (error) {
+                console.error('登出失败:', error);
+                showMessage('登出失败，请稍后重试', 'error');
+            }
+        }
+        
+        function showMessage(message, type) {
+            const messageDiv = document.getElementById('message');
+            messageDiv.innerHTML = message;
+            messageDiv.className = `message ${type}`;
+            messageDiv.style.display = 'block';
+            
+            const hideTime = type === 'info' ? 5000 : 3000;
+            
+            setTimeout(() => {
+                messageDiv.style.display = 'none';
+            }, hideTime);
+        }
+        
+        function playSoundEffect(type) {
+            try {
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                
+                if (type === 'win') {
+                    playBeep(audioContext, 800, 0.3, 0.1);
+                    setTimeout(() => playBeep(audioContext, 1200, 0.2, 0.2), 100);
+                    setTimeout(() => playBeep(audioContext, 1600, 0.1, 0.3), 200);
+                } else {
+                    playBeep(audioContext, 400, 0.2, 0.1);
+                    setTimeout(() => playBeep(audioContext, 300, 0.1, 0.2), 100);
+                }
+            } catch (e) {
+                console.log('音效播放失败');
+            }
+        }
+        
+        function playBeep(audioContext, frequency, volume, duration) {
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            oscillator.frequency.value = frequency;
+            oscillator.type = 'sine';
+            
+            gainNode.gain.setValueAtTime(volume, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + duration);
+            
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + duration);
+        }
+        
+        window.onload = async function() {
+            await checkAuth();
+            await checkIdentityStatus();
+        };
+    </script>
+</body>
+</html>
