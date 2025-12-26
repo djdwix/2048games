@@ -260,6 +260,43 @@
             margin: 10px 0;
             border: 2px solid #2e7d32;
             display: inline-block;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            user-select: all;
+        }
+        
+        .anti-code-code:hover {
+            background: #f8f9fa;
+            transform: scale(1.02);
+        }
+        
+        .anti-code-code.copied {
+            background: #28a745;
+            color: white;
+            border-color: #1e7e34;
+        }
+        
+        .anti-code-copy-btn {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 0.9em;
+            font-weight: 600;
+            cursor: pointer;
+            margin-left: 10px;
+            transition: all 0.3s ease;
+        }
+        
+        .anti-code-copy-btn:hover {
+            background: #388E3C;
+            transform: translateY(-2px);
+        }
+        
+        .anti-code-copy-btn:active {
+            transform: translateY(0);
         }
         
         .anti-code-info {
@@ -315,7 +352,12 @@
         <div id="antiCodeInfo" class="anti-code" style="display: none;">
             <i class="fas fa-shield-alt"></i>
             <div id="antiCodeMessage"></div>
-            <div class="anti-code-code" id="antiCodeValue"></div>
+            <div style="display: flex; align-items: center; justify-content: center; gap: 10px; margin: 10px 0;">
+                <div class="anti-code-code" id="antiCodeValue" onclick="copyAntiCode(this)"></div>
+                <button class="anti-code-copy-btn" onclick="copyAntiCode(document.getElementById('antiCodeValue'))">
+                    <i class="fas fa-copy"></i> 复制
+                </button>
+            </div>
             <div class="anti-code-info">
                 <i class="fas fa-info-circle"></i> 此防伪码用于验证彩票真伪，请妥善保管<br>
                 <a href="anti_verify.html" target="_blank" style="color: #2e7d32; text-decoration: underline;">
@@ -366,7 +408,7 @@
         <div class="game-info">
             <div class="balance" id="currentBalance">0.00 元</div>
             <p class="ticket-price" id="selectedTicketPrice">请选择彩票类型</p>
-            <p><i class="fas fa-info-circle"></i> 谨慎投注，理性购彩 | <i class="fas fa-file-invoice-dollar"></i> 中奖超4000元需缴22%税（其中2%转为公益金） | <i class="fas fa-id-card"></i> 购买彩票需要完成身份认证 | <i class="fas fa-hands-helping"></i> 公益金满5万赠送神豪彩票购买次数 | <i class="fas fa-shield-alt"></i> 每张彩票都有唯一防伪码</p>
+            <p><i class="fas fa-info-circle"></i> 谨慎投注，理性购彩 | <i class="fas fa-file-invoice-dollar"></i> 中奖超4000元需缴22%税（其中2%转为公益金） | <i class="fas fa-id-card"></i> 购买彩票需要完成身份认证 | <i class="fas fa-hands-helping"></i> 公益金满5万赠送神豪彩票购买次数 | <i class="fas fa-shield-alt"></i> 每张中奖彩票都有唯一防伪码</p>
         </div>
         
         <div id="message" class="message"></div>
@@ -963,10 +1005,13 @@
                     `;
                     prizeResult.style = resultStyle;
                     
-                    if (data.anti_code) {
+                    // 仅在中奖时显示防伪码
+                    if (data.anti_code && netAmount > 0) {
                         antiCodeValue.textContent = data.anti_code;
-                        antiCodeMessage.innerHTML = `<strong>🔒 彩票防伪码</strong><br>`;
+                        antiCodeMessage.innerHTML = `<strong>🔒 彩票防伪码</strong><br><small>中奖彩票专属防伪码</small>`;
                         antiCodeInfo.style.display = 'block';
+                    } else {
+                        antiCodeInfo.style.display = 'none';
                     }
                     
                     if (netAmount > 0) {
@@ -1002,7 +1047,7 @@
                         message += `，累计公益贡献：${formatAmount(data.public_welfare_fund)}`;
                     }
                     
-                    if (data.anti_code) {
+                    if (data.anti_code && netAmount > 0) {
                         message += `，防伪码：${data.anti_code}`;
                     }
                     
@@ -1068,6 +1113,42 @@
                     buyButton.disabled = false;
                     buyButton.innerHTML = '<i class="fas fa-play"></i> 购买并刮开彩票';
                 }, 2000);
+            }
+        }
+        
+        function copyAntiCode(element) {
+            const antiCode = element.textContent;
+            
+            if (!antiCode) return;
+            
+            const textArea = document.createElement('textarea');
+            textArea.value = antiCode;
+            document.body.appendChild(textArea);
+            textArea.select();
+            
+            try {
+                const successful = document.execCommand('copy');
+                if (successful) {
+                    const originalText = element.textContent;
+                    const originalClass = element.className;
+                    
+                    element.textContent = '已复制！';
+                    element.className = 'anti-code-code copied';
+                    
+                    setTimeout(() => {
+                        element.textContent = originalText;
+                        element.className = originalClass;
+                    }, 1500);
+                    
+                    showMessage('防伪码已复制到剪贴板', 'success');
+                } else {
+                    showMessage('复制失败，请手动复制', 'error');
+                }
+            } catch (err) {
+                showMessage('复制失败，请手动复制', 'error');
+                console.error('复制失败:', err);
+            } finally {
+                document.body.removeChild(textArea);
             }
         }
         
