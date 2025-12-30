@@ -153,7 +153,6 @@ if (appSettings.cacheDuration) {
     CACHE_DURATION = appSettings.cacheDuration * 60 * 1000;
 }
 
-// 歌曲评分缓存
 const ratingCache = new Map();
 
 async function makeApiRequest(endpoint, params = {}, method = 'GET', retryCount = 0) {
@@ -245,7 +244,6 @@ async function tryAlternativeSearch(keywords) {
     }
 }
 
-// 新增：获取歌曲评分的函数
 async function getSongRating(songId) {
     if (!songId) {
         return null;
@@ -254,13 +252,11 @@ async function getSongRating(songId) {
     const cacheKey = `rating_${songId}`;
     const cachedData = ratingCache.get(cacheKey);
     
-    // 检查缓存，缓存有效期为1小时
     if (cachedData && (Date.now() - cachedData.timestamp < 60 * 60 * 1000)) {
         return cachedData.data;
     }
     
     try {
-        // 尝试从官方API获取评分
         const response = await axios.get(`https://music.163.com/api/v3/song/detail`, {
             params: {
                 id: songId,
@@ -281,7 +277,6 @@ async function getSongRating(songId) {
                 commentCount: song.commentCount || 0
             };
             
-            // 如果有评分数据，存入缓存
             if (ratingData.score > 0) {
                 ratingCache.set(cacheKey, {
                     timestamp: Date.now(),
@@ -294,7 +289,6 @@ async function getSongRating(songId) {
     } catch (error) {
         console.log('获取歌曲评分失败:', error.message);
         
-        // 如果官方API失败，尝试备用API
         try {
             const backupResponse = await axios.get(`https://netease-cloud-music-api-liart.vercel.app/song/detail`, {
                 params: { ids: songId },
@@ -848,7 +842,6 @@ app.get('/api/song/url/v1', async (req, res) => {
     try {
         const { id, level = 'exhigh' } = req.query;
         
-        // 支持更多的音质选项
         const validLevels = ['standard', 'higher', 'exhigh', 'lossless', 'hires'];
         const actualLevel = validLevels.includes(level) ? level : 'exhigh';
         
@@ -1426,7 +1419,6 @@ app.get('/api/download/optimized', async (req, res) => {
             });
         }
         
-        // 支持更多音质选项
         const validLevels = ['standard', 'higher', 'exhigh', 'lossless', 'hires'];
         const actualQuality = validLevels.includes(quality) ? quality : 'higher';
         
@@ -1560,20 +1552,16 @@ app.get('/api/download/optimized', async (req, res) => {
     }
 });
 
-// 新增：获取安全中文文件名
 function getSafeChineseFileName(songTitle, artist) {
-    // 移除或替换文件名中的非法字符
     const illegalChars = /[<>:"/\\|?*]/g;
     const safeTitle = (songTitle || '未知歌曲').replace(illegalChars, '_');
     const safeArtist = (artist || '未知歌手').replace(illegalChars, '_');
     
-    // 限制文件名长度，避免过长
     const maxLength = 100;
     let fileName = `${safeTitle} - ${safeArtist}.mp3`;
     
     if (fileName.length > maxLength) {
-        // 如果文件名过长，截断标题部分
-        const titleMaxLength = maxLength - safeArtist.length - 7; // 7是" - .mp3"的长度
+        const titleMaxLength = maxLength - safeArtist.length - 7;
         const truncatedTitle = safeTitle.substring(0, Math.max(titleMaxLength, 10)) + '...';
         fileName = `${truncatedTitle} - ${safeArtist}.mp3`;
     }
@@ -1607,7 +1595,6 @@ app.post('/api/download/stats', (req, res) => {
     }
 });
 
-// 新增：获取下载文件名
 app.get('/api/download/filename', (req, res) => {
     try {
         const { songTitle, artist } = req.query;
@@ -1824,7 +1811,6 @@ app.get('/api/lyric/clear-cache', (req, res) => {
     });
 });
 
-// 新增：清空评分缓存
 app.get('/api/rating/clear-cache', (req, res) => {
     const beforeSize = ratingCache.size;
     ratingCache.clear();
@@ -1852,7 +1838,6 @@ app.post('/api/settings', (req, res) => {
     try {
         const newSettings = req.body;
         
-        // 验证音质设置
         const validQualities = ['standard', 'higher', 'exhigh', 'lossless', 'hires'];
         if (newSettings.defaultQuality && !validQualities.includes(newSettings.defaultQuality)) {
             return res.status(400).json({
