@@ -16,6 +16,7 @@ class VirtualPhoneGenerator {
         this.cooldownEndTime = null;
         
         this.preventCopy();
+        this.preventSecurityCodeExtraction();
     }
 
     initElements() {
@@ -63,11 +64,74 @@ class VirtualPhoneGenerator {
         this.securityCodeInput.addEventListener('input', (e) => {
             e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
         });
+    }
 
-        this.securityCode.addEventListener('contextmenu', (e) => e.preventDefault());
-        this.securityCode.addEventListener('selectstart', (e) => e.preventDefault());
-        this.securityCode.addEventListener('copy', (e) => e.preventDefault());
-        this.securityCode.addEventListener('cut', (e) => e.preventDefault());
+    preventSecurityCodeExtraction() {
+        const securityCodeElement = this.securityCode;
+        
+        Object.defineProperty(securityCodeElement, 'innerHTML', {
+            set: function(value) {
+                this.textContent = value;
+            },
+            get: function() {
+                return '';
+            }
+        });
+        
+        Object.defineProperty(securityCodeElement, 'innerText', {
+            set: function(value) {
+                this.textContent = value;
+            },
+            get: function() {
+                return '';
+            }
+        });
+        
+        Object.defineProperty(securityCodeElement, 'textContent', {
+            set: function(value) {
+                HTMLElement.prototype.textContent.set.call(this, value);
+                this.dataset.originalValue = value;
+            },
+            get: function() {
+                const original = this.dataset.originalValue || '';
+                return original === '点击钥匙图标生成' || original === '已使用' ? original : '******';
+            }
+        });
+        
+        securityCodeElement.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            return false;
+        });
+        
+        securityCodeElement.addEventListener('copy', (e) => {
+            e.preventDefault();
+            return false;
+        });
+        
+        securityCodeElement.addEventListener('cut', (e) => {
+            e.preventDefault();
+            return false;
+        });
+        
+        const observer = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                if (mutation.type === 'characterData' || mutation.type === 'childList') {
+                    const element = mutation.target;
+                    if (element === securityCodeElement || securityCodeElement.contains(element)) {
+                        const displayValue = securityCodeElement.dataset.originalValue || '';
+                        if (displayValue !== '点击钥匙图标生成' && displayValue !== '已使用') {
+                            securityCodeElement.textContent = '******';
+                        }
+                    }
+                }
+            });
+        });
+        
+        observer.observe(securityCodeElement, {
+            characterData: true,
+            childList: true,
+            subtree: true
+        });
     }
 
     async loadIPInfo() {
@@ -102,34 +166,11 @@ class VirtualPhoneGenerator {
     }
 
     preventCopy() {
-        document.addEventListener('copy', (e) => {
-            const selectedText = window.getSelection().toString();
-            if (selectedText && selectedText.match(/^[A-Z0-9]{6}$/)) {
-                if (this.securityCode.textContent === selectedText) {
-                    e.preventDefault();
-                    this.showToast('安全码受保护，无法复制', 'error');
-                }
-            }
-        });
-
-        document.addEventListener('cut', (e) => {
-            const selectedText = window.getSelection().toString();
-            if (selectedText && selectedText.match(/^[A-Z0-9]{6}$/)) {
-                if (this.securityCode.textContent === selectedText) {
-                    e.preventDefault();
-                    this.showToast('安全码受保护，无法剪切', 'error');
-                }
-            }
-        });
-
         document.addEventListener('keydown', (e) => {
             if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'x')) {
-                const selectedText = window.getSelection().toString();
-                if (selectedText && selectedText.match(/^[A-Z0-9]{6}$/)) {
-                    if (this.securityCode.textContent === selectedText) {
-                        e.preventDefault();
-                        this.showToast('安全码受保护，无法复制/剪切', 'error');
-                    }
+                const selected = window.getSelection();
+                if (selected && selected.toString().includes('******')) {
+                    e.preventDefault();
                 }
             }
         });
@@ -217,6 +258,7 @@ class VirtualPhoneGenerator {
         this.currentCarrier = carrier;
         
         this.carrierName.textContent = carrier || '未知';
+        this.securityCode.dataset.originalValue = '点击钥匙图标生成';
         this.securityCode.textContent = '点击钥匙图标生成';
         this.securityCodeInput.value = '';
         this.verifyContainer.classList.add('hidden');
@@ -250,7 +292,8 @@ class VirtualPhoneGenerator {
 
             if (data.success) {
                 this.currentSecurityCode = data.security_code;
-                this.securityCode.textContent = data.security_code;
+                this.securityCode.dataset.originalValue = data.security_code;
+                this.securityCode.textContent = '******';
                 this.hasGeneratedCode = true;
                 
                 this.showToast('安全码生成成功！', 'success');
@@ -295,23 +338,18 @@ class VirtualPhoneGenerator {
             return;
         }
 
-        // 初始化腾讯云验证码
         const captcha = new TencentCaptcha(this.tcAppId, (res) => {
             if (res.ret === 0) {
-                // 验证成功，执行验证和复制
                 this.verifyAndCopy(code, res.ticket, res.randstr);
             } else {
-                // 验证失败
                 this.showToast('验证失败，请重试', 'error');
                 this.verifyBtn.disabled = false;
                 this.verifyBtn.innerHTML = '<i class="fas fa-check"></i> 验证并复制完整号码';
             }
         });
 
-        // 显示验证码
         captcha.show();
         
-        // 禁用按钮防止重复点击
         this.verifyBtn.disabled = true;
         this.verifyBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 验证中...';
     }
@@ -359,7 +397,8 @@ class VirtualPhoneGenerator {
     }
 
     markSecurityCodeAsUsed() {
-        if (this.securityCode && this.currentSecurityCode) {
+        if (this.securityCode) {
+            this.securityCode.dataset.originalValue = '已使用';
             this.securityCode.textContent = '已使用';
             this.securityCode.style.color = '#6c757d';
             this.securityCode.style.opacity = '0.7';
