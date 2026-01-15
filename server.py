@@ -1,5 +1,3 @@
-# server.py - 移除客户端ID系统，重新接入腾讯云验证
-
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import sqlite3
@@ -46,7 +44,6 @@ CARRIER_PREFIXES = {
 recent_requests = {}
 request_lock = threading.Lock()
 
-# 腾讯云验证配置
 TC_CAPTCHA_APP_ID = '1314462072'
 
 def get_local_ip():
@@ -443,7 +440,6 @@ def verify_and_copy():
         captcha_randstr = data.get('captcha_randstr', '')
         client_ip = get_client_ip()
         
-        # 验证腾讯云验证码
         if not captcha_ticket or not captcha_randstr:
             return jsonify({
                 'success': False,
@@ -608,14 +604,6 @@ if __name__ == '__main__':
     if not os.path.exists(BACKUP_DIR):
         os.makedirs(BACKUP_DIR)
     
-    # 清理data文件夹
-    if os.path.exists(DATA_DIR):
-        try:
-            shutil.rmtree(DATA_DIR)
-            print(f"已清理data文件夹: {DATA_DIR}")
-        except Exception as e:
-            print(f"清理data文件夹失败: {e}")
-    
     required_files = ['index.html', 'privacy-policy.html', 'style.css', 'script.js']
     for file_name in required_files:
         file_path = os.path.join(PUBLIC_DIR, file_name)
@@ -628,10 +616,8 @@ if __name__ == '__main__':
     cleanup_unused_phone_numbers()
     cleanup_backup_files()
     
-    # 注册关闭时的清理函数
     atexit.register(cleanup_on_shutdown)
     
-    # 注册信号处理
     import signal
     
     def signal_handler(signum, frame):
@@ -653,16 +639,16 @@ if __name__ == '__main__':
     print(f"备份目录: {BACKUP_DIR} (最大备份数: {MAX_BACKUP_FILES})")
     print("=" * 60)
     print("系统特性:")
-    print("1. 已移除客户端ID系统")
-    print("2. 重新接入腾讯云验证 (APPID: 1314462072)")
-    print("3. data文件夹已被清理")
-    print("4. 安全码与客户端IP绑定")
-    print("5. 频率限制: 每3秒一次")
+    print("1. 安全码保护机制")
+    print("2. 腾讯云人机验证")
+    print("3. IP绑定安全码")
+    print("4. 频率限制: 每3秒一次")
+    print("5. 自动数据清理")
     print("=" * 60)
     print("腾讯云验证说明:")
-    print("1. 点击'验证并复制完整号码'时会弹出腾讯云验证")
-    print("2. 验证通过后才能复制完整号码")
-    print("3. 增强安全性，防止自动化滥用")
+    print("1. 复制完整号码需要人机验证")
+    print("2. 防止自动化滥用")
+    print("3. 增强安全性")
     print("=" * 60)
     
     app.last_cleanup = time.time()
