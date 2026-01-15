@@ -15,8 +15,7 @@ class VirtualPhoneGenerator {
         this.cooldownTimer = null;
         this.cooldownEndTime = null;
         
-        this.preventCopy();
-        this.setupSecurityCodeProtection();
+        this.preventSecurityCodeCopy();
     }
 
     initElements() {
@@ -66,111 +65,58 @@ class VirtualPhoneGenerator {
         });
     }
 
-    setupSecurityCodeProtection() {
+    preventSecurityCodeCopy() {
+        // 阻止安全码被直接复制
         const securityCodeElement = this.securityCode;
         
-        // 存储真实的安全码值
-        let realSecurityCode = '';
-        let isCodeGenerated = false;
-        
-        // 重写 textContent 的 setter 和 getter
-        const originalTextContent = Object.getOwnPropertyDescriptor(Node.prototype, 'textContent');
-        
-        Object.defineProperty(securityCodeElement, 'textContent', {
-            get: function() {
-                if (!isCodeGenerated) {
-                    return originalTextContent.get.call(this);
-                }
-                return '******';
-            },
-            set: function(value) {
-                originalTextContent.set.call(this, value);
-                
-                if (value === '点击钥匙图标生成' || value === '已使用') {
-                    isCodeGenerated = false;
-                    realSecurityCode = '';
-                } else if (value && value.length === 6 && /^[A-Z0-9]{6}$/.test(value)) {
-                    realSecurityCode = value;
-                    isCodeGenerated = true;
-                    originalTextContent.set.call(this, '******');
-                }
-            },
-            configurable: true
-        });
-        
-        // 重写 innerText 的 setter 和 getter
-        Object.defineProperty(securityCodeElement, 'innerText', {
-            get: function() {
-                return this.textContent;
-            },
-            set: function(value) {
-                this.textContent = value;
-            },
-            configurable: true
-        });
-        
-        // 重写 innerHTML 的 setter 和 getter
-        Object.defineProperty(securityCodeElement, 'innerHTML', {
-            get: function() {
-                return this.textContent;
-            },
-            set: function(value) {
-                this.textContent = value;
-            },
-            configurable: true
-        });
-        
-        // 阻止复制、剪切等操作
-        securityCodeElement.addEventListener('copy', (e) => {
-            e.preventDefault();
-            return false;
-        });
-        
-        securityCodeElement.addEventListener('cut', (e) => {
-            e.preventDefault();
-            return false;
-        });
-        
+        // 防止右键菜单复制
         securityCodeElement.addEventListener('contextmenu', (e) => {
             e.preventDefault();
+            this.showToast('安全码受保护，请手动输入', 'error');
             return false;
         });
         
-        // 保护元素的子节点
-        const observer = new MutationObserver((mutations) => {
-            for (const mutation of mutations) {
-                if (mutation.type === 'childList') {
-                    for (const node of mutation.addedNodes) {
-                        if (node.nodeType === Node.TEXT_NODE && isCodeGenerated) {
-                            node.textContent = '******';
-                        }
-                    }
-                } else if (mutation.type === 'characterData') {
-                    if (isCodeGenerated && mutation.target.textContent !== '******') {
-                        mutation.target.textContent = '******';
-                    }
-                }
+        // 防止快捷键复制
+        securityCodeElement.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'x')) {
+                e.preventDefault();
+                this.showToast('安全码受保护，请手动输入', 'error');
+                return false;
             }
         });
         
-        observer.observe(securityCodeElement, {
-            childList: true,
-            characterData: true,
-            subtree: true
+        // 防止选择文本
+        securityCodeElement.style.userSelect = 'none';
+        securityCodeElement.style.webkitUserSelect = 'none';
+        securityCodeElement.style.mozUserSelect = 'none';
+        securityCodeElement.style.msUserSelect = 'none';
+        
+        // 阻止复制事件
+        securityCodeElement.addEventListener('copy', (e) => {
+            e.preventDefault();
+            this.showToast('安全码受保护，请手动输入', 'error');
+            return false;
         });
         
-        // 添加数据属性来存储安全码的真实值
-        this.securityCode.setRealValue = function(value) {
-            realSecurityCode = value;
-            isCodeGenerated = true;
-            this.textContent = value;
-        };
+        // 阻止剪切事件
+        securityCodeElement.addEventListener('cut', (e) => {
+            e.preventDefault();
+            this.showToast('安全码受保护，请手动输入', 'error');
+            return false;
+        });
         
-        this.securityCode.markAsUsed = function() {
-            realSecurityCode = '';
-            isCodeGenerated = false;
-            this.textContent = '已使用';
-        };
+        // 阻止拖拽选择
+        securityCodeElement.addEventListener('selectstart', (e) => {
+            e.preventDefault();
+            return false;
+        });
+        
+        // 阻止拖拽
+        securityCodeElement.setAttribute('draggable', 'false');
+        securityCodeElement.addEventListener('dragstart', (e) => {
+            e.preventDefault();
+            return false;
+        });
     }
 
     async loadIPInfo() {
@@ -202,17 +148,6 @@ class VirtualPhoneGenerator {
         } catch (error) {
             console.error('加载客户端统计数据失败:', error);
         }
-    }
-
-    preventCopy() {
-        document.addEventListener('keydown', (e) => {
-            if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'x')) {
-                const selected = window.getSelection();
-                if (selected && selected.toString().includes('******')) {
-                    e.preventDefault();
-                }
-            }
-        });
     }
 
     async generateNumber() {
@@ -298,6 +233,8 @@ class VirtualPhoneGenerator {
         
         this.carrierName.textContent = carrier || '未知';
         this.securityCode.textContent = '点击钥匙图标生成';
+        this.securityCode.style.color = '#e74c3c';
+        this.securityCode.style.opacity = '1';
         this.securityCodeInput.value = '';
         this.verifyContainer.classList.add('hidden');
         this.resultContainer.classList.remove('hidden');
@@ -330,12 +267,13 @@ class VirtualPhoneGenerator {
 
             if (data.success) {
                 this.currentSecurityCode = data.security_code;
-                this.securityCode.setRealValue(data.security_code);
+                this.securityCode.textContent = data.security_code;
                 this.hasGeneratedCode = true;
                 
                 this.showToast('安全码生成成功！', 'success');
                 
                 this.verifyContainer.classList.remove('hidden');
+                this.securityCodeInput.focus();
             } else {
                 this.showToast(`生成安全码失败: ${data.error}`, 'error');
             }
@@ -372,6 +310,13 @@ class VirtualPhoneGenerator {
         
         if (!code || code.length !== 6) {
             this.showToast('请输入6位安全码', 'error');
+            return;
+        }
+
+        if (code !== this.currentSecurityCode) {
+            this.showToast('安全码错误，请重新输入', 'error');
+            this.securityCodeInput.focus();
+            this.securityCodeInput.select();
             return;
         }
 
@@ -434,10 +379,12 @@ class VirtualPhoneGenerator {
     }
 
     markSecurityCodeAsUsed() {
-        if (this.securityCode && this.securityCode.markAsUsed) {
-            this.securityCode.markAsUsed();
+        if (this.securityCode && this.currentSecurityCode) {
+            this.securityCode.textContent = '已使用';
             this.securityCode.style.color = '#6c757d';
             this.securityCode.style.opacity = '0.7';
+            this.currentSecurityCode = null;
+            this.hasGeneratedCode = false;
         }
     }
 
