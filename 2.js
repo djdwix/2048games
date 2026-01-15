@@ -16,7 +16,7 @@ class VirtualPhoneGenerator {
         this.cooldownEndTime = null;
         
         this.preventCopy();
-        this.preventSecurityCodeExtraction();
+        this.setupSecurityCodeProtection();
     }
 
     initElements() {
@@ -66,43 +66,61 @@ class VirtualPhoneGenerator {
         });
     }
 
-    preventSecurityCodeExtraction() {
+    setupSecurityCodeProtection() {
         const securityCodeElement = this.securityCode;
         
-        Object.defineProperty(securityCodeElement, 'innerHTML', {
-            set: function(value) {
-                this.textContent = value;
-            },
-            get: function() {
-                return '';
-            }
-        });
+        // 存储真实的安全码值
+        let realSecurityCode = '';
+        let isCodeGenerated = false;
         
-        Object.defineProperty(securityCodeElement, 'innerText', {
-            set: function(value) {
-                this.textContent = value;
-            },
-            get: function() {
-                return '';
-            }
-        });
+        // 重写 textContent 的 setter 和 getter
+        const originalTextContent = Object.getOwnPropertyDescriptor(Node.prototype, 'textContent');
         
         Object.defineProperty(securityCodeElement, 'textContent', {
-            set: function(value) {
-                HTMLElement.prototype.textContent.set.call(this, value);
-                this.dataset.originalValue = value;
-            },
             get: function() {
-                const original = this.dataset.originalValue || '';
-                return original === '点击钥匙图标生成' || original === '已使用' ? original : '******';
-            }
+                if (!isCodeGenerated) {
+                    return originalTextContent.get.call(this);
+                }
+                return '******';
+            },
+            set: function(value) {
+                originalTextContent.set.call(this, value);
+                
+                if (value === '点击钥匙图标生成' || value === '已使用') {
+                    isCodeGenerated = false;
+                    realSecurityCode = '';
+                } else if (value && value.length === 6 && /^[A-Z0-9]{6}$/.test(value)) {
+                    realSecurityCode = value;
+                    isCodeGenerated = true;
+                    originalTextContent.set.call(this, '******');
+                }
+            },
+            configurable: true
         });
         
-        securityCodeElement.addEventListener('contextmenu', (e) => {
-            e.preventDefault();
-            return false;
+        // 重写 innerText 的 setter 和 getter
+        Object.defineProperty(securityCodeElement, 'innerText', {
+            get: function() {
+                return this.textContent;
+            },
+            set: function(value) {
+                this.textContent = value;
+            },
+            configurable: true
         });
         
+        // 重写 innerHTML 的 setter 和 getter
+        Object.defineProperty(securityCodeElement, 'innerHTML', {
+            get: function() {
+                return this.textContent;
+            },
+            set: function(value) {
+                this.textContent = value;
+            },
+            configurable: true
+        });
+        
+        // 阻止复制、剪切等操作
         securityCodeElement.addEventListener('copy', (e) => {
             e.preventDefault();
             return false;
@@ -113,25 +131,46 @@ class VirtualPhoneGenerator {
             return false;
         });
         
+        securityCodeElement.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            return false;
+        });
+        
+        // 保护元素的子节点
         const observer = new MutationObserver((mutations) => {
-            mutations.forEach((mutation) => {
-                if (mutation.type === 'characterData' || mutation.type === 'childList') {
-                    const element = mutation.target;
-                    if (element === securityCodeElement || securityCodeElement.contains(element)) {
-                        const displayValue = securityCodeElement.dataset.originalValue || '';
-                        if (displayValue !== '点击钥匙图标生成' && displayValue !== '已使用') {
-                            securityCodeElement.textContent = '******';
+            for (const mutation of mutations) {
+                if (mutation.type === 'childList') {
+                    for (const node of mutation.addedNodes) {
+                        if (node.nodeType === Node.TEXT_NODE && isCodeGenerated) {
+                            node.textContent = '******';
                         }
                     }
+                } else if (mutation.type === 'characterData') {
+                    if (isCodeGenerated && mutation.target.textContent !== '******') {
+                        mutation.target.textContent = '******';
+                    }
                 }
-            });
+            }
         });
         
         observer.observe(securityCodeElement, {
-            characterData: true,
             childList: true,
+            characterData: true,
             subtree: true
         });
+        
+        // 添加数据属性来存储安全码的真实值
+        this.securityCode.setRealValue = function(value) {
+            realSecurityCode = value;
+            isCodeGenerated = true;
+            this.textContent = value;
+        };
+        
+        this.securityCode.markAsUsed = function() {
+            realSecurityCode = '';
+            isCodeGenerated = false;
+            this.textContent = '已使用';
+        };
     }
 
     async loadIPInfo() {
@@ -258,7 +297,6 @@ class VirtualPhoneGenerator {
         this.currentCarrier = carrier;
         
         this.carrierName.textContent = carrier || '未知';
-        this.securityCode.dataset.originalValue = '点击钥匙图标生成';
         this.securityCode.textContent = '点击钥匙图标生成';
         this.securityCodeInput.value = '';
         this.verifyContainer.classList.add('hidden');
@@ -292,8 +330,7 @@ class VirtualPhoneGenerator {
 
             if (data.success) {
                 this.currentSecurityCode = data.security_code;
-                this.securityCode.dataset.originalValue = data.security_code;
-                this.securityCode.textContent = '******';
+                this.securityCode.setRealValue(data.security_code);
                 this.hasGeneratedCode = true;
                 
                 this.showToast('安全码生成成功！', 'success');
@@ -397,9 +434,8 @@ class VirtualPhoneGenerator {
     }
 
     markSecurityCodeAsUsed() {
-        if (this.securityCode) {
-            this.securityCode.dataset.originalValue = '已使用';
-            this.securityCode.textContent = '已使用';
+        if (this.securityCode && this.securityCode.markAsUsed) {
+            this.securityCode.markAsUsed();
             this.securityCode.style.color = '#6c757d';
             this.securityCode.style.opacity = '0.7';
         }
