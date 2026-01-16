@@ -211,7 +211,6 @@ def cleanup_unused_phone_numbers():
             conn_vacuum.close()
             
             print(f"清理了 {deleted_count} 个过期记录")
-            print(f"数据库空间已回收")
         
     except Exception as e:
         print(f"清理数据时出错: {e}")
@@ -284,6 +283,10 @@ def index():
 @app.route('/privacy-policy')
 def privacy_policy():
     return send_from_directory(PUBLIC_DIR, 'privacy-policy.html')
+
+@app.route('/terms')
+def terms_of_service():
+    return send_from_directory(PUBLIC_DIR, 'terms.html')
 
 @app.route('/<path:path>')
 def serve_static(path):
@@ -589,13 +592,9 @@ def get_client_info():
         }), 500
 
 def cleanup_on_shutdown():
-    print("正在创建数据库备份...")
     create_backup()
-    print("备份完成")
-    print("正在清理数据库...")
     cleanup_unused_phone_numbers()
     cleanup_backup_files()
-    print("清理完成")
 
 if __name__ == '__main__':
     if not os.path.exists(PUBLIC_DIR):
@@ -604,7 +603,7 @@ if __name__ == '__main__':
     if not os.path.exists(BACKUP_DIR):
         os.makedirs(BACKUP_DIR)
     
-    required_files = ['index.html', 'privacy-policy.html', 'style.css', 'script.js']
+    required_files = ['index.html', 'privacy-policy.html', 'terms.html', 'style.css', 'script.js']
     for file_name in required_files:
         file_path = os.path.join(PUBLIC_DIR, file_name)
         if not os.path.exists(file_path):
@@ -636,6 +635,7 @@ if __name__ == '__main__':
     print(f"本地访问: http://localhost:{port}")
     print(f"网络访问: http://{host_ip}:{port}")
     print(f"隐私政策: http://{host_ip}:{port}/privacy-policy")
+    print(f"用户协议: http://{host_ip}:{port}/terms")
     print(f"备份目录: {BACKUP_DIR} (最大备份数: {MAX_BACKUP_FILES})")
     print("=" * 60)
     print("系统特性:")
@@ -644,6 +644,7 @@ if __name__ == '__main__':
     print("3. IP绑定安全码")
     print("4. 频率限制: 每3秒一次")
     print("5. 自动数据清理")
+    print("6. 用户协议确认系统")
     print("=" * 60)
     print("腾讯云验证说明:")
     print("1. 复制完整号码需要人机验证")
