@@ -2,12 +2,6 @@ class VirtualPhoneGenerator {
     constructor() {
         this.apiBase = 'http://localhost:5000/api';
         this.tcAppId = '1314462072';
-        this.initElements();
-        this.bindEvents();
-        this.loadStats();
-        this.loadIPInfo();
-        this.loadClientStats();
-        
         this.currentPhoneNumber = null;
         this.currentSecurityCode = null;
         this.hasGeneratedCode = false;
@@ -15,7 +9,108 @@ class VirtualPhoneGenerator {
         this.cooldownTimer = null;
         this.cooldownEndTime = null;
         
+        this.initElements();
+        this.bindEvents();
+        this.checkAgreement();
         this.preventSecurityCodeCopy();
+    }
+
+    checkAgreement() {
+        const agreementData = localStorage.getItem('virtualPhoneAgreement');
+        const currentVersion = '4.0';
+        
+        if (agreementData) {
+            try {
+                const data = JSON.parse(agreementData);
+                
+                if (data.version === currentVersion && data.accepted === true) {
+                    this.initializeApp();
+                    return;
+                }
+            } catch (error) {
+                console.error('解析用户协议数据失败:', error);
+            }
+        }
+        
+        this.showAgreementModal();
+    }
+
+    showAgreementModal() {
+        const modal = document.getElementById('agreementModal');
+        const agreeTermsCheckbox = document.getElementById('modal-agree-terms');
+        const readPrivacyCheckbox = document.getElementById('modal-read-privacy');
+        const agreeBtn = document.getElementById('modalAgreeBtn');
+        const declineBtn = document.getElementById('modalDeclineBtn');
+        
+        modal.classList.add('active');
+        
+        function updateAgreeButton() {
+            agreeBtn.disabled = !(agreeTermsCheckbox.checked && readPrivacyCheckbox.checked);
+        }
+        
+        agreeTermsCheckbox.addEventListener('change', updateAgreeButton);
+        readPrivacyCheckbox.addEventListener('change', updateAgreeButton);
+        
+        agreeBtn.addEventListener('click', () => {
+            if (agreeTermsCheckbox.checked && readPrivacyCheckbox.checked) {
+                this.saveAgreement();
+                modal.classList.remove('active');
+                this.initializeApp();
+            }
+        });
+        
+        declineBtn.addEventListener('click', () => {
+            if (confirm('您需要同意用户协议才能使用本服务。确定要离开吗？')) {
+                window.location.href = 'about:blank';
+            }
+        });
+        
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                if (modal.classList.contains('active')) {
+                    e.preventDefault();
+                    if (confirm('您需要同意用户协议才能使用本服务。确定要离开吗？')) {
+                        window.location.href = 'about:blank';
+                    }
+                }
+            }
+        });
+    }
+
+    saveAgreement() {
+        const today = new Date().toISOString().split('T')[0];
+        const agreementData = {
+            accepted: true,
+            version: '4.0',
+            date: today,
+            privacyRead: true,
+            lastUpdate: today
+        };
+        
+        try {
+            localStorage.setItem('virtualPhoneAgreement', JSON.stringify(agreementData));
+        } catch (error) {
+            console.error('保存用户协议数据失败:', error);
+            this.showToast('保存用户协议设置失败', 'error');
+        }
+    }
+
+    initializeApp() {
+        this.loadStats();
+        this.loadIPInfo();
+        this.loadClientStats();
+        
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                this.loadStats();
+                this.loadClientStats();
+            }
+        });
+        
+        setInterval(() => {
+            this.loadStats();
+            this.loadClientStats();
+        }, 30000);
     }
 
     initElements() {
@@ -42,9 +137,6 @@ class VirtualPhoneGenerator {
         this.cooldownDisplay = document.createElement('div');
         this.cooldownDisplay.className = 'cooldown-display';
         this.cooldownDisplay.style.display = 'none';
-        this.cooldownDisplay.style.marginTop = '10px';
-        this.cooldownDisplay.style.fontSize = '0.9rem';
-        this.cooldownDisplay.style.color = '#dc3545';
         this.generateBtn.parentNode.appendChild(this.cooldownDisplay);
     }
 
@@ -66,17 +158,14 @@ class VirtualPhoneGenerator {
     }
 
     preventSecurityCodeCopy() {
-        // 阻止安全码被直接复制
         const securityCodeElement = this.securityCode;
         
-        // 防止右键菜单复制
         securityCodeElement.addEventListener('contextmenu', (e) => {
             e.preventDefault();
             this.showToast('安全码受保护，请手动输入', 'error');
             return false;
         });
         
-        // 防止快捷键复制
         securityCodeElement.addEventListener('keydown', (e) => {
             if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'x')) {
                 e.preventDefault();
@@ -85,33 +174,28 @@ class VirtualPhoneGenerator {
             }
         });
         
-        // 防止选择文本
         securityCodeElement.style.userSelect = 'none';
         securityCodeElement.style.webkitUserSelect = 'none';
         securityCodeElement.style.mozUserSelect = 'none';
         securityCodeElement.style.msUserSelect = 'none';
         
-        // 阻止复制事件
         securityCodeElement.addEventListener('copy', (e) => {
             e.preventDefault();
             this.showToast('安全码受保护，请手动输入', 'error');
             return false;
         });
         
-        // 阻止剪切事件
         securityCodeElement.addEventListener('cut', (e) => {
             e.preventDefault();
             this.showToast('安全码受保护，请手动输入', 'error');
             return false;
         });
         
-        // 阻止拖拽选择
         securityCodeElement.addEventListener('selectstart', (e) => {
             e.preventDefault();
             return false;
         });
         
-        // 阻止拖拽
         securityCodeElement.setAttribute('draggable', 'false');
         securityCodeElement.addEventListener('dragstart', (e) => {
             e.preventDefault();
@@ -129,7 +213,6 @@ class VirtualPhoneGenerator {
                 this.clientIp.textContent = data.client_ip;
             }
         } catch (error) {
-            console.error('加载IP信息失败:', error);
             this.serverIp.textContent = '获取失败';
             this.clientIp.textContent = '获取失败';
         }
@@ -234,7 +317,6 @@ class VirtualPhoneGenerator {
         this.carrierName.textContent = carrier || '未知';
         this.securityCode.textContent = '点击钥匙图标生成';
         this.securityCode.style.color = '#e74c3c';
-        this.securityCode.style.opacity = '1';
         this.securityCodeInput.value = '';
         this.verifyContainer.classList.add('hidden');
         this.resultContainer.classList.remove('hidden');
