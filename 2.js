@@ -8,6 +8,7 @@ class VirtualPhoneGenerator {
         this.currentCarrier = null;
         this.cooldownTimer = null;
         this.cooldownEndTime = null;
+        this.currentAgreementVersion = '4.0';
         
         this.initElements();
         this.bindEvents();
@@ -17,32 +18,48 @@ class VirtualPhoneGenerator {
 
     checkAgreement() {
         const agreementData = localStorage.getItem('virtualPhoneAgreement');
-        const currentVersion = '4.0';
         
         if (agreementData) {
             try {
                 const data = JSON.parse(agreementData);
                 
-                if (data.version === currentVersion && data.accepted === true) {
+                if (data.version === this.currentAgreementVersion && data.accepted === true) {
                     this.initializeApp();
                     return;
                 }
+                
+                this.showAgreementModal(true);
             } catch (error) {
-                console.error('解析用户协议数据失败:', error);
+                this.showAgreementModal(false);
             }
+        } else {
+            this.showAgreementModal(false);
         }
-        
-        this.showAgreementModal();
     }
 
-    showAgreementModal() {
+    showAgreementModal(isUpdate = false) {
         const modal = document.getElementById('agreementModal');
         const agreeTermsCheckbox = document.getElementById('modal-agree-terms');
         const readPrivacyCheckbox = document.getElementById('modal-read-privacy');
         const agreeBtn = document.getElementById('modalAgreeBtn');
         const declineBtn = document.getElementById('modalDeclineBtn');
+        const currentVersionBadge = document.getElementById('currentVersionBadge');
+        const agreementVersion = document.getElementById('agreementVersion');
+        const updateContent = document.getElementById('updateContent');
         
         modal.classList.add('active');
+        currentVersionBadge.textContent = `版本 ${this.currentAgreementVersion}`;
+        agreementVersion.textContent = this.currentAgreementVersion;
+        
+        if (isUpdate) {
+            updateContent.style.display = 'block';
+            modal.querySelector('.agreement-header h2').textContent = '用户协议更新确认';
+            modal.querySelector('.agreement-header p').textContent = '检测到用户协议有重要更新，请仔细阅读更新内容';
+        } else {
+            updateContent.style.display = 'none';
+            modal.querySelector('.agreement-header h2').textContent = '用户协议确认';
+            modal.querySelector('.agreement-header p').textContent = '请仔细阅读并同意以下条款以继续使用本服务';
+        }
         
         function updateAgreeButton() {
             agreeBtn.disabled = !(agreeTermsCheckbox.checked && readPrivacyCheckbox.checked);
@@ -75,13 +92,17 @@ class VirtualPhoneGenerator {
                 }
             }
         });
+        
+        agreeTermsCheckbox.checked = false;
+        readPrivacyCheckbox.checked = false;
+        updateAgreeButton();
     }
 
     saveAgreement() {
         const today = new Date().toISOString().split('T')[0];
         const agreementData = {
             accepted: true,
-            version: '4.0',
+            version: this.currentAgreementVersion,
             date: today,
             privacyRead: true,
             lastUpdate: today
@@ -90,7 +111,6 @@ class VirtualPhoneGenerator {
         try {
             localStorage.setItem('virtualPhoneAgreement', JSON.stringify(agreementData));
         } catch (error) {
-            console.error('保存用户协议数据失败:', error);
             this.showToast('保存用户协议设置失败', 'error');
         }
     }
@@ -229,7 +249,6 @@ class VirtualPhoneGenerator {
                 this.clientAvailableCount.textContent = data.stats.available;
             }
         } catch (error) {
-            console.error('加载客户端统计数据失败:', error);
         }
     }
 
@@ -499,7 +518,6 @@ class VirtualPhoneGenerator {
                 this.availableCount.textContent = data.stats.available;
             }
         } catch (error) {
-            console.error('加载统计数据失败:', error);
         }
     }
 
