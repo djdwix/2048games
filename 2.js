@@ -1,6 +1,6 @@
 class VirtualPhoneGenerator {
     constructor() {
-        this.apiBase = 'http://localhost:5000/api';
+        this.apiBase = window.location.origin + '/api';
         this.tcAppId = '1314462072';
         this.currentPhoneNumber = null;
         this.currentSecurityCode = null;
@@ -8,12 +8,208 @@ class VirtualPhoneGenerator {
         this.currentCarrier = null;
         this.cooldownTimer = null;
         this.cooldownEndTime = null;
-        this.currentAgreementVersion = '4.0';
+        this.currentAgreementVersion = '4.1';
+        this.categories = {};
+        this.showedTutorial = false;
         
         this.initElements();
         this.bindEvents();
         this.checkAgreement();
         this.preventSecurityCodeCopy();
+        this.checkTutorial();
+        this.loadCategories();
+    }
+
+    checkTutorial() {
+        const tutorialShown = localStorage.getItem('virtualPhoneTutorialShown');
+        if (!tutorialShown) {
+            this.showTutorial();
+        } else {
+            this.showedTutorial = true;
+        }
+    }
+
+    showTutorial() {
+        const tutorialHTML = `
+            <div id="tutorialModal" class="agreement-modal active">
+                <div class="agreement-content">
+                    <div class="agreement-header">
+                        <h2><i class="fas fa-graduation-cap"></i> 新手指引</h2>
+                        <p>快速了解如何使用虚拟手机号生成器</p>
+                    </div>
+                    <div class="agreement-body">
+                        <div class="agreement-text">
+                            <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 20px;">
+                                <div style="flex: 1; text-align: center; padding: 15px; background: #f8f9fa; border-radius: 10px;">
+                                    <i class="fas fa-layer-group" style="font-size: 2rem; color: #667eea; margin-bottom: 10px;"></i>
+                                    <h4 style="margin: 10px 0 5px 0; color: #333;">号码分类</h4>
+                                    <p style="color: #666; font-size: 0.9rem;">选择不同的用途分类生成号码</p>
+                                </div>
+                                <div style="flex: 1; text-align: center; padding: 15px; background: #f8f9fa; border-radius: 10px;">
+                                    <i class="fas fa-key" style="font-size: 2rem; color: #28a745; margin-bottom: 10px;"></i>
+                                    <h4 style="margin: 10px 0 5px 0; color: #333;">安全码保护</h4>
+                                    <p style="color: #666; font-size: 0.9rem;">安全码绑定IP，防止跨客户端使用</p>
+                                </div>
+                                <div style="flex: 1; text-align: center; padding: 15px; background: #f8f9fa; border-radius: 10px;">
+                                    <i class="fas fa-shield-alt" style="font-size: 2rem; color: #dc3545; margin-bottom: 10px;"></i>
+                                    <h4 style="margin: 10px 0 5px 0; color: #333;">人机验证</h4>
+                                    <p style="color: #666; font-size: 0.9rem;">复制完整号码需通过验证</p>
+                                </div>
+                            </div>
+                            
+                            <h3><i class="fas fa-list-ol"></i> 使用步骤</h3>
+                            <ol style="margin-left: 20px; line-height: 1.6;">
+                                <li><strong>选择分类</strong>：根据用途选择号码分类（测试、演示、教育等）</li>
+                                <li><strong>生成号码</strong>：点击生成按钮获取虚拟手机号</li>
+                                <li><strong>生成安全码</strong>：点击钥匙图标生成6位安全码</li>
+                                <li><strong>验证并复制</strong>：输入安全码并通过人机验证后复制完整号码</li>
+                                <li><strong>注意事项</strong>：每个安全码只能使用一次，安全码与IP绑定</li>
+                            </ol>
+                            
+                            <h3><i class="fas fa-info-circle"></i> 分类说明</h3>
+                            <ul style="margin-left: 20px; line-height: 1.6;">
+                                <li><strong>测试</strong>：软件测试、系统测试用途</li>
+                                <li><strong>演示</strong>：产品演示、功能展示用途</li>
+                                <li><strong>教育</strong>：教学实验、学习研究用途</li>
+                                <li><strong>开发</strong>：编程测试、API测试用途</li>
+                                <li><strong>其他</strong>：临时使用、其他特殊用途</li>
+                            </ul>
+                            
+                            <div style="background: #e7f3ff; border-left: 4px solid #1890ff; padding: 15px; margin: 20px 0; border-radius: 5px;">
+                                <h4 style="color: #1890ff; margin: 0 0 10px 0; display: flex; align-items: center; gap: 10px;">
+                                    <i class="fas fa-lightbulb"></i> 提示
+                                </h4>
+                                <p style="margin: 0; color: #333;">您可以在设置中随时查看此指引，或者生成号码时查看每个分类的具体用途说明。</p>
+                            </div>
+                        </div>
+                        
+                        <div class="agreement-checkboxes" style="margin-top: 25px;">
+                            <div class="agreement-checkbox">
+                                <input type="checkbox" id="dontShowAgain">
+                                <label for="dontShowAgain">
+                                    不再显示此指引（可在设置中重新打开）
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <div class="agreement-buttons" style="margin-top: 20px;">
+                            <button id="closeTutorialBtn" class="btn-agree">
+                                <i class="fas fa-check-circle"></i> 开始使用
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.insertAdjacentHTML('beforeend', tutorialHTML);
+        
+        const dontShowAgain = document.getElementById('dontShowAgain');
+        const closeTutorialBtn = document.getElementById('closeTutorialBtn');
+        
+        closeTutorialBtn.addEventListener('click', () => {
+            const tutorialModal = document.getElementById('tutorialModal');
+            if (tutorialModal) {
+                tutorialModal.classList.remove('active');
+                setTimeout(() => tutorialModal.remove(), 300);
+            }
+            
+            if (dontShowAgain.checked) {
+                try {
+                    localStorage.setItem('virtualPhoneTutorialShown', 'true');
+                    this.showedTutorial = true;
+                } catch (error) {
+                    console.error('保存教程设置失败:', error);
+                }
+            }
+        });
+    }
+
+    async loadCategories() {
+        try {
+            const response = await fetch(`${this.apiBase}/categories`);
+            const data = await response.json();
+            
+            if (data.success) {
+                this.categories = data.categories;
+                this.updateCategorySelector();
+            }
+        } catch (error) {
+            console.error('加载分类失败:', error);
+        }
+    }
+
+    updateCategorySelector() {
+        const categoryContainer = document.getElementById('category-container');
+        if (!categoryContainer) return;
+        
+        let html = '<div class="form-group" style="margin-bottom: 15px;">';
+        html += '<label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333;">选择用途分类:</label>';
+        html += '<div class="category-buttons" style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px;">';
+        
+        Object.keys(this.categories).forEach(category => {
+            const description = this.categories[category][0] || category;
+            html += `
+                <button type="button" class="category-btn" data-category="${category}" 
+                        title="${description}">
+                    <i class="fas fa-${this.getCategoryIcon(category)}"></i> ${category}
+                </button>
+            `;
+        });
+        
+        html += '</div>';
+        html += '<div id="category-description" style="padding: 10px; background: #f8f9fa; border-radius: 5px; margin-top: 5px; font-size: 0.9rem; color: #666; display: none;"></div>';
+        html += '<input type="text" id="purpose-input" class="form-control" placeholder="可填写具体用途说明（可选）" style="margin-top: 10px;">';
+        html += '</div>';
+        
+        categoryContainer.innerHTML = html;
+        
+        document.querySelectorAll('.category-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const category = e.target.closest('.category-btn').dataset.category;
+                this.selectCategory(category);
+            });
+        });
+        
+        const purposeInput = document.getElementById('purpose-input');
+        if (purposeInput) {
+            purposeInput.addEventListener('input', (e) => {
+                this.currentPurpose = e.target.value;
+            });
+        }
+        
+        if (Object.keys(this.categories).length > 0) {
+            this.selectCategory(Object.keys(this.categories)[0]);
+        }
+    }
+
+    getCategoryIcon(category) {
+        const icons = {
+            '测试': 'vial',
+            '演示': 'tv',
+            '教育': 'graduation-cap',
+            '开发': 'code',
+            '其他': 'ellipsis-h'
+        };
+        return icons[category] || 'phone';
+    }
+
+    selectCategory(category) {
+        document.querySelectorAll('.category-btn').forEach(btn => {
+            btn.style.background = btn.dataset.category === category 
+                ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' 
+                : '#6c757d';
+            btn.style.color = 'white';
+        });
+        
+        const description = this.categories[category] ? this.categories[category][0] : '';
+        const descElement = document.getElementById('category-description');
+        if (descElement) {
+            descElement.innerHTML = `<i class="fas fa-info-circle"></i> ${description}`;
+            descElement.style.display = 'block';
+        }
+        
+        this.currentCategory = category;
     }
 
     checkAgreement() {
@@ -120,6 +316,10 @@ class VirtualPhoneGenerator {
         this.loadIPInfo();
         this.loadClientStats();
         
+        if (!this.showedTutorial) {
+            this.showTutorial();
+        }
+        
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible') {
                 this.loadStats();
@@ -157,36 +357,62 @@ class VirtualPhoneGenerator {
         this.cooldownDisplay = document.createElement('div');
         this.cooldownDisplay.className = 'cooldown-display';
         this.cooldownDisplay.style.display = 'none';
-        this.generateBtn.parentNode.appendChild(this.cooldownDisplay);
+        
+        const card = document.querySelector('.card');
+        if (card) {
+            const categoryContainer = document.createElement('div');
+            categoryContainer.id = 'category-container';
+            const firstFormGroup = card.querySelector('.form-group');
+            if (firstFormGroup) {
+                card.insertBefore(categoryContainer, firstFormGroup);
+            }
+            
+            if (this.generateBtn && this.generateBtn.parentNode) {
+                this.generateBtn.parentNode.appendChild(this.cooldownDisplay);
+            }
+        }
+        
+        this.currentCategory = '测试';
+        this.currentPurpose = '';
     }
 
     bindEvents() {
-        this.generateBtn.addEventListener('click', () => this.generateNumber());
-        this.generateCodeBtn.addEventListener('click', () => this.generateSecurityCode());
-        this.verifyBtn.addEventListener('click', () => this.initTencentCaptcha());
-        this.copyMaskedBtn.addEventListener('click', () => this.showVerifyPrompt());
+        if (this.generateBtn) {
+            this.generateBtn.addEventListener('click', () => this.generateNumber());
+        }
+        if (this.generateCodeBtn) {
+            this.generateCodeBtn.addEventListener('click', () => this.generateSecurityCode());
+        }
+        if (this.verifyBtn) {
+            this.verifyBtn.addEventListener('click', () => this.initTencentCaptcha());
+        }
+        if (this.copyMaskedBtn) {
+            this.copyMaskedBtn.addEventListener('click', () => this.showVerifyPrompt());
+        }
         
-        this.securityCodeInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-                this.initTencentCaptcha();
-            }
-        });
+        if (this.securityCodeInput) {
+            this.securityCodeInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    this.initTencentCaptcha();
+                }
+            });
 
-        this.securityCodeInput.addEventListener('input', (e) => {
-            e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
-        });
+            this.securityCodeInput.addEventListener('input', (e) => {
+                e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+            });
+        }
     }
 
     preventSecurityCodeCopy() {
-        const securityCodeElement = this.securityCode;
+        if (!this.securityCode) return;
         
-        securityCodeElement.addEventListener('contextmenu', (e) => {
+        this.securityCode.addEventListener('contextmenu', (e) => {
             e.preventDefault();
             this.showToast('安全码受保护，请手动输入', 'error');
             return false;
         });
         
-        securityCodeElement.addEventListener('keydown', (e) => {
+        this.securityCode.addEventListener('keydown', (e) => {
             if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'x')) {
                 e.preventDefault();
                 this.showToast('安全码受保护，请手动输入', 'error');
@@ -194,30 +420,30 @@ class VirtualPhoneGenerator {
             }
         });
         
-        securityCodeElement.style.userSelect = 'none';
-        securityCodeElement.style.webkitUserSelect = 'none';
-        securityCodeElement.style.mozUserSelect = 'none';
-        securityCodeElement.style.msUserSelect = 'none';
+        this.securityCode.style.userSelect = 'none';
+        this.securityCode.style.webkitUserSelect = 'none';
+        this.securityCode.style.mozUserSelect = 'none';
+        this.securityCode.style.msUserSelect = 'none';
         
-        securityCodeElement.addEventListener('copy', (e) => {
+        this.securityCode.addEventListener('copy', (e) => {
             e.preventDefault();
             this.showToast('安全码受保护，请手动输入', 'error');
             return false;
         });
         
-        securityCodeElement.addEventListener('cut', (e) => {
+        this.securityCode.addEventListener('cut', (e) => {
             e.preventDefault();
             this.showToast('安全码受保护，请手动输入', 'error');
             return false;
         });
         
-        securityCodeElement.addEventListener('selectstart', (e) => {
+        this.securityCode.addEventListener('selectstart', (e) => {
             e.preventDefault();
             return false;
         });
         
-        securityCodeElement.setAttribute('draggable', 'false');
-        securityCodeElement.addEventListener('dragstart', (e) => {
+        this.securityCode.setAttribute('draggable', 'false');
+        this.securityCode.addEventListener('dragstart', (e) => {
             e.preventDefault();
             return false;
         });
@@ -228,27 +454,29 @@ class VirtualPhoneGenerator {
             const response = await fetch(`${this.apiBase}/ip-info`);
             const data = await response.json();
             
-            if (data.success) {
+            if (data.success && this.serverIp && this.clientIp) {
                 this.serverIp.textContent = data.server_ip;
                 this.clientIp.textContent = data.client_ip;
             }
         } catch (error) {
-            this.serverIp.textContent = '获取失败';
-            this.clientIp.textContent = '获取失败';
+            if (this.serverIp) this.serverIp.textContent = '获取失败';
+            if (this.clientIp) this.clientIp.textContent = '获取失败';
         }
     }
 
     async loadClientStats() {
         try {
             const response = await fetch(`${this.apiBase}/client-info`);
+            
             const data = await response.json();
             
-            if (data.success) {
+            if (data.success && this.clientTotalCount && this.clientUsedCount && this.clientAvailableCount) {
                 this.clientTotalCount.textContent = data.stats.total_generated;
                 this.clientUsedCount.textContent = data.stats.total_used;
                 this.clientAvailableCount.textContent = data.stats.available;
             }
         } catch (error) {
+            console.error('加载客户端统计失败:', error);
         }
     }
 
@@ -260,15 +488,19 @@ class VirtualPhoneGenerator {
             const response = await fetch(`${this.apiBase}/generate`, {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json',
+                    'Content-Type': 'application/json'
                 },
+                body: JSON.stringify({
+                    category: this.currentCategory,
+                    purpose: this.currentPurpose
+                })
             });
 
             const data = await response.json();
 
             if (data.success) {
-                this.displayGeneratedNumber(data.phone_number, data.masked_phone, data.carrier);
-                this.showToast('手机号生成成功！', 'success');
+                this.displayGeneratedNumber(data.phone_number, data.masked_phone, data.carrier, data.category);
+                this.showToast(`手机号生成成功！分类：${data.category}`, 'success');
                 this.cooldownDisplay.style.display = 'none';
                 if (this.cooldownTimer) {
                     clearInterval(this.cooldownTimer);
@@ -326,24 +558,34 @@ class VirtualPhoneGenerator {
         }
     }
 
-    displayGeneratedNumber(phoneNumber, maskedPhone, carrier) {
+    displayGeneratedNumber(phoneNumber, maskedPhone, carrier, category) {
+        if (!this.maskedPhone || !this.securityCode) return;
+        
         this.maskedPhone.textContent = maskedPhone;
         this.currentPhoneNumber = phoneNumber;
         this.currentSecurityCode = null;
         this.hasGeneratedCode = false;
         this.currentCarrier = carrier;
+        this.currentCategory = category;
         
-        this.carrierName.textContent = carrier || '未知';
+        if (this.carrierName) this.carrierName.textContent = carrier || '未知';
         this.securityCode.textContent = '点击钥匙图标生成';
         this.securityCode.style.color = '#e74c3c';
-        this.securityCodeInput.value = '';
-        this.verifyContainer.classList.add('hidden');
-        this.resultContainer.classList.remove('hidden');
+        if (this.securityCodeInput) this.securityCodeInput.value = '';
+        if (this.verifyContainer) this.verifyContainer.classList.add('hidden');
+        if (this.resultContainer) this.resultContainer.classList.remove('hidden');
         
-        this.copyMaskedBtn.innerHTML = '<i class="far fa-copy"></i>';
-        this.copyMaskedBtn.title = '复制完整号码';
-        this.copyMaskedBtn.disabled = false;
-        this.copyMaskedBtn.classList.remove('btn-copy-success');
+        const categoryBadge = document.getElementById('category-badge');
+        if (categoryBadge) {
+            categoryBadge.textContent = category;
+        }
+        
+        if (this.copyMaskedBtn) {
+            this.copyMaskedBtn.innerHTML = '<i class="far fa-copy"></i>';
+            this.copyMaskedBtn.title = '复制完整号码';
+            this.copyMaskedBtn.disabled = false;
+            this.copyMaskedBtn.classList.remove('btn-copy-success');
+        }
     }
 
     async generateSecurityCode() {
@@ -359,7 +601,7 @@ class VirtualPhoneGenerator {
             const response = await fetch(`${this.apiBase}/generate-code`, {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json',
+                    'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({ phone_number: this.currentPhoneNumber }),
             });
@@ -373,8 +615,12 @@ class VirtualPhoneGenerator {
                 
                 this.showToast('安全码生成成功！', 'success');
                 
-                this.verifyContainer.classList.remove('hidden');
-                this.securityCodeInput.focus();
+                if (this.verifyContainer) {
+                    this.verifyContainer.classList.remove('hidden');
+                }
+                if (this.securityCodeInput) {
+                    this.securityCodeInput.focus();
+                }
             } else {
                 this.showToast(`生成安全码失败: ${data.error}`, 'error');
             }
@@ -397,8 +643,12 @@ class VirtualPhoneGenerator {
             return;
         }
 
-        this.verifyContainer.classList.remove('hidden');
-        this.securityCodeInput.focus();
+        if (this.verifyContainer) {
+            this.verifyContainer.classList.remove('hidden');
+        }
+        if (this.securityCodeInput) {
+            this.securityCodeInput.focus();
+        }
     }
 
     initTencentCaptcha() {
@@ -407,6 +657,8 @@ class VirtualPhoneGenerator {
             return;
         }
 
+        if (!this.securityCodeInput) return;
+        
         const code = this.securityCodeInput.value.trim().toUpperCase();
         
         if (!code || code.length !== 6) {
@@ -426,15 +678,19 @@ class VirtualPhoneGenerator {
                 this.verifyAndCopy(code, res.ticket, res.randstr);
             } else {
                 this.showToast('验证失败，请重试', 'error');
-                this.verifyBtn.disabled = false;
-                this.verifyBtn.innerHTML = '<i class="fas fa-check"></i> 验证并复制完整号码';
+                if (this.verifyBtn) {
+                    this.verifyBtn.disabled = false;
+                    this.verifyBtn.innerHTML = '<i class="fas fa-check"></i> 验证并复制完整号码';
+                }
             }
         });
 
         captcha.show();
         
-        this.verifyBtn.disabled = true;
-        this.verifyBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 验证中...';
+        if (this.verifyBtn) {
+            this.verifyBtn.disabled = true;
+            this.verifyBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 验证中...';
+        }
     }
 
     async verifyAndCopy(code, ticket, randstr) {
@@ -442,7 +698,7 @@ class VirtualPhoneGenerator {
             const response = await fetch(`${this.apiBase}/verify-copy`, {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json',
+                    'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({ 
                     phone_number: this.currentPhoneNumber,
@@ -457,13 +713,15 @@ class VirtualPhoneGenerator {
             if (data.success) {
                 await this.copyFullNumber();
                 this.showToast('验证成功，已复制完整号码！', 'success');
-                this.securityCodeInput.value = '';
-                this.verifyContainer.classList.add('hidden');
+                if (this.securityCodeInput) this.securityCodeInput.value = '';
+                if (this.verifyContainer) this.verifyContainer.classList.add('hidden');
                 
-                this.copyMaskedBtn.disabled = true;
-                this.copyMaskedBtn.innerHTML = '<i class="fas fa-check" style="color: #28a745;"></i>';
-                this.copyMaskedBtn.title = '已使用';
-                this.copyMaskedBtn.classList.add('btn-copy-success');
+                if (this.copyMaskedBtn) {
+                    this.copyMaskedBtn.disabled = true;
+                    this.copyMaskedBtn.innerHTML = '<i class="fas fa-check" style="color: #28a745;"></i>';
+                    this.copyMaskedBtn.title = '已使用';
+                    this.copyMaskedBtn.classList.add('btn-copy-success');
+                }
                 
                 this.markSecurityCodeAsUsed();
                 this.loadClientStats();
@@ -473,8 +731,10 @@ class VirtualPhoneGenerator {
         } catch (error) {
             this.showToast(`验证失败: ${error.message}`, 'error');
         } finally {
-            this.verifyBtn.disabled = false;
-            this.verifyBtn.innerHTML = '<i class="fas fa-check"></i> 验证并复制完整号码';
+            if (this.verifyBtn) {
+                this.verifyBtn.disabled = false;
+                this.verifyBtn.innerHTML = '<i class="fas fa-check"></i> 验证并复制完整号码';
+            }
             this.loadStats();
         }
     }
@@ -512,16 +772,19 @@ class VirtualPhoneGenerator {
             const response = await fetch(`${this.apiBase}/stats`);
             const data = await response.json();
             
-            if (data.success) {
+            if (data.success && this.totalCount && this.usedCount && this.availableCount) {
                 this.totalCount.textContent = data.stats.total;
                 this.usedCount.textContent = data.stats.used;
                 this.availableCount.textContent = data.stats.available;
             }
         } catch (error) {
+            console.error('加载统计信息失败:', error);
         }
     }
 
     showToast(message, type = 'info') {
+        if (!this.toast) return;
+        
         this.toast.textContent = message;
         this.toast.className = 'toast';
         
@@ -541,6 +804,16 @@ class VirtualPhoneGenerator {
     }
 }
 
+window.addEventListener('unhandledrejection', (event) => {
+    console.error('未处理的Promise错误:', event.reason);
+    event.preventDefault();
+});
+
 document.addEventListener('DOMContentLoaded', () => {
-    new VirtualPhoneGenerator();
+    try {
+        new VirtualPhoneGenerator();
+    } catch (error) {
+        console.error('初始化失败:', error);
+        alert('系统初始化失败，请刷新页面');
+    }
 });
