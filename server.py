@@ -7,7 +7,6 @@ import os
 import time
 import threading
 from functools import wraps
-from collections import defaultdict
 import socket
 import hashlib
 import json
@@ -39,6 +38,14 @@ CARRIER_PREFIXES = {
                 '193', '199'],
     '中国广电': ['192'],
     '虚拟运营商': ['170', '171']
+}
+
+PHONE_CATEGORIES = {
+    '测试': ['test', '测试用途', '软件测试', '系统测试'],
+    '演示': ['demo', '演示用途', '产品演示', '功能展示'],
+    '教育': ['edu', '教育用途', '教学实验', '学习研究'],
+    '开发': ['dev', '开发用途', '编程测试', 'API测试'],
+    '其他': ['other', '其他用途', '临时使用']
 }
 
 recent_requests = {}
@@ -126,7 +133,7 @@ def generate_security_code():
     characters = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
     return ''.join(random.choices(characters, k=6))
 
-def generate_phone_number():
+def generate_phone_number(category='测试'):
     all_prefixes = []
     for carrier, prefixes in CARRIER_PREFIXES.items():
         all_prefixes.extend(prefixes)
@@ -143,7 +150,9 @@ def get_db_connection():
     conn.row_factory = sqlite3.Row
     conn.execute('PRAGMA journal_mode=WAL')
     conn.execute('PRAGMA synchronous=NORMAL')
-    conn.execute('PRAGMA cache_size=10000')
+    conn.execute('PRAGMA cache_size=20000')
+    conn.execute('PRAGMA temp_store=MEMORY')
+    conn.execute('PRAGMA mmap_size=268435456')
     return conn
 
 def init_database():
@@ -159,7 +168,24 @@ def init_database():
         is_used INTEGER DEFAULT 0,
         last_accessed TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         client_ip TEXT,
-        carrier TEXT
+        carrier TEXT,
+        category TEXT DEFAULT '测试',
+        purpose TEXT,
+        access_count INTEGER DEFAULT 0,
+        request_id TEXT
+    )
+    ''')
+    
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS usage_stats (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date DATE NOT NULL,
+        total_requests INTEGER DEFAULT 0,
+        successful_generations INTEGER DEFAULT 0,
+        failed_requests INTEGER DEFAULT 0,
+        unique_clients INTEGER DEFAULT 0,
+        category_usage TEXT DEFAULT '{}',
+        UNIQUE(date)
     )
     ''')
     
@@ -168,6 +194,12 @@ def init_database():
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_used ON phone_numbers(is_used)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_created ON phone_numbers(created_at)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_client_ip ON phone_numbers(client_ip)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_category ON phone_numbers(category)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_request_id ON phone_numbers(request_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_comp_used_created ON phone_numbers(is_used, created_at)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_comp_ip_used ON phone_numbers(client_ip, is_used)')
+    
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_stats_date ON usage_stats(date)')
     
     conn.commit()
     conn.close()
@@ -201,19 +233,65 @@ def cleanup_unused_phone_numbers():
         
         deleted_count = cursor.rowcount
         
+        cursor.execute('ANALYZE')
+        cursor.execute('PRAGMA optimize')
+        
         conn.commit()
         conn.close()
         
-        if deleted_count > 0:
+        if deleted_count > 500:
             conn_vacuum = sqlite3.connect(DATABASE)
             conn_vacuum.execute('VACUUM')
             conn_vacuum.commit()
             conn_vacuum.close()
             
+            print(f"清理了 {deleted_count} 个过期记录，已执行VACUUM优化")
+        elif deleted_count > 0:
             print(f"清理了 {deleted_count} 个过期记录")
         
     except Exception as e:
         print(f"清理数据时出错: {e}")
+
+def update_usage_stats(category='测试', success=True):
+    try:
+        today = datetime.now().strftime('%Y-%m-%d')
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT * FROM usage_stats WHERE date = ?', (today,))
+        existing = cursor.fetchone()
+        
+        if not existing:
+            category_usage = {cat: 0 for cat in PHONE_CATEGORIES.keys()}
+            category_usage[category] = 1 if success else 0
+            
+            cursor.execute('''
+                INSERT INTO usage_stats (date, total_requests, successful_generations, 
+                                        failed_requests, unique_clients, category_usage)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (today, 1, 1 if success else 0, 0 if success else 1, 0, json.dumps(category_usage)))
+        else:
+            cursor.execute('UPDATE usage_stats SET total_requests = total_requests + 1 WHERE date = ?', (today,))
+            
+            if success:
+                cursor.execute('UPDATE usage_stats SET successful_generations = successful_generations + 1 WHERE date = ?', (today,))
+            else:
+                cursor.execute('UPDATE usage_stats SET failed_requests = failed_requests + 1 WHERE date = ?', (today,))
+            
+            category_usage = json.loads(existing['category_usage'])
+            if category in category_usage:
+                category_usage[category] += 1
+            else:
+                category_usage[category] = 1
+            
+            cursor.execute('UPDATE usage_stats SET category_usage = ? WHERE date = ?', 
+                          (json.dumps(category_usage), today))
+        
+        conn.commit()
+        conn.close()
+        
+    except Exception as e:
+        print(f"更新使用统计失败: {e}")
 
 def get_client_ip():
     if request.headers.get('X-Forwarded-For'):
@@ -312,18 +390,39 @@ def get_ip_info():
             'client_ip': '获取失败'
         }), 500
 
+@app.route('/api/categories', methods=['GET'])
+def get_categories():
+    try:
+        return jsonify({
+            'success': True,
+            'categories': PHONE_CATEGORIES
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 @app.route('/api/generate', methods=['POST'])
 @rate_limit()
 def generate_number():
     try:
+        data = request.json or {}
+        category = data.get('category', '测试')
+        purpose = data.get('purpose', '')
+        
+        if category not in PHONE_CATEGORIES:
+            category = '测试'
+        
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        max_attempts = 10
+        max_attempts = 20
         for _ in range(max_attempts):
-            phone_number = generate_phone_number()
+            phone_number = generate_phone_number(category)
             carrier = get_carrier_by_prefix(phone_number)
             client_ip = get_client_ip()
+            request_id = hashlib.md5(f"{phone_number}{client_ip}{time.time()}".encode()).hexdigest()[:16]
             
             cursor.execute(
                 'SELECT id FROM phone_numbers WHERE phone_number = ?',
@@ -336,27 +435,36 @@ def generate_number():
             
             try:
                 cursor.execute(
-                    'INSERT INTO phone_numbers (phone_number, client_ip, carrier) VALUES (?, ?, ?)',
-                    (phone_number, client_ip, carrier)
+                    '''INSERT INTO phone_numbers (phone_number, client_ip, carrier, category, purpose, request_id) 
+                       VALUES (?, ?, ?, ?, ?, ?)''',
+                    (phone_number, client_ip, carrier, category, purpose, request_id)
                 )
                 conn.commit()
+                
+                update_usage_stats(category, True)
                 
                 return jsonify({
                     'success': True,
                     'phone_number': phone_number,
                     'masked_phone': f"{phone_number[:3]}****{phone_number[7:]}",
-                    'carrier': carrier
+                    'carrier': carrier,
+                    'category': category,
+                    'purpose': purpose,
+                    'request_id': request_id
                 })
                 
             except sqlite3.IntegrityError:
                 continue
         
+        update_usage_stats(category, False)
         return jsonify({
             'success': False,
             'error': '生成失败，请重试'
         }), 500
         
     except Exception as e:
+        if 'category' in locals():
+            update_usage_stats(category, False)
         return jsonify({
             'success': False,
             'error': str(e)
@@ -382,7 +490,7 @@ def generate_security_code_for_number():
         cursor = conn.cursor()
         
         cursor.execute(
-            'SELECT id, security_code, is_used, client_ip FROM phone_numbers WHERE phone_number = ?',
+            'SELECT id, security_code, is_used, client_ip, access_count FROM phone_numbers WHERE phone_number = ?',
             (phone_number,)
         )
         
@@ -412,10 +520,12 @@ def generate_security_code_for_number():
             }), 400
         
         security_code = generate_security_code()
+        new_access_count = result['access_count'] + 1
         
         cursor.execute(
-            'UPDATE phone_numbers SET security_code = ?, last_accessed = CURRENT_TIMESTAMP WHERE phone_number = ?',
-            (security_code, phone_number)
+            '''UPDATE phone_numbers SET security_code = ?, last_accessed = CURRENT_TIMESTAMP, 
+               access_count = ? WHERE phone_number = ?''',
+            (security_code, new_access_count, phone_number)
         )
         conn.commit()
     
@@ -539,14 +649,26 @@ def get_stats():
         
         cursor.execute('SELECT COUNT(DISTINCT client_ip) as unique_clients FROM phone_numbers')
         unique_clients = cursor.fetchone()['unique_clients']
-    
+        
+        cursor.execute('SELECT category, COUNT(*) as count FROM phone_numbers GROUP BY category')
+        category_stats = {}
+        for row in cursor.fetchall():
+            category_stats[row['category']] = row['count']
+        
+        cursor.execute('SELECT SUM(total_requests) as total_reqs, SUM(successful_generations) as success_reqs, SUM(failed_requests) as failed_reqs FROM usage_stats')
+        daily_stats = cursor.fetchone()
+        
         return jsonify({
             'success': True,
             'stats': {
                 'total': total,
                 'used': used,
                 'available': available,
-                'unique_clients': unique_clients
+                'unique_clients': unique_clients,
+                'category_stats': category_stats,
+                'daily_requests': daily_stats['total_reqs'] or 0,
+                'daily_success': daily_stats['success_reqs'] or 0,
+                'daily_failed': daily_stats['failed_reqs'] or 0
             }
         })
         
@@ -573,6 +695,11 @@ def get_client_info():
         cursor.execute('SELECT COUNT(*) as used FROM phone_numbers WHERE client_ip = ? AND is_used = 1', (client_ip,))
         total_used = cursor.fetchone()['used']
         
+        cursor.execute('SELECT category, COUNT(*) as count FROM phone_numbers WHERE client_ip = ? GROUP BY category', (client_ip,))
+        category_stats = {}
+        for row in cursor.fetchall():
+            category_stats[row['category']] = row['count']
+        
         conn.close()
         
         return jsonify({
@@ -581,7 +708,8 @@ def get_client_info():
             'stats': {
                 'total_generated': total_generated,
                 'total_used': total_used,
-                'available': total_generated - total_used
+                'available': total_generated - total_used,
+                'category_stats': category_stats
             }
         })
         
@@ -645,6 +773,8 @@ if __name__ == '__main__':
     print("4. 频率限制: 每3秒一次")
     print("5. 自动数据清理")
     print("6. 用户协议确认系统")
+    print("7. 虚拟号码分类系统")
+    print("8. 数据库优化索引")
     print("=" * 60)
     print("腾讯云验证说明:")
     print("1. 复制完整号码需要人机验证")
