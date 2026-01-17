@@ -16,113 +16,7 @@ class VirtualPhoneGenerator {
         this.bindEvents();
         this.checkAgreement();
         this.preventSecurityCodeCopy();
-        this.checkTutorial();
         this.loadCategories();
-    }
-
-    checkTutorial() {
-        const tutorialShown = localStorage.getItem('virtualPhoneTutorialShown');
-        if (!tutorialShown) {
-            this.showTutorial();
-        } else {
-            this.showedTutorial = true;
-        }
-    }
-
-    showTutorial() {
-        const tutorialHTML = `
-            <div id="tutorialModal" class="agreement-modal active">
-                <div class="agreement-content">
-                    <div class="agreement-header">
-                        <h2><i class="fas fa-graduation-cap"></i> 新手指引</h2>
-                        <p>快速了解如何使用虚拟手机号生成器</p>
-                    </div>
-                    <div class="agreement-body">
-                        <div class="agreement-text">
-                            <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 20px;">
-                                <div style="flex: 1; text-align: center; padding: 15px; background: #f8f9fa; border-radius: 10px;">
-                                    <i class="fas fa-layer-group" style="font-size: 2rem; color: #667eea; margin-bottom: 10px;"></i>
-                                    <h4 style="margin: 10px 0 5px 0; color: #333;">号码分类</h4>
-                                    <p style="color: #666; font-size: 0.9rem;">选择不同的用途分类生成号码</p>
-                                </div>
-                                <div style="flex: 1; text-align: center; padding: 15px; background: #f8f9fa; border-radius: 10px;">
-                                    <i class="fas fa-key" style="font-size: 2rem; color: #28a745; margin-bottom: 10px;"></i>
-                                    <h4 style="margin: 10px 0 5px 0; color: #333;">安全码保护</h4>
-                                    <p style="color: #666; font-size: 0.9rem;">安全码绑定IP，防止跨客户端使用</p>
-                                </div>
-                                <div style="flex: 1; text-align: center; padding: 15px; background: #f8f9fa; border-radius: 10px;">
-                                    <i class="fas fa-shield-alt" style="font-size: 2rem; color: #dc3545; margin-bottom: 10px;"></i>
-                                    <h4 style="margin: 10px 0 5px 0; color: #333;">人机验证</h4>
-                                    <p style="color: #666; font-size: 0.9rem;">复制完整号码需通过验证</p>
-                                </div>
-                            </div>
-                            
-                            <h3><i class="fas fa-list-ol"></i> 使用步骤</h3>
-                            <ol style="margin-left: 20px; line-height: 1.6;">
-                                <li><strong>选择分类</strong>：根据用途选择号码分类（测试、演示、教育等）</li>
-                                <li><strong>生成号码</strong>：点击生成按钮获取虚拟手机号</li>
-                                <li><strong>生成安全码</strong>：点击钥匙图标生成6位安全码</li>
-                                <li><strong>验证并复制</strong>：输入安全码并通过人机验证后复制完整号码</li>
-                                <li><strong>注意事项</strong>：每个安全码只能使用一次，安全码与IP绑定</li>
-                            </ol>
-                            
-                            <h3><i class="fas fa-info-circle"></i> 分类说明</h3>
-                            <ul style="margin-left: 20px; line-height: 1.6;">
-                                <li><strong>测试</strong>：软件测试、系统测试用途</li>
-                                <li><strong>演示</strong>：产品演示、功能展示用途</li>
-                                <li><strong>教育</strong>：教学实验、学习研究用途</li>
-                                <li><strong>开发</strong>：编程测试、API测试用途</li>
-                                <li><strong>其他</strong>：临时使用、其他特殊用途</li>
-                            </ul>
-                            
-                            <div style="background: #e7f3ff; border-left: 4px solid #1890ff; padding: 15px; margin: 20px 0; border-radius: 5px;">
-                                <h4 style="color: #1890ff; margin: 0 0 10px 0; display: flex; align-items: center; gap: 10px;">
-                                    <i class="fas fa-lightbulb"></i> 提示
-                                </h4>
-                                <p style="margin: 0; color: #333;">您可以在设置中随时查看此指引，或者生成号码时查看每个分类的具体用途说明。</p>
-                            </div>
-                        </div>
-                        
-                        <div class="agreement-checkboxes" style="margin-top: 25px;">
-                            <div class="agreement-checkbox">
-                                <input type="checkbox" id="dontShowAgain">
-                                <label for="dontShowAgain">
-                                    不再显示此指引（可在设置中重新打开）
-                                </label>
-                            </div>
-                        </div>
-                        
-                        <div class="agreement-buttons" style="margin-top: 20px;">
-                            <button id="closeTutorialBtn" class="btn-agree">
-                                <i class="fas fa-check-circle"></i> 开始使用
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
-        
-        document.body.insertAdjacentHTML('beforeend', tutorialHTML);
-        
-        const dontShowAgain = document.getElementById('dontShowAgain');
-        const closeTutorialBtn = document.getElementById('closeTutorialBtn');
-        
-        closeTutorialBtn.addEventListener('click', () => {
-            const tutorialModal = document.getElementById('tutorialModal');
-            if (tutorialModal) {
-                tutorialModal.classList.remove('active');
-                setTimeout(() => tutorialModal.remove(), 300);
-            }
-            
-            if (dontShowAgain.checked) {
-                try {
-                    localStorage.setItem('virtualPhoneTutorialShown', 'true');
-                    this.showedTutorial = true;
-                } catch (error) {
-                    console.error('保存教程设置失败:', error);
-                }
-            }
-        });
     }
 
     async loadCategories() {
@@ -315,10 +209,6 @@ class VirtualPhoneGenerator {
         this.loadStats();
         this.loadIPInfo();
         this.loadClientStats();
-        
-        if (!this.showedTutorial) {
-            this.showTutorial();
-        }
         
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible') {
