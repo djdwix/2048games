@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         增强版下载验证码拦截器
 // @namespace    http://tampermonkey.net/
-// @version      2.0
-// @description  增强检测多种下载行为并弹出6位数验证码验证
+// @version      2.1
+// @description  增强检测多种下载行为并弹出验证码验证
 // @author       You
 // @match        *://*/*
 // @grant        unsafeWindow
@@ -15,23 +15,26 @@
 (function() {
     'use strict';
 
-    // 配置选项
     const CONFIG = {
         enableBlobDetection: true,
         enableFetchDetection: true,
         enableFormDetection: true,
         enableIframeDetection: true,
-        logLevel: 'info' // 'none', 'info', 'debug'
+        logLevel: 'info'
     };
 
-    // 1. 日志系统
+    const state = {
+        activeVerification: null,
+        verifiedDownloads: new Set()
+    };
+
     function log(level, message, data = null) {
         if (CONFIG.logLevel === 'none') return;
         if (CONFIG.logLevel === 'info' && level === 'debug') return;
-        
+
         const timestamp = new Date().toISOString();
         const logMessage = `[下载拦截器 ${timestamp}] ${message}`;
-        
+
         if (data) {
             console.log(logMessage, data);
         } else {
@@ -39,33 +42,32 @@
         }
     }
 
-    // 2. 生成6位随机数字验证码
     function generateVerificationCode() {
-        return Math.floor(100000 + Math.random() * 900000).toString();
+        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        let code = '';
+        for (let i = 0; i < 6; i++) {
+            code += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        return code;
     }
 
-    // 3. 验证码管理
-    let activeVerification = null;
-
-    // 4. 增强弹窗（添加倒计时和多次尝试限制）
     function showVerificationModal(expectedCode) {
         return new Promise((resolve) => {
-            if (activeVerification) {
-                log('debug', '已有激活的验证，拒绝新请求');
+            if (state.activeVerification) {
                 resolve(false);
                 return;
             }
 
-            activeVerification = {
+            state.activeVerification = {
                 expectedCode,
                 attempts: 0,
                 maxAttempts: 3,
-                timeout: 120 // 秒
+                timeout: 120,
+                startTime: Date.now()
             };
 
-            // 创建模态框背景
             const modal = document.createElement('div');
-            modal.id = 'download-verification-modal';
+            modal.id = 'download-verification-modal-' + Date.now();
             modal.style.cssText = `
                 position: fixed;
                 top: 0; left: 0;
@@ -79,7 +81,6 @@
                 backdrop-filter: blur(3px);
             `;
 
-            // 创建弹窗内容
             const modalContent = document.createElement('div');
             modalContent.style.cssText = `
                 background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -98,7 +99,6 @@
                 border-radius: 10px;
             `;
 
-            // 标题
             const title = document.createElement('h2');
             title.textContent = '🔒 下载验证';
             title.style.cssText = `
@@ -107,16 +107,14 @@
                 font-weight: 600;
             `;
 
-            // 副标题
             const subtitle = document.createElement('p');
-            subtitle.textContent = '请输入6位数验证码以确认下载';
+            subtitle.textContent = '请输入6位验证码（包含大写字母和数字）';
             subtitle.style.cssText = `
                 color: #7f8c8d;
                 margin: 0 0 20px 0;
                 font-size: 14px;
             `;
 
-            // 验证码显示区域
             const codeDisplay = document.createElement('div');
             codeDisplay.textContent = expectedCode;
             codeDisplay.style.cssText = `
@@ -133,7 +131,6 @@
                 user-select: none;
             `;
 
-            // 倒计时显示
             const timerDisplay = document.createElement('div');
             timerDisplay.id = 'verification-timer';
             timerDisplay.style.cssText = `
@@ -143,13 +140,9 @@
                 font-weight: 500;
             `;
 
-            // 输入框
             const input = document.createElement('input');
             input.type = 'text';
-            input.placeholder = '输入6位验证码...';
-            input.inputMode = 'numeric';
-            input.pattern = '[0-9]{6}';
-            input.maxLength = 6;
+            input.placeholder = '输入验证码...';
             input.style.cssText = `
                 width: 100%;
                 padding: 16px;
@@ -162,10 +155,10 @@
                 box-sizing: border-box;
                 transition: all 0.3s;
                 font-family: 'Courier New', monospace;
+                text-transform: uppercase;
             `;
             input.focus();
 
-            // 错误提示
             const errorDisplay = document.createElement('div');
             errorDisplay.id = 'verification-error';
             errorDisplay.style.cssText = `
@@ -176,7 +169,6 @@
                 font-weight: 500;
             `;
 
-            // 按钮容器
             const buttonContainer = document.createElement('div');
             buttonContainer.style.cssText = `
                 display: flex;
@@ -184,7 +176,6 @@
                 margin-top: 25px;
             `;
 
-            // 取消按钮
             const cancelBtn = document.createElement('button');
             cancelBtn.textContent = '取消下载';
             cancelBtn.style.cssText = `
@@ -200,7 +191,6 @@
                 transition: all 0.2s;
             `;
 
-            // 确认按钮
             const confirmBtn = document.createElement('button');
             confirmBtn.textContent = '确认下载';
             confirmBtn.style.cssText = `
@@ -216,7 +206,6 @@
                 transition: all 0.2s;
             `;
 
-            // 悬停效果
             [cancelBtn, confirmBtn].forEach(btn => {
                 btn.onmouseenter = () => btn.style.opacity = '0.9';
                 btn.onmouseleave = () => btn.style.opacity = '1';
@@ -224,7 +213,6 @@
                 btn.onmouseup = () => btn.style.transform = 'scale(1)';
             });
 
-            // 组装元素
             innerContent.appendChild(title);
             innerContent.appendChild(subtitle);
             innerContent.appendChild(codeDisplay);
@@ -238,54 +226,57 @@
             modal.appendChild(modalContent);
             document.body.appendChild(modal);
 
-            // 倒计时功能
-            let timeLeft = activeVerification.timeout;
+            let timeLeft = state.activeVerification.timeout;
             const timerInterval = setInterval(() => {
                 timeLeft--;
                 timerDisplay.textContent = `验证码将在 ${timeLeft} 秒后失效`;
-                
+
                 if (timeLeft <= 0) {
                     clearInterval(timerInterval);
                     cancel();
                 }
             }, 1000);
 
-            // 输入验证
             function validateInput() {
-                const enteredCode = input.value.trim();
+                const enteredCode = input.value.trim().toUpperCase();
                 errorDisplay.textContent = '';
                 input.style.borderColor = '#e0e0e0';
-                
-                if (!/^\d{6}$/.test(enteredCode)) {
+
+                if (!/^[A-Z2-9]{6}$/.test(enteredCode)) {
                     input.style.borderColor = '#e74c3c';
                     return false;
                 }
                 return true;
             }
 
-            // 确认验证
             async function confirm() {
                 if (!validateInput()) {
-                    errorDisplay.textContent = '请输入6位数字验证码';
+                    errorDisplay.textContent = '请输入6位验证码（大写字母和数字）';
                     input.focus();
                     return;
                 }
 
-                const enteredCode = input.value.trim();
-                activeVerification.attempts++;
+                const enteredCode = input.value.trim().toUpperCase();
+                state.activeVerification.attempts++;
 
                 if (enteredCode === expectedCode) {
+                    const downloadKey = btoa(encodeURIComponent(state.activeVerification.expectedCode + '_' + state.activeVerification.startTime));
+                    try {
+                        localStorage.setItem('dl_verified_' + downloadKey, 'true');
+                        localStorage.setItem('dl_verified_time', Date.now().toString());
+                    } catch(e) {}
+
                     clearInterval(timerInterval);
                     document.body.removeChild(modal);
-                    activeVerification = null;
+                    state.activeVerification = null;
                     resolve(true);
                 } else {
-                    if (activeVerification.attempts >= activeVerification.maxAttempts) {
+                    if (state.activeVerification.attempts >= state.activeVerification.maxAttempts) {
                         errorDisplay.textContent = '尝试次数过多，验证码已失效';
                         errorDisplay.style.color = '#e74c3c';
                         setTimeout(cancel, 2000);
                     } else {
-                        errorDisplay.textContent = `验证码错误，还剩${activeVerification.maxAttempts - activeVerification.attempts}次尝试`;
+                        errorDisplay.textContent = `验证码错误，还剩${state.activeVerification.maxAttempts - state.activeVerification.attempts}次尝试`;
                         errorDisplay.style.color = '#e67e22';
                         input.value = '';
                         input.focus();
@@ -294,278 +285,38 @@
                 }
             }
 
-            // 取消验证
             function cancel() {
                 clearInterval(timerInterval);
                 if (document.body.contains(modal)) {
                     document.body.removeChild(modal);
                 }
-                activeVerification = null;
+                state.activeVerification = null;
                 resolve(false);
             }
 
-            // 事件绑定
             confirmBtn.addEventListener('click', confirm);
             cancelBtn.addEventListener('click', cancel);
-            
+
             input.addEventListener('input', () => {
-                input.value = input.value.replace(/\D/g, '').slice(0, 6);
+                input.value = input.value.replace(/[^A-Za-z2-9]/g, '').slice(0, 6).toUpperCase();
                 validateInput();
             });
-            
+
             input.addEventListener('keypress', (e) => {
                 if (e.key === 'Enter') confirm();
             });
-            
+
             modal.addEventListener('click', (e) => {
                 if (e.target === modal) cancel();
             });
 
-            // 初始显示
             timerDisplay.textContent = `验证码将在 ${timeLeft} 秒后失效`;
         });
     }
 
-    // 5. 增强下载检测系统
-    function enhanceDownloadDetection() {
-        const detectedDownloads = new Set();
-        
-        // A. 拦截带有下载属性的链接点击（基础方法）
-        document.addEventListener('click', function(e) {
-            let link = e.target.closest('a');
-            while (link) {
-                if (link.hasAttribute('download') || 
-                    /\.(pdf|zip|rar|7z|exe|msi|dmg|pkg|apk|deb|rpm|tar\.gz|tgz|bz2|xz|iso|img|mp4|avi|mkv|mov|wmv|flv|mp3|wav|flac|aac|xlsx?|docx?|pptx?|csv|txt|log|json|xml|html|htm|epub|mobi|azw|torrent)$/i.test(link.href)) {
-                    
-                    e.preventDefault();
-                    e.stopImmediatePropagation();
-                    log('info', '检测到下载链接点击', { href: link.href, downloadAttr: link.getAttribute('download') });
-                    
-                    const url = link.href;
-                    const filename = link.getAttribute('download') || 
-                                   decodeURIComponent(url.split('/').pop().split('?')[0]) || 
-                                   'download';
-                    
-                    if (!detectedDownloads.has(url)) {
-                        detectedDownloads.add(url);
-                        handleDownloadAttempt(url, filename, 'link_click');
-                    }
-                    return;
-                }
-                link = link.parentElement.closest('a');
-            }
-        }, true);
-
-        // B. 拦截通过 window.open 触发的下载
-        const originalWindowOpen = window.open;
-        window.open = function(...args) {
-            const url = args[0];
-            if (url && isDownloadUrl(url)) {
-                log('info', '检测到 window.open 下载尝试', { url });
-                
-                if (!detectedDownloads.has(url)) {
-                    detectedDownloads.add(url);
-                    handleDownloadAttempt(url, url.split('/').pop(), 'window_open').then(allow => {
-                        if (allow) {
-                            return originalWindowOpen.apply(this, args);
-                        }
-                    });
-                    return null;
-                }
-            }
-            return originalWindowOpen.apply(this, args);
-        };
-
-        // C. 拦截表单提交的下载
-        if (CONFIG.enableFormDetection) {
-            document.addEventListener('submit', function(e) {
-                const form = e.target;
-                if (form.tagName === 'FORM') {
-                    // 检查表单是否有文件下载的迹象
-                    const hasFileInput = form.querySelector('input[type="file"]');
-                    const action = form.action || '';
-                    
-                    if (hasFileInput || isDownloadUrl(action)) {
-                        log('info', '检测到表单提交可能包含下载', { action });
-                        e.preventDefault();
-                        
-                        // 收集表单数据
-                        const formData = new FormData(form);
-                        const params = new URLSearchParams();
-                        for (let [key, value] of formData) {
-                            params.append(key, value);
-                        }
-                        
-                        const url = action || window.location.href;
-                        handleDownloadAttempt(url, 'form_submission', 'form_submit', {
-                            method: form.method,
-                            data: params.toString()
-                        }).then(allow => {
-                            if (allow) {
-                                form.submit();
-                            }
-                        });
-                    }
-                }
-            }, true);
-        }
-
-        // D. 拦截 Fetch API 请求（高级方法）
-        if (CONFIG.enableFetchDetection) {
-            const originalFetch = window.fetch;
-            window.fetch = function(...args) {
-                const [resource, options = {}] = args;
-                const url = typeof resource === 'string' ? resource : resource.url;
-                
-                // 检查是否是下载请求
-                if (isDownloadRequest(resource, options)) {
-                    log('debug', '检测到 Fetch 下载请求', { url, options });
-                    
-                    return new Promise(async (resolve, reject) => {
-                        const filename = getFilenameFromOptions(options) || 
-                                       url.split('/').pop().split('?')[0] || 
-                                       'download';
-                        
-                        const allowDownload = await handleDownloadAttempt(
-                            url, filename, 'fetch_request', { options }
-                        );
-                        
-                        if (allowDownload) {
-                            originalFetch.apply(this, args)
-                                .then(resolve)
-                                .catch(reject);
-                        } else {
-                            reject(new Error('下载被用户取消'));
-                        }
-                    });
-                }
-                
-                return originalFetch.apply(this, args);
-            };
-        }
-
-        // E. 拦截 Blob URL 创建和下载
-        if (CONFIG.enableBlobDetection) {
-            const originalCreateObjectURL = URL.createObjectURL;
-            URL.createObjectURL = function(blob) {
-                const url = originalCreateObjectURL.call(this, blob);
-                
-                // 检查是否是常见文件类型的 Blob
-                if (blob instanceof Blob) {
-                    const blobType = blob.type;
-                    const commonDownloadTypes = [
-                        'application/pdf',
-                        'application/zip',
-                        'application/x-rar-compressed',
-                        'application/x-msdownload', // exe
-                        'application/vnd.android.package-archive', // apk
-                        'application/msword',
-                        'application/vnd.openxmlformats-officedocument',
-                        'application/octet-stream'
-                    ];
-                    
-                    if (commonDownloadTypes.some(type => blobType.includes(type))) {
-                        log('info', '检测到文件类型 Blob 创建', { type: blob.type, size: blob.size });
-                        
-                        // 存储 Blob 引用以便后续使用
-                        if (!window.__interceptedBlobs) window.__interceptedBlobs = new Map();
-                        window.__interceptedBlobs.set(url, blob);
-                    }
-                }
-                
-                return url;
-            };
-
-            // 监控使用 Blob URL 的链接点击
-            document.addEventListener('click', function(e) {
-                const link = e.target.closest('a');
-                if (link && link.href && link.href.startsWith('blob:')) {
-                    const blob = window.__interceptedBlobs?.get(link.href);
-                    if (blob) {
-                        e.preventDefault();
-                        log('info', '检测到 Blob URL 下载点击', { type: blob.type, size: blob.size });
-                        
-                        handleDownloadAttempt(link.href, `blob_${Date.now()}.${getExtensionFromMime(blob.type)}`, 'blob_download', { blob })
-                            .then(allow => {
-                                if (allow && window.__interceptedBlobs) {
-                                    window.__interceptedBlobs.delete(link.href);
-                                }
-                            });
-                    }
-                }
-            }, true);
-        }
-
-        // F. 监听 beforeunload 和 unload 事件
-        window.addEventListener('beforeunload', function(e) {
-            // 检查当前是否有未完成的下载操作
-            const hasPendingDownloads = document.querySelectorAll('a[download], iframe[src*="download"]').length > 0;
-            if (hasPendingDownloads) {
-                log('info', '检测到页面卸载时的下载行为');
-                // 可以在这里添加更多检测逻辑
-            }
-        });
-
-        // G. 监控 iframe 中的下载
-        if (CONFIG.enableIframeDetection) {
-            const observer = new MutationObserver((mutations) => {
-                mutations.forEach((mutation) => {
-                    mutation.addedNodes.forEach((node) => {
-                        if (node.tagName === 'IFRAME') {
-                            try {
-                                const iframe = node;
-                                iframe.addEventListener('load', () => {
-                                    try {
-                                        const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
-                                        // 监控 iframe 内部的点击
-                                        iframeDoc.addEventListener('click', (e) => {
-                                            const link = e.target.closest('a');
-                                            if (link && (link.hasAttribute('download') || isDownloadUrl(link.href))) {
-                                                log('info', '检测到 iframe 内的下载点击', { href: link.href });
-                                                e.stopImmediatePropagation();
-                                            }
-                                        }, true);
-                                    } catch (err) {
-                                        // 跨域 iframe 无法访问
-                                    }
-                                });
-                            } catch (err) {
-                                log('debug', '无法访问 iframe 内容（可能跨域）');
-                            }
-                        }
-                    });
-                });
-            });
-
-            observer.observe(document.body, { childList: true, subtree: true });
-        }
-
-        // H. 监控网络请求中的下载
-        if (window.PerformanceObserver) {
-            try {
-                const observer = new PerformanceObserver((list) => {
-                    list.getEntries().forEach((entry) => {
-                        if (entry.initiatorType === 'fetch' || entry.initiatorType === 'xmlhttprequest') {
-                            const url = entry.name;
-                            if (isDownloadUrl(url) && entry.encodedBodySize > 1024 * 1024) { // 大于1MB
-                                log('debug', '检测到大文件网络请求', { url, size: entry.encodedBodySize });
-                            }
-                        }
-                    });
-                });
-                observer.observe({ entryTypes: ['resource'] });
-            } catch (err) {
-                log('debug', 'PerformanceObserver 不支持');
-            }
-        }
-
-        log('info', '增强版下载检测系统已激活');
-    }
-
-    // 6. 辅助函数
     function isDownloadUrl(url) {
         if (!url || typeof url !== 'string') return false;
-        
+
         const downloadPatterns = [
             /download/i,
             /\.(pdf|zip|rar|7z|exe|msi|dmg|pkg|apk|deb|rpm|tar\.gz|tgz|bz2|xz|iso|img)$/i,
@@ -574,107 +325,212 @@
             /\.(xlsx?|docx?|pptx?|csv|txt|log|json|xml)$/i,
             /attachment/i,
             /force[_-]?download/i,
-            /save[_-]?file/i
+            /save[_-]?file/i,
+            /\.(dmg|pkg|app|ipa)$/i,
+            /\.(torrent|magnet)/i,
+            /\.(psd|ai|eps|sketch|fig)$/i,
+            /\.(sql|db|sqlite|mdb)$/i,
+            /\.(epub|mobi|azw|azw3)$/i,
+            /\.(iso|img|bin|nrg)$/i,
+            /\.(ova|ovf|vmdk|vhd)$/i,
+            /\.(apk|aab|xapk)$/i,
+            /\.(msix|msixbundle|appx|appxbundle)$/i,
+            /\.(dll|sys|drv|ocx)$/i,
+            /\.(py|js|java|cpp|c|h|html|css|php|rb|go|rs|ts)$/i,
+            /\.(yml|yaml|toml|ini|cfg|conf)$/i
         ];
-        
-        return downloadPatterns.some(pattern => pattern.test(url));
+
+        if (downloadPatterns.some(pattern => pattern.test(url))) return true;
+
+        try {
+            const urlObj = new URL(url, window.location.href);
+            const path = urlObj.pathname.toLowerCase();
+            const query = urlObj.search.toLowerCase();
+            
+            if (/\/download\//.test(path) || /\?.*download/.test(query)) return true;
+            if (/\/file\//.test(path) || /\?.*file/.test(query)) return true;
+            if (/\/save\//.test(path) || /\?.*save/.test(query)) return true;
+            if (/\/export\//.test(path) || /\?.*export/.test(query)) return true;
+            
+            const lastSegment = path.split('/').pop();
+            if (lastSegment && /^v?\d+[\.\d]*/.test(lastSegment)) {
+                const extMatch = lastSegment.match(/\.(\w+)$/);
+                if (extMatch && ['exe','dmg','zip','rar','7z','tar','gz'].includes(extMatch[1].toLowerCase())) {
+                    return true;
+                }
+            }
+        } catch(e) {}
+
+        return false;
     }
 
     function isDownloadRequest(resource, options) {
         const url = typeof resource === 'string' ? resource : resource.url;
-        
-        // 检查 URL
-        if (isDownloadUrl(url)) return true;
-        
-        // 检查响应头要求
-        if (options.headers) {
-            const headers = options.headers;
-            if (headers instanceof Headers) {
-                if (headers.has('Content-Disposition') && 
-                    headers.get('Content-Disposition').includes('attachment')) {
-                    return true;
-                }
-            } else if (typeof headers === 'object') {
-                if (headers['Content-Disposition']?.includes('attachment')) {
-                    return true;
-                }
-            }
-        }
-        
-        return false;
-    }
 
-    function getFilenameFromOptions(options) {
-        if (!options || !options.headers) return null;
-        
-        try {
+        if (isDownloadUrl(url)) return true;
+
+        if (options && options.headers) {
             const headers = options.headers;
             let contentDisposition = '';
             
-            if (headers instanceof Headers) {
-                contentDisposition = headers.get('Content-Disposition') || '';
-            } else if (typeof headers === 'object') {
-                contentDisposition = headers['Content-Disposition'] || '';
+            try {
+                if (headers instanceof Headers) {
+                    contentDisposition = headers.get('Content-Disposition') || '';
+                } else if (typeof headers === 'object') {
+                    contentDisposition = headers['Content-Disposition'] || headers['content-disposition'] || '';
+                }
+                
+                if (contentDisposition && (contentDisposition.includes('attachment') || contentDisposition.includes('filename'))) {
+                    return true;
+                }
+            } catch(e) {}
+        }
+
+        if (options && options.responseType) {
+            const responseTypes = ['blob', 'arraybuffer', 'stream'];
+            if (responseTypes.includes(options.responseType)) return true;
+        }
+
+        return false;
+    }
+
+    function getFilenameFromResponse(response) {
+        if (!response || !response.headers) return null;
+        
+        try {
+            const contentDisposition = response.headers.get('Content-Disposition');
+            if (contentDisposition) {
+                const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+                if (filenameMatch && filenameMatch[1]) {
+                    return decodeURIComponent(filenameMatch[1].replace(/['"]/g, ''));
+                }
             }
             
-            const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
-            if (filenameMatch && filenameMatch[1]) {
-                return decodeURIComponent(filenameMatch[1].replace(/['"]/g, ''));
+            const contentType = response.headers.get('Content-Type');
+            if (contentType && contentType.includes('application/')) {
+                const url = response.url || '';
+                const fileName = url.split('/').pop().split('?')[0];
+                if (fileName && fileName.includes('.')) return fileName;
             }
-        } catch (err) {
-            log('debug', '解析文件名失败', err);
-        }
+        } catch(e) {}
         
         return null;
     }
 
-    function getExtensionFromMime(mimeType) {
-        const mimeMap = {
-            'application/pdf': 'pdf',
-            'application/zip': 'zip',
-            'application/x-rar-compressed': 'rar',
-            'application/x-msdownload': 'exe',
-            'application/vnd.android.package-archive': 'apk',
-            'application/msword': 'doc',
-            'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
-            'application/vnd.ms-excel': 'xls',
-            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
-            'application/octet-stream': 'bin'
+    function analyzeDownloadContext(url, element) {
+        const context = {
+            isUserInitiated: false,
+            isFromTrustedDomain: false,
+            hasUserInteraction: false,
+            elementType: element ? element.tagName : 'unknown',
+            urlPattern: 'unknown'
         };
-        
-        for (const [mime, ext] of Object.entries(mimeMap)) {
-            if (mimeType.includes(mime)) return ext;
-        }
-        
-        // 从 MIME 类型提取通用部分
-        const parts = mimeType.split('/');
-        if (parts.length === 2) {
-            const subtype = parts[1];
-            if (subtype.includes('.')) {
-                return subtype.split('.').pop();
+
+        try {
+            const currentDomain = window.location.hostname;
+            const urlDomain = new URL(url, window.location.href).hostname;
+            context.isFromTrustedDomain = currentDomain === urlDomain;
+            
+            if (element) {
+                const rect = element.getBoundingClientRect();
+                context.isVisible = rect.top >= 0 && rect.left >= 0 && 
+                                   rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) && 
+                                   rect.right <= (window.innerWidth || document.documentElement.clientWidth);
+                
+                context.hasTextContent = element.textContent && element.textContent.trim().length > 0;
+                context.hasDownloadAttr = element.hasAttribute('download');
+                
+                const computedStyle = window.getComputedStyle(element);
+                context.isHidden = computedStyle.display === 'none' || 
+                                  computedStyle.visibility === 'hidden' || 
+                                  computedStyle.opacity === '0';
             }
-            return subtype.split('-').pop();
-        }
-        
-        return 'file';
+
+            const urlLower = url.toLowerCase();
+            if (urlLower.includes('download')) context.urlPattern = 'explicit_download';
+            else if (urlLower.match(/\.(exe|dmg|msi|apk|pkg)$/)) context.urlPattern = 'executable';
+            else if (urlLower.match(/\.(zip|rar|7z|tar|gz)$/)) context.urlPattern = 'archive';
+            else if (urlLower.match(/\.(mp4|avi|mkv|mov)$/)) context.urlPattern = 'media';
+            else if (urlLower.match(/\.(pdf|doc|docx|xls|xlsx)$/)) context.urlPattern = 'document';
+            else context.urlPattern = 'other';
+
+        } catch(e) {}
+
+        return context;
     }
 
-    // 7. 处理下载尝试（增强版）
+    function shouldInterceptDownload(url, element, source) {
+        if (!isDownloadUrl(url)) return false;
+
+        try {
+            const downloadKey = btoa(encodeURIComponent(url));
+            const lastVerified = parseInt(localStorage.getItem('dl_verified_time') || '0');
+            const timeSinceLastVerify = Date.now() - lastVerified;
+            
+            if (timeSinceLastVerify < 30000) {
+                const verifiedKey = 'dl_verified_' + downloadKey;
+                if (localStorage.getItem(verifiedKey) === 'true') {
+                    localStorage.removeItem(verifiedKey);
+                    return false;
+                }
+            } else {
+                const keysToRemove = [];
+                for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i);
+                    if (key && key.startsWith('dl_verified_')) {
+                        keysToRemove.push(key);
+                    }
+                }
+                keysToRemove.forEach(key => localStorage.removeItem(key));
+            }
+        } catch(e) {}
+
+        const context = analyzeDownloadContext(url, element);
+        
+        if (context.isHidden && !context.hasUserInteraction) {
+            return true;
+        }
+
+        if (context.urlPattern === 'executable' || context.urlPattern === 'archive') {
+            return true;
+        }
+
+        if (context.hasDownloadAttr && context.isVisible) {
+            return true;
+        }
+
+        if (source === 'fetch_request' || source === 'blob_download') {
+            return true;
+        }
+
+        if (url.includes('force-download') || url.includes('attachment')) {
+            return true;
+        }
+
+        const userActions = ['click', 'submit', 'contextmenu'];
+        if (userActions.includes(source)) {
+            return true;
+        }
+
+        return true;
+    }
+
     async function handleDownloadAttempt(url, filename, source, metadata = {}) {
-        // 避免重复处理同一URL
+        const element = metadata.element || null;
+        
+        if (!shouldInterceptDownload(url, element, source)) {
+            return true;
+        }
+
         const requestId = `${url}_${Date.now()}`;
-        log('info', `下载尝试被拦截 [${source}]`, { url, filename, metadata });
-        
-        // 生成验证码
+        log('info', `下载尝试被拦截 [${source}]`, { url, filename });
+
         const verificationCode = generateVerificationCode();
-        
-        // 显示验证弹窗
         const isVerified = await showVerificationModal(verificationCode);
-        
+
         if (isVerified) {
             log('info', '验证成功，开始下载', { url, filename });
-            
-            // 根据不同来源处理下载
+
             switch (source) {
                 case 'blob_download':
                     if (metadata.blob) {
@@ -683,16 +539,15 @@
                         setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
                     }
                     break;
-                    
+
                 case 'fetch_request':
-                    // 对于 Fetch 请求，已在上游处理
                     break;
-                    
+
                 default:
-                    // 标准链接下载
                     triggerDownload(url, filename);
             }
-            
+
+            state.verifiedDownloads.add(url);
             return true;
         } else {
             log('info', '验证失败或取消，下载已阻止', { url, filename });
@@ -709,11 +564,14 @@
             link.style.display = 'none';
             document.body.appendChild(link);
             link.click();
-            document.body.removeChild(link);
-            
+            setTimeout(() => {
+                if (link.parentNode) {
+                    document.body.removeChild(link);
+                }
+            }, 100);
+
             showNotification('下载已开始', 'success');
         } catch (err) {
-            log('debug', '触发下载失败', err);
             showNotification('下载失败，请重试', 'error');
         }
     }
@@ -734,7 +592,7 @@
             animation: slideIn 0.3s ease, fadeOut 0.3s ease 2.7s;
             animation-fill-mode: forwards;
         `;
-        
+
         if (type === 'success') {
             notification.style.background = 'linear-gradient(135deg, #2ecc71, #27ae60)';
         } else if (type === 'error') {
@@ -742,8 +600,7 @@
         } else {
             notification.style.background = 'linear-gradient(135deg, #3498db, #2980b9)';
         }
-        
-        // 添加动画样式
+
         if (!document.querySelector('#notification-styles')) {
             const style = document.createElement('style');
             style.id = 'notification-styles';
@@ -759,7 +616,7 @@
             `;
             document.head.appendChild(style);
         }
-        
+
         document.body.appendChild(notification);
         setTimeout(() => {
             if (notification.parentNode) {
@@ -768,22 +625,277 @@
         }, 3000);
     }
 
-    // 8. 初始化
+    function enhanceDownloadDetection() {
+        const detectedDownloads = new Set();
+
+        document.addEventListener('click', function(e) {
+            let link = e.target.closest('a');
+            while (link) {
+                if (link.hasAttribute('download') || isDownloadUrl(link.href)) {
+                    e.preventDefault();
+                    e.stopImmediatePropagation();
+                    
+                    const url = link.href;
+                    const filename = link.getAttribute('download') || 
+                                   decodeURIComponent(url.split('/').pop().split('?')[0]) || 
+                                   'download';
+
+                    if (!detectedDownloads.has(url)) {
+                        detectedDownloads.add(url);
+                        handleDownloadAttempt(url, filename, 'click', { element: link });
+                    }
+                    return;
+                }
+                link = link.parentElement.closest('a');
+            }
+        }, true);
+
+        const originalWindowOpen = window.open;
+        window.open = function(...args) {
+            const url = args[0];
+            if (url && isDownloadUrl(url)) {
+                if (!detectedDownloads.has(url)) {
+                    detectedDownloads.add(url);
+                    handleDownloadAttempt(url, url.split('/').pop(), 'window_open').then(allow => {
+                        if (allow) {
+                            return originalWindowOpen.apply(this, args);
+                        }
+                    });
+                    return null;
+                }
+            }
+            return originalWindowOpen.apply(this, args);
+        };
+
+        if (CONFIG.enableFormDetection) {
+            document.addEventListener('submit', function(e) {
+                const form = e.target;
+                if (form.tagName === 'FORM') {
+                    const hasFileInput = form.querySelector('input[type="file"]');
+                    const action = form.action || '';
+
+                    if (hasFileInput || isDownloadUrl(action)) {
+                        e.preventDefault();
+
+                        const formData = new FormData(form);
+                        const params = new URLSearchParams();
+                        for (let [key, value] of formData) {
+                            params.append(key, value);
+                        }
+
+                        const url = action || window.location.href;
+                        handleDownloadAttempt(url, 'form_submission', 'form_submit', {
+                            method: form.method,
+                            data: params.toString()
+                        }).then(allow => {
+                            if (allow) {
+                                form.submit();
+                            }
+                        });
+                    }
+                }
+            }, true);
+        }
+
+        if (CONFIG.enableFetchDetection) {
+            const originalFetch = window.fetch;
+            window.fetch = function(...args) {
+                const [resource, options = {}] = args;
+                const url = typeof resource === 'string' ? resource : resource.url;
+
+                if (isDownloadRequest(resource, options)) {
+                    return new Promise(async (resolve, reject) => {
+                        const filename = getFilenameFromOptions(options) || 
+                                       url.split('/').pop().split('?')[0] || 
+                                       'download';
+
+                        const allowDownload = await handleDownloadAttempt(
+                            url, filename, 'fetch_request', { options }
+                        );
+
+                        if (allowDownload) {
+                            originalFetch.apply(this, args)
+                                .then(resolve)
+                                .catch(reject);
+                        } else {
+                            reject(new Error('下载被用户取消'));
+                        }
+                    });
+                }
+
+                return originalFetch.apply(this, args);
+            };
+        }
+
+        if (CONFIG.enableBlobDetection) {
+            const originalCreateObjectURL = URL.createObjectURL;
+            URL.createObjectURL = function(blob) {
+                const url = originalCreateObjectURL.call(this, blob);
+
+                if (blob instanceof Blob) {
+                    const blobType = blob.type;
+                    const commonDownloadTypes = [
+                        'application/pdf',
+                        'application/zip',
+                        'application/x-rar-compressed',
+                        'application/x-msdownload',
+                        'application/vnd.android.package-archive',
+                        'application/msword',
+                        'application/vnd.openxmlformats-officedocument',
+                        'application/octet-stream'
+                    ];
+
+                    if (commonDownloadTypes.some(type => blobType.includes(type))) {
+                        if (!window.__interceptedBlobs) window.__interceptedBlobs = new Map();
+                        window.__interceptedBlobs.set(url, blob);
+                    }
+                }
+
+                return url;
+            };
+
+            document.addEventListener('click', function(e) {
+                const link = e.target.closest('a');
+                if (link && link.href && link.href.startsWith('blob:')) {
+                    const blob = window.__interceptedBlobs?.get(link.href);
+                    if (blob) {
+                        e.preventDefault();
+                        handleDownloadAttempt(link.href, `blob_${Date.now()}.${getExtensionFromMime(blob.type)}`, 'blob_download', { blob })
+                            .then(allow => {
+                                if (allow && window.__interceptedBlobs) {
+                                    window.__interceptedBlobs.delete(link.href);
+                                }
+                            });
+                    }
+                }
+            }, true);
+        }
+
+        window.addEventListener('beforeunload', function(e) {
+            const hasPendingDownloads = document.querySelectorAll('a[download], iframe[src*="download"]').length > 0;
+            if (hasPendingDownloads) {
+                try {
+                    const keysToRemove = [];
+                    for (let i = 0; i < localStorage.length; i++) {
+                        const key = localStorage.key(i);
+                        if (key && key.startsWith('dl_verified_')) {
+                            keysToRemove.push(key);
+                        }
+                    }
+                    keysToRemove.forEach(key => localStorage.removeItem(key));
+                } catch(e) {}
+            }
+        });
+
+        if (CONFIG.enableIframeDetection) {
+            const observer = new MutationObserver((mutations) => {
+                mutations.forEach((mutation) => {
+                    mutation.addedNodes.forEach((node) => {
+                        if (node.tagName === 'IFRAME') {
+                            try {
+                                const iframe = node;
+                                iframe.addEventListener('load', () => {
+                                    try {
+                                        const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+                                        iframeDoc.addEventListener('click', (e) => {
+                                            const link = e.target.closest('a');
+                                            if (link && (link.hasAttribute('download') || isDownloadUrl(link.href))) {
+                                                e.stopImmediatePropagation();
+                                            }
+                                        }, true);
+                                    } catch (err) {}
+                                });
+                            } catch (err) {}
+                        }
+                    });
+                });
+            });
+
+            observer.observe(document.body, { childList: true, subtree: true });
+        }
+
+        if (window.PerformanceObserver) {
+            try {
+                const observer = new PerformanceObserver((list) => {
+                    list.getEntries().forEach((entry) => {
+                        if (entry.initiatorType === 'fetch' || entry.initiatorType === 'xmlhttprequest') {
+                            const url = entry.name;
+                            if (isDownloadUrl(url) && entry.encodedBodySize > 1024 * 1024) {
+                                log('debug', '检测到大文件网络请求', { url, size: entry.encodedBodySize });
+                            }
+                        }
+                    });
+                });
+                observer.observe({ entryTypes: ['resource'] });
+            } catch (err) {}
+        }
+
+        log('info', '增强版下载检测系统已激活');
+    }
+
+    function getFilenameFromOptions(options) {
+        if (!options || !options.headers) return null;
+
+        try {
+            const headers = options.headers;
+            let contentDisposition = '';
+
+            if (headers instanceof Headers) {
+                contentDisposition = headers.get('Content-Disposition') || '';
+            } else if (typeof headers === 'object') {
+                contentDisposition = headers['Content-Disposition'] || '';
+            }
+
+            const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+            if (filenameMatch && filenameMatch[1]) {
+                return decodeURIComponent(filenameMatch[1].replace(/['"]/g, ''));
+            }
+        } catch (err) {}
+
+        return null;
+    }
+
+    function getExtensionFromMime(mimeType) {
+        const mimeMap = {
+            'application/pdf': 'pdf',
+            'application/zip': 'zip',
+            'application/x-rar-compressed': 'rar',
+            'application/x-msdownload': 'exe',
+            'application/vnd.android.package-archive': 'apk',
+            'application/msword': 'doc',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+            'application/vnd.ms-excel': 'xls',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+            'application/octet-stream': 'bin'
+        };
+
+        for (const [mime, ext] of Object.entries(mimeMap)) {
+            if (mimeType.includes(mime)) return ext;
+        }
+
+        const parts = mimeType.split('/');
+        if (parts.length === 2) {
+            const subtype = parts[1];
+            if (subtype.includes('.')) {
+                return subtype.split('.').pop();
+            }
+            return subtype.split('-').pop();
+        }
+
+        return 'file';
+    }
+
     function initialize() {
-        // 等待页面完全加载
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', enhanceDownloadDetection);
         } else {
             enhanceDownloadDetection();
         }
-        
-        // 监控动态加载的内容
-        const observer = new MutationObserver(() => {
-            // 可以在这里重新绑定事件，但大部分事件使用事件委托，不需要
-        });
-        
+
+        const observer = new MutationObserver(() => {});
+
         observer.observe(document.body, { childList: true, subtree: true });
-        
+
         log('info', '增强版下载验证码拦截器已初始化');
     }
 
