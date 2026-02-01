@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         增强版下载验证码拦截器
 // @namespace    http://tampermonkey.net/
-// @version      2.1
+// @version      2.2
 // @description  增强检测多种下载行为并弹出验证码验证
 // @author       You
 // @match        *://*/*
@@ -25,7 +25,8 @@
 
     const state = {
         activeVerification: null,
-        verifiedDownloads: new Set()
+        verifiedDownloads: new Set(),
+        verificationQueue: []
     };
 
     function log(level, message, data = null) {
@@ -51,267 +52,311 @@
         return code;
     }
 
-    function showVerificationModal(expectedCode) {
-        return new Promise((resolve) => {
-            if (state.activeVerification) {
-                resolve(false);
-                return;
+    function showVerificationModal(expectedCode, resolve) {
+        if (state.activeVerification) {
+            resolve(false);
+            return;
+        }
+
+        state.activeVerification = {
+            expectedCode,
+            attempts: 0,
+            maxAttempts: 3,
+            timeout: 120,
+            startTime: Date.now(),
+            resolve: resolve
+        };
+
+        const modal = document.createElement('div');
+        modal.id = 'download-verification-modal-' + Date.now();
+        modal.style.cssText = `
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background-color: rgba(0,0,0,0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 999999;
+            font-family: 'Segoe UI', Arial, sans-serif;
+            backdrop-filter: blur(3px);
+        `;
+
+        const modalContent = document.createElement('div');
+        modalContent.style.cssText = `
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 2px;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            text-align: center;
+            min-width: 380px;
+            max-width: 90vw;
+        `;
+
+        const innerContent = document.createElement('div');
+        innerContent.style.cssText = `
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+        `;
+
+        const title = document.createElement('h2');
+        title.textContent = '🔒 下载验证';
+        title.style.cssText = `
+            margin: 0 0 10px 0;
+            color: #2c3e50;
+            font-weight: 600;
+        `;
+
+        const subtitle = document.createElement('p');
+        subtitle.textContent = '请输入6位验证码（包含大写字母和数字）';
+        subtitle.style.cssText = `
+            color: #7f8c8d;
+            margin: 0 0 20px 0;
+            font-size: 14px;
+        `;
+
+        const codeDisplay = document.createElement('div');
+        codeDisplay.textContent = expectedCode;
+        codeDisplay.style.cssText = `
+            font-size: 32px;
+            font-weight: bold;
+            letter-spacing: 8px;
+            color: #2c3e50;
+            background: #f8f9fa;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            border: 3px dashed #3498db;
+            font-family: 'Courier New', monospace;
+            user-select: none;
+        `;
+
+        const timerDisplay = document.createElement('div');
+        timerDisplay.id = 'verification-timer';
+        timerDisplay.style.cssText = `
+            color: #e74c3c;
+            font-size: 13px;
+            margin: -10px 0 15px 0;
+            font-weight: 500;
+        `;
+
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.placeholder = '输入验证码...';
+        input.style.cssText = `
+            width: 100%;
+            padding: 16px;
+            font-size: 18px;
+            margin: 10px 0;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            text-align: center;
+            letter-spacing: 4px;
+            box-sizing: border-box;
+            transition: all 0.3s;
+            font-family: 'Courier New', monospace;
+            text-transform: uppercase;
+        `;
+        
+        setTimeout(() => {
+            if (input && document.body.contains(modal)) {
+                input.focus();
             }
+        }, 10);
 
-            state.activeVerification = {
-                expectedCode,
-                attempts: 0,
-                maxAttempts: 3,
-                timeout: 120,
-                startTime: Date.now()
-            };
+        const errorDisplay = document.createElement('div');
+        errorDisplay.id = 'verification-error';
+        errorDisplay.style.cssText = `
+            color: #e74c3c;
+            font-size: 13px;
+            margin: 5px 0;
+            min-height: 20px;
+            font-weight: 500;
+        `;
 
-            const modal = document.createElement('div');
-            modal.id = 'download-verification-modal-' + Date.now();
-            modal.style.cssText = `
-                position: fixed;
-                top: 0; left: 0;
-                width: 100%; height: 100%;
-                background-color: rgba(0,0,0,0.7);
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                z-index: 999999;
-                font-family: 'Segoe UI', Arial, sans-serif;
-                backdrop-filter: blur(3px);
-            `;
+        const buttonContainer = document.createElement('div');
+        buttonContainer.style.cssText = `
+            display: flex;
+            gap: 15px;
+            margin-top: 25px;
+        `;
 
-            const modalContent = document.createElement('div');
-            modalContent.style.cssText = `
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                padding: 2px;
-                border-radius: 12px;
-                box-shadow: 0 10px 40px rgba(0,0,0,0.3);
-                text-align: center;
-                min-width: 380px;
-                max-width: 90vw;
-            `;
+        const cancelBtn = document.createElement('button');
+        cancelBtn.textContent = '取消下载';
+        cancelBtn.style.cssText = `
+            flex: 1;
+            padding: 14px;
+            background: #f1f2f6;
+            color: #747d8c;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 15px;
+            font-weight: 600;
+            transition: all 0.2s;
+        `;
 
-            const innerContent = document.createElement('div');
-            innerContent.style.cssText = `
-                background: white;
-                padding: 30px;
-                border-radius: 10px;
-            `;
+        const confirmBtn = document.createElement('button');
+        confirmBtn.textContent = '确认下载';
+        confirmBtn.style.cssText = `
+            flex: 1;
+            padding: 14px;
+            background: linear-gradient(135deg, #2ecc71, #1abc9c);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 15px;
+            font-weight: 600;
+            transition: all 0.2s;
+        `;
 
-            const title = document.createElement('h2');
-            title.textContent = '🔒 下载验证';
-            title.style.cssText = `
-                margin: 0 0 10px 0;
-                color: #2c3e50;
-                font-weight: 600;
-            `;
+        [cancelBtn, confirmBtn].forEach(btn => {
+            btn.onmouseenter = () => btn.style.opacity = '0.9';
+            btn.onmouseleave = () => btn.style.opacity = '1';
+            btn.onmousedown = () => btn.style.transform = 'scale(0.98)';
+            btn.onmouseup = () => btn.style.transform = 'scale(1)';
+        });
 
-            const subtitle = document.createElement('p');
-            subtitle.textContent = '请输入6位验证码（包含大写字母和数字）';
-            subtitle.style.cssText = `
-                color: #7f8c8d;
-                margin: 0 0 20px 0;
-                font-size: 14px;
-            `;
+        innerContent.appendChild(title);
+        innerContent.appendChild(subtitle);
+        innerContent.appendChild(codeDisplay);
+        innerContent.appendChild(timerDisplay);
+        innerContent.appendChild(input);
+        innerContent.appendChild(errorDisplay);
+        innerContent.appendChild(buttonContainer);
+        buttonContainer.appendChild(cancelBtn);
+        buttonContainer.appendChild(confirmBtn);
+        modalContent.appendChild(innerContent);
+        modal.appendChild(modalContent);
+        document.body.appendChild(modal);
 
-            const codeDisplay = document.createElement('div');
-            codeDisplay.textContent = expectedCode;
-            codeDisplay.style.cssText = `
-                font-size: 32px;
-                font-weight: bold;
-                letter-spacing: 8px;
-                color: #2c3e50;
-                background: #f8f9fa;
-                padding: 20px;
-                margin: 20px 0;
-                border-radius: 8px;
-                border: 3px dashed #3498db;
-                font-family: 'Courier New', monospace;
-                user-select: none;
-            `;
+        let timeLeft = state.activeVerification.timeout;
+        let timerInterval;
 
-            const timerDisplay = document.createElement('div');
-            timerDisplay.id = 'verification-timer';
-            timerDisplay.style.cssText = `
-                color: #e74c3c;
-                font-size: 13px;
-                margin: -10px 0 15px 0;
-                font-weight: 500;
-            `;
-
-            const input = document.createElement('input');
-            input.type = 'text';
-            input.placeholder = '输入验证码...';
-            input.style.cssText = `
-                width: 100%;
-                padding: 16px;
-                font-size: 18px;
-                margin: 10px 0;
-                border: 2px solid #e0e0e0;
-                border-radius: 8px;
-                text-align: center;
-                letter-spacing: 4px;
-                box-sizing: border-box;
-                transition: all 0.3s;
-                font-family: 'Courier New', monospace;
-                text-transform: uppercase;
-            `;
-            input.focus();
-
-            const errorDisplay = document.createElement('div');
-            errorDisplay.id = 'verification-error';
-            errorDisplay.style.cssText = `
-                color: #e74c3c;
-                font-size: 13px;
-                margin: 5px 0;
-                min-height: 20px;
-                font-weight: 500;
-            `;
-
-            const buttonContainer = document.createElement('div');
-            buttonContainer.style.cssText = `
-                display: flex;
-                gap: 15px;
-                margin-top: 25px;
-            `;
-
-            const cancelBtn = document.createElement('button');
-            cancelBtn.textContent = '取消下载';
-            cancelBtn.style.cssText = `
-                flex: 1;
-                padding: 14px;
-                background: #f1f2f6;
-                color: #747d8c;
-                border: none;
-                border-radius: 8px;
-                cursor: pointer;
-                font-size: 15px;
-                font-weight: 600;
-                transition: all 0.2s;
-            `;
-
-            const confirmBtn = document.createElement('button');
-            confirmBtn.textContent = '确认下载';
-            confirmBtn.style.cssText = `
-                flex: 1;
-                padding: 14px;
-                background: linear-gradient(135deg, #2ecc71, #1abc9c);
-                color: white;
-                border: none;
-                border-radius: 8px;
-                cursor: pointer;
-                font-size: 15px;
-                font-weight: 600;
-                transition: all 0.2s;
-            `;
-
-            [cancelBtn, confirmBtn].forEach(btn => {
-                btn.onmouseenter = () => btn.style.opacity = '0.9';
-                btn.onmouseleave = () => btn.style.opacity = '1';
-                btn.onmousedown = () => btn.style.transform = 'scale(0.98)';
-                btn.onmouseup = () => btn.style.transform = 'scale(1)';
-            });
-
-            innerContent.appendChild(title);
-            innerContent.appendChild(subtitle);
-            innerContent.appendChild(codeDisplay);
-            innerContent.appendChild(timerDisplay);
-            innerContent.appendChild(input);
-            innerContent.appendChild(errorDisplay);
-            innerContent.appendChild(buttonContainer);
-            buttonContainer.appendChild(cancelBtn);
-            buttonContainer.appendChild(confirmBtn);
-            modalContent.appendChild(innerContent);
-            modal.appendChild(modalContent);
-            document.body.appendChild(modal);
-
-            let timeLeft = state.activeVerification.timeout;
-            const timerInterval = setInterval(() => {
+        function startTimer() {
+            if (timerInterval) clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
                 timeLeft--;
-                timerDisplay.textContent = `验证码将在 ${timeLeft} 秒后失效`;
+                if (timerDisplay && document.body.contains(modal)) {
+                    timerDisplay.textContent = `验证码将在 ${timeLeft} 秒后失效`;
+                }
 
                 if (timeLeft <= 0) {
                     clearInterval(timerInterval);
-                    cancel();
+                    cancelVerification(false, true);
                 }
             }, 1000);
+        }
 
-            function validateInput() {
-                const enteredCode = input.value.trim().toUpperCase();
-                errorDisplay.textContent = '';
-                input.style.borderColor = '#e0e0e0';
+        startTimer();
 
-                if (!/^[A-Z2-9]{6}$/.test(enteredCode)) {
-                    input.style.borderColor = '#e74c3c';
-                    return false;
-                }
-                return true;
+        function validateInput() {
+            const enteredCode = input.value.trim().toUpperCase();
+            errorDisplay.textContent = '';
+            input.style.borderColor = '#e0e0e0';
+
+            if (!/^[A-Z2-9]{6}$/.test(enteredCode)) {
+                input.style.borderColor = '#e74c3c';
+                return false;
+            }
+            return true;
+        }
+
+        function confirmVerification() {
+            if (!validateInput()) {
+                errorDisplay.textContent = '请输入6位验证码（大写字母和数字）';
+                input.focus();
+                return;
             }
 
-            async function confirm() {
-                if (!validateInput()) {
-                    errorDisplay.textContent = '请输入6位验证码（大写字母和数字）';
-                    input.focus();
-                    return;
-                }
+            const enteredCode = input.value.trim().toUpperCase();
+            state.activeVerification.attempts++;
 
-                const enteredCode = input.value.trim().toUpperCase();
-                state.activeVerification.attempts++;
+            if (enteredCode === expectedCode) {
+                const downloadKey = btoa(encodeURIComponent(state.activeVerification.expectedCode + '_' + state.activeVerification.startTime));
+                try {
+                    localStorage.setItem('dl_verified_' + downloadKey, 'true');
+                    localStorage.setItem('dl_verified_time', Date.now().toString());
+                } catch(e) {}
 
-                if (enteredCode === expectedCode) {
-                    const downloadKey = btoa(encodeURIComponent(state.activeVerification.expectedCode + '_' + state.activeVerification.startTime));
-                    try {
-                        localStorage.setItem('dl_verified_' + downloadKey, 'true');
-                        localStorage.setItem('dl_verified_time', Date.now().toString());
-                    } catch(e) {}
-
-                    clearInterval(timerInterval);
-                    document.body.removeChild(modal);
-                    state.activeVerification = null;
-                    resolve(true);
-                } else {
-                    if (state.activeVerification.attempts >= state.activeVerification.maxAttempts) {
-                        errorDisplay.textContent = '尝试次数过多，验证码已失效';
-                        errorDisplay.style.color = '#e74c3c';
-                        setTimeout(cancel, 2000);
-                    } else {
-                        errorDisplay.textContent = `验证码错误，还剩${state.activeVerification.maxAttempts - state.activeVerification.attempts}次尝试`;
-                        errorDisplay.style.color = '#e67e22';
-                        input.value = '';
-                        input.focus();
-                        input.style.borderColor = '#e67e22';
-                    }
-                }
-            }
-
-            function cancel() {
                 clearInterval(timerInterval);
                 if (document.body.contains(modal)) {
                     document.body.removeChild(modal);
                 }
+                const currentResolve = state.activeVerification.resolve;
                 state.activeVerification = null;
-                resolve(false);
+                processVerificationQueue();
+                currentResolve(true);
+            } else {
+                if (state.activeVerification.attempts >= state.activeVerification.maxAttempts) {
+                    errorDisplay.textContent = '尝试次数过多，验证码已失效';
+                    errorDisplay.style.color = '#e74c3c';
+                    setTimeout(() => {
+                        cancelVerification(false, true);
+                    }, 1000);
+                } else {
+                    errorDisplay.textContent = `验证码错误，还剩${state.activeVerification.maxAttempts - state.activeVerification.attempts}次尝试`;
+                    errorDisplay.style.color = '#e67e22';
+                    input.value = '';
+                    input.focus();
+                    input.style.borderColor = '#e67e22';
+                }
             }
+        }
 
-            confirmBtn.addEventListener('click', confirm);
-            cancelBtn.addEventListener('click', cancel);
+        function cancelVerification(shouldRegenerate = true, isFailed = false) {
+            clearInterval(timerInterval);
+            if (document.body.contains(modal)) {
+                document.body.removeChild(modal);
+            }
+            const currentResolve = state.activeVerification.resolve;
+            state.activeVerification = null;
+            
+            if (shouldRegenerate) {
+                setTimeout(() => {
+                    processVerificationQueue();
+                }, 10);
+            }
+            
+            currentResolve(false);
+        }
 
-            input.addEventListener('input', () => {
-                input.value = input.value.replace(/[^A-Za-z2-9]/g, '').slice(0, 6).toUpperCase();
-                validateInput();
-            });
+        confirmBtn.addEventListener('click', confirmVerification);
+        cancelBtn.addEventListener('click', () => cancelVerification(true, false));
 
-            input.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') confirm();
-            });
-
-            modal.addEventListener('click', (e) => {
-                if (e.target === modal) cancel();
-            });
-
-            timerDisplay.textContent = `验证码将在 ${timeLeft} 秒后失效`;
+        input.addEventListener('input', () => {
+            input.value = input.value.replace(/[^A-Za-z2-9]/g, '').slice(0, 6).toUpperCase();
+            validateInput();
         });
+
+        input.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') confirmVerification();
+        });
+
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) cancelVerification(true, false);
+        });
+
+        timerDisplay.textContent = `验证码将在 ${timeLeft} 秒后失效`;
+    }
+
+    function processVerificationQueue() {
+        if (state.verificationQueue.length > 0 && !state.activeVerification) {
+            const { expectedCode, resolve } = state.verificationQueue.shift();
+            showVerificationModal(expectedCode, resolve);
+        }
+    }
+
+    function showVerificationWithRetry(resolve) {
+        const expectedCode = generateVerificationCode();
+        
+        if (state.activeVerification) {
+            state.verificationQueue.push({ expectedCode, resolve });
+        } else {
+            showVerificationModal(expectedCode, resolve);
+        }
     }
 
     function isDownloadUrl(url) {
@@ -522,38 +567,38 @@
             return true;
         }
 
-        const requestId = `${url}_${Date.now()}`;
         log('info', `下载尝试被拦截 [${source}]`, { url, filename });
 
-        const verificationCode = generateVerificationCode();
-        const isVerified = await showVerificationModal(verificationCode);
+        return new Promise((resolve) => {
+            showVerificationWithRetry(resolve);
+        }).then((isVerified) => {
+            if (isVerified) {
+                log('info', '验证成功，开始下载', { url, filename });
 
-        if (isVerified) {
-            log('info', '验证成功，开始下载', { url, filename });
+                switch (source) {
+                    case 'blob_download':
+                        if (metadata.blob) {
+                            const blobUrl = URL.createObjectURL(metadata.blob);
+                            triggerDownload(blobUrl, filename);
+                            setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+                        }
+                        break;
 
-            switch (source) {
-                case 'blob_download':
-                    if (metadata.blob) {
-                        const blobUrl = URL.createObjectURL(metadata.blob);
-                        triggerDownload(blobUrl, filename);
-                        setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
-                    }
-                    break;
+                    case 'fetch_request':
+                        break;
 
-                case 'fetch_request':
-                    break;
+                    default:
+                        triggerDownload(url, filename);
+                }
 
-                default:
-                    triggerDownload(url, filename);
+                state.verifiedDownloads.add(url);
+                return true;
+            } else {
+                log('info', '验证失败或取消，下载已阻止', { url, filename });
+                showNotification('下载已取消', 'error');
+                return false;
             }
-
-            state.verifiedDownloads.add(url);
-            return true;
-        } else {
-            log('info', '验证失败或取消，下载已阻止', { url, filename });
-            showNotification('下载已取消', 'error');
-            return false;
-        }
+        });
     }
 
     function triggerDownload(url, filename) {
@@ -806,7 +851,8 @@
                                     } catch (err) {}
                                 });
                             } catch (err) {}
-                        }
+                            }
+                        });
                     });
                 });
             });
@@ -889,7 +935,7 @@
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', enhanceDownloadDetection);
         } else {
-            enhanceDownloadDetection();
+            setTimeout(enhanceDownloadDetection, 0);
         }
 
         const observer = new MutationObserver(() => {});
