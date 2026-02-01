@@ -97,7 +97,6 @@
         },
 
         optimizeEventHandling() {
-            // 修复：不再全局劫持addEventListener，只在需要的地方优化
         },
 
         optimizeDOMOperations() {
@@ -302,11 +301,10 @@
 
         generateChecksum(content) {
             if (!content) return 'invalid';
-            // 修复：先删除行注释，再删除块注释
             const cleanContent = content
-                .replace(/\/\/[^\n]*\n/g, '')  // 先删除行注释
-                .replace(/\/\*[\s\S]*?\*\//g, '')  // 再删除块注释
-                .replace(/\s+/g, '');  // 最后删除空白字符
+                .replace(/\/\/[^\n]*\n/g, '')
+                .replace(/\/\*[\s\S]*?\*\//g, '')
+                .replace(/\s+/g, '');
             
             let hash = 0;
             for (let i = 0; i < cleanContent.length; i++) {
@@ -436,7 +434,6 @@
 
         Storage: {
             get(key, defaultValue = null) {
-                // 修复：使用明确的null检查而不是||操作符
                 const value = PermissionManager.safeGMOperation('GM_getValue', key);
                 return value === undefined || value === null ? defaultValue : value;
             },
@@ -601,7 +598,6 @@
             const ball = this.ballElement;
             if (!ball) return;
 
-            // 修复：使用正确的options对象，不修改原始options
             const startDrag = (e) => this.startDrag(e);
             const drag = (e) => this.drag(e);
             const stopDrag = () => this.stopDrag();
@@ -710,8 +706,13 @@
             const hasPornography = this.checkPornographyContent();
             if (!hasPornography) {
                 const domain = window.location.hostname;
-                const hasRecord = SecurityCore.enhancedRecordCheck(domain);
-                UIManager.showSecurityCheckPopup(domain, hasRecord, false);
+                const result = SecurityCore.enhancedRecordCheck(domain);
+                if (result.level >= 3) {
+                    UIManager.showSecurityCheckPopup(domain, result, true, true);
+                    return { blocked: true, level: result.level, reason: result.reason };
+                } else {
+                    UIManager.showSecurityCheckPopup(domain, result, false, false);
+                }
             }
             return { pornography: hasPornography };
         },
@@ -730,7 +731,7 @@
             }
 
             if (score >= 5) {
-                UIManager.showSecurityCheckPopup(window.location.hostname, false, true);
+                UIManager.showSecurityCheckPopup(window.location.hostname, { level: 4, reason: '检测到色情内容' }, true, true);
                 return true;
             }
             return false;
@@ -758,58 +759,118 @@
 
         checkLink(link) {
             const href = link.getAttribute('href');
-            if (href && SecurityCore.isSuspiciousURL(href)) {
-                link.style.border = '2px solid red';
-                // 修复：使用正确的options对象
-                link.addEventListener('click', (e) => {
-                    if (!confirm('此链接可能指向不安全网站，是否继续访问？\n' + href)) {
-                        e.preventDefault();
-                    }
-                }, { capture: true, passive: false });
+            if (href) {
+                const result = SecurityCore.isSuspiciousURL(href);
+                if (result.level >= 2) {
+                    link.style.border = '2px solid red';
+                    link.addEventListener('click', (e) => {
+                        const message = `此链接可能指向危险网站（风险等级：${result.level}，原因：${result.reason}），是否继续访问？\n${href}`;
+                        if (!confirm(message)) {
+                            e.preventDefault();
+                        }
+                    }, { capture: true, passive: false });
+                } else if (result.level === 1) {
+                    link.style.border = '1px solid orange';
+                }
             }
         },
 
         checkIframe(iframe) {
             const src = iframe.getAttribute('src');
-            if (src && SecurityCore.isSuspiciousURL(src)) {
-                iframe.style.border = '3px solid orange';
+            if (src) {
+                const result = SecurityCore.isSuspiciousURL(src);
+                if (result.level >= 2) {
+                    iframe.style.border = '3px solid orange';
+                }
             }
         }
     };
 
     const SecurityCore = {
         isSuspiciousURL(url) {
-            if (!url || typeof url !== 'string') return false;
+            if (!url || typeof url !== 'string') return { level: 0, reason: '' };
             const sanitized = CoreLibrary.Utilities.sanitizeInput(url);
-            return KEYWORD_LIBRARY.MALICIOUS_PATTERNS.some(pattern => pattern.test(sanitized));
+            
+            if (KEYWORD_LIBRARY.MALICIOUS_PATTERNS[0].test(sanitized)) {
+                return { level: 3, reason: '使用高风险免费域名' };
+            }
+            if (KEYWORD_LIBRARY.MALICIOUS_PATTERNS[1].test(sanitized)) {
+                return { level: 2, reason: '使用IP地址直接访问' };
+            }
+            if (KEYWORD_LIBRARY.MALICIOUS_PATTERNS[2].test(sanitized)) {
+                return { level: 3, reason: '访问本地主机' };
+            }
+            if (KEYWORD_LIBRARY.MALICIOUS_PATTERNS[3].test(sanitized)) {
+                return { level: 1, reason: '可能包含跳转' };
+            }
+            if (KEYWORD_LIBRARY.MALICIOUS_PATTERNS[4].test(sanitized)) {
+                return { level: 3, reason: 'URL包含用户认证信息' };
+            }
+            if (KEYWORD_LIBRARY.MALICIOUS_PATTERNS[5].test(sanitized)) {
+                return { level: 4, reason: '包含JavaScript代码' };
+            }
+            if (KEYWORD_LIBRARY.MALICIOUS_PATTERNS[6].test(sanitized)) {
+                return { level: 4, reason: '使用data协议' };
+            }
+            if (KEYWORD_LIBRARY.MALICIOUS_PATTERNS[7].test(sanitized)) {
+                return { level: 4, reason: '包含VBScript代码' };
+            }
+            return { level: 0, reason: '' };
         },
 
         enhancedRecordCheck(domain) {
-            if (!CoreLibrary.Utilities.validateDomain(domain)) return false;
-            if (KEYWORD_LIBRARY.TRUSTED_DOMAINS.some(d => domain.endsWith(d))) return true;
-            if (KEYWORD_LIBRARY.SUSPICIOUS_DOMAINS.some(d => domain.endsWith(d))) return false;
+            if (!CoreLibrary.Utilities.validateDomain(domain)) {
+                return { level: 4, reason: '域名格式无效', hasRecord: false };
+            }
+            
+            if (KEYWORD_LIBRARY.TRUSTED_DOMAINS.some(d => domain.endsWith(d))) {
+                return { level: 0, reason: '可信域名', hasRecord: true };
+            }
+            
+            if (KEYWORD_LIBRARY.SUSPICIOUS_DOMAINS.some(d => domain.endsWith(d))) {
+                return { level: 3, reason: '使用高风险免费域名', hasRecord: false };
+            }
             
             const domainParts = domain.split('.');
-            if (domainParts.length < 2) return false;
+            if (domainParts.length < 2) {
+                return { level: 2, reason: '域名结构异常', hasRecord: false };
+            }
             
             const secondLevel = domainParts[domainParts.length - 2];
             const riskyKeywords = ['free', 'download', 'video', 'movie', 'stream'];
-            if (riskyKeywords.some(keyword => secondLevel.includes(keyword))) return Math.random() > 0.6;
+            if (riskyKeywords.some(keyword => secondLevel.includes(keyword))) {
+                const hasRecord = Math.random() > 0.6;
+                return { 
+                    level: hasRecord ? 1 : 2, 
+                    reason: `包含风险关键词: ${secondLevel}`, 
+                    hasRecord 
+                };
+            }
             
-            return Math.random() > 0.4;
+            const hasRecord = Math.random() > 0.4;
+            return { 
+                level: hasRecord ? 0 : 1, 
+                reason: hasRecord ? '通过常规检查' : '未通过常规检查', 
+                hasRecord 
+            };
         }
     };
 
     const UIManager = {
-        showSecurityCheckPopup(domain, isSafe, isPornography = false) {
+        showSecurityCheckPopup(domain, result, isPornography = false, isBlocked = false) {
+            if (isBlocked && result.level >= 3) {
+                this.showBlockPage(domain, result);
+                return;
+            }
+            
             if (document.body) {
-                this.createPopup(domain, isSafe, isPornography);
+                this.createPopup(domain, result, isPornography);
             } else {
-                setTimeout(() => this.showSecurityCheckPopup(domain, isSafe, isPornography), 50);
+                setTimeout(() => this.showSecurityCheckPopup(domain, result, isPornography, isBlocked), 50);
             }
         },
 
-        createPopup(domain, isSafe, isPornography) {
+        createPopup(domain, result, isPornography) {
             this.removeExistingPopups();
 
             const overlay = document.createElement('div');
@@ -822,7 +883,29 @@
 
             const popup = document.createElement('div');
             popup.id = 'security-check-popup';
-            const borderColor = isPornography ? '#ff0000' : (isSafe ? '#4CAF50' : '#ff4444');
+            
+            let borderColor, titleText, messageText;
+            
+            if (isPornography) {
+                borderColor = '#ff0000';
+                titleText = '色情内容警告';
+                messageText = `警告：检测到色情内容，网站 ${domain} 已被拦截！`;
+            } else {
+                if (result.level === 0) {
+                    borderColor = '#4CAF50';
+                    titleText = '安全检查通过';
+                    messageText = `网站 ${domain} 已通过安全检查。${result.reason ? `\n原因：${result.reason}` : ''}`;
+                } else if (result.level <= 2) {
+                    borderColor = '#ffa500';
+                    titleText = '低风险警告';
+                    messageText = `网站 ${domain} 存在低风险。${result.reason ? `\n原因：${result.reason}` : ''}`;
+                } else {
+                    borderColor = '#ff4444';
+                    titleText = '高风险警告';
+                    messageText = `网站 ${domain} 存在高风险！${result.reason ? `\n原因：${result.reason}` : ''}`;
+                }
+            }
+            
             popup.style.cssText = `
                 background: white; padding: 20px; border-radius: 12px;
                 box-shadow: 0 8px 32px rgba(0,0,0,0.3); z-index: 2147483647;
@@ -831,24 +914,19 @@
             `;
 
             const title = document.createElement('h3');
-            title.textContent = isPornography ? '色情内容警告' : '网页安全检查';
+            title.textContent = titleText;
             title.style.margin = '0 0 15px 0';
 
             const message = document.createElement('p');
-            if (isPornography) {
-                message.textContent = `警告：检测到色情内容，网站 ${domain} 已被拦截！`;
-                message.style.color = '#ff0000';
-            } else {
-                message.textContent = isSafe ? 
-                    `网站 ${domain} 已通过安全检查。` : 
-                    `警告：网站 ${domain} 存在安全风险！`;
-            }
+            message.textContent = messageText;
             message.style.margin = '0 0 20px 0';
+            message.style.whiteSpace = 'pre-line';
+            message.style.textAlign = 'left';
 
             const closeBtn = document.createElement('button');
             closeBtn.textContent = isPornography ? '立即离开' : '确认';
             closeBtn.style.cssText = `
-                background: ${isPornography ? '#ff0000' : (isSafe ? '#4CAF50' : '#ff4440')};
+                background: ${borderColor};
                 color: white; border: none; padding: 12px 24px; border-radius: 6px;
                 cursor: pointer; width: 100%; font-size: 16px;
             `;
@@ -865,11 +943,48 @@
             };
 
             closeBtn.addEventListener('click', removePopup, { passive: true });
-            // 修复：阻止事件传播，避免点击popup内部时触发overlay点击事件
             popup.addEventListener('click', (e) => {
                 e.stopPropagation();
             }, { passive: true });
             overlay.addEventListener('click', removePopup, { passive: true });
+        },
+
+        showBlockPage(domain, result) {
+            document.documentElement.innerHTML = `
+                <div style="
+                    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                    background: linear-gradient(135deg, #ff4444 0%, #990000 100%);
+                    z-index: 2147483647; display: flex; align-items: center;
+                    justify-content: center; font-family: Arial, sans-serif; color: white;
+                ">
+                    <div style="
+                        background: rgba(255, 255, 255, 0.1); padding: 40px;
+                        border-radius: 15px; text-align: center; max-width: 500px;
+                        backdrop-filter: blur(10px); border: 3px solid white;
+                    ">
+                        <h1 style="margin: 0 0 20px 0; font-size: 32px;">🚫 网站已被拦截</h1>
+                        <p style="margin: 0 0 25px 0; line-height: 1.6; font-size: 18px;">
+                            由于安全原因，网站 <strong>${domain}</strong> 已被阻止访问。
+                        </p>
+                        <div style="background: rgba(255, 255, 255, 0.2); padding: 15px; border-radius: 8px; margin: 0 0 25px 0; text-align: left;">
+                            <p style="margin: 0 0 10px 0;"><strong>风险等级：</strong>${result.level}级（最高4级）</p>
+                            <p style="margin: 0;"><strong>拦截原因：</strong>${result.reason}</p>
+                        </div>
+                        <div style="display: flex; gap: 15px; justify-content: center;">
+                            <button onclick="window.history.back()" style="
+                                background: white; color: #ff4444; border: none;
+                                padding: 12px 24px; border-radius: 6px; cursor: pointer;
+                                font-size: 16px; font-weight: bold;
+                            ">返回上一页</button>
+                            <button onclick="window.location.href = 'https://www.baidu.com'" style="
+                                background: transparent; color: white; border: 2px solid white;
+                                padding: 12px 24px; border-radius: 6px; cursor: pointer;
+                                font-size: 16px; font-weight: bold;
+                            ">访问安全网站</button>
+                        </div>
+                    </div>
+                </div>
+            `;
         },
 
         removeExistingPopups() {
@@ -891,8 +1006,17 @@
                 const original = window.open;
                 window.open = function(...args) {
                     const url = args[0];
-                    if (url && SecurityCore.isSuspiciousURL(url)) {
-                        return null;
+                    if (url) {
+                        const result = SecurityCore.isSuspiciousURL(url);
+                        if (result.level >= 3) {
+                            UIManager.showBlockPage(new URL(url).hostname, result);
+                            return null;
+                        } else if (result.level >= 2) {
+                            const confirmMessage = `尝试打开新窗口到：${url}\n\n风险等级：${result.level}\n原因：${result.reason}\n\n是否继续？`;
+                            if (!confirm(confirmMessage)) {
+                                return null;
+                            }
+                        }
                     }
                     return original.apply(this, args);
                 };
@@ -904,8 +1028,15 @@
                 const originalReplace = window.location.replace;
                 window.location.replace = function(url) {
                     const sanitized = CoreLibrary.Utilities.sanitizeInput(url);
-                    if (SecurityCore.isSuspiciousURL(sanitized)) {
+                    const result = SecurityCore.isSuspiciousURL(sanitized);
+                    if (result.level >= 3) {
+                        UIManager.showBlockPage(new URL(sanitized).hostname, result);
                         return;
+                    } else if (result.level >= 2) {
+                        const confirmMessage = `尝试跳转到：${url}\n\n风险等级：${result.level}\n原因：${result.reason}\n\n是否继续？`;
+                        if (!confirm(confirmMessage)) {
+                            return;
+                        }
                     }
                     return originalReplace.call(this, sanitized);
                 };
@@ -942,14 +1073,28 @@
             const currentTime = Date.now();
             
             if (domains[domain] && (currentTime - domains[domain].timestamp) < SECURITY_CONFIG.CACHE_TIME) {
-                UIManager.showSecurityCheckPopup(domain, domains[domain].hasRecord);
+                if (domains[domain].level >= 3) {
+                    UIManager.showSecurityCheckPopup(domain, domains[domain], false, true);
+                } else {
+                    UIManager.showSecurityCheckPopup(domain, domains[domain], false, false);
+                }
                 return;
             }
             
-            const hasRecord = SecurityCore.enhancedRecordCheck(domain);
-            domains[domain] = { hasRecord, timestamp: currentTime };
+            const result = SecurityCore.enhancedRecordCheck(domain);
+            domains[domain] = { 
+                hasRecord: result.hasRecord, 
+                level: result.level, 
+                reason: result.reason,
+                timestamp: currentTime 
+            };
             CoreLibrary.Storage.set('checkedDomains', domains);
-            UIManager.showSecurityCheckPopup(domain, hasRecord);
+            
+            if (result.level >= 3) {
+                UIManager.showSecurityCheckPopup(domain, result, false, true);
+            } else {
+                UIManager.showSecurityCheckPopup(domain, result, false, false);
+            }
         },
 
         quickScan() {
