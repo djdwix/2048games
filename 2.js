@@ -1,709 +1,970 @@
-class VirtualPhoneGenerator {
-    constructor() {
-        this.apiBase = window.location.origin + '/api';
-        this.tcAppId = '1314462072';
-        this.currentPhoneNumber = null;
-        this.currentSecurityCode = null;
-        this.hasGeneratedCode = false;
-        this.currentCarrier = null;
-        this.cooldownTimer = null;
-        this.cooldownEndTime = null;
-        this.currentAgreementVersion = '4.1';
-        this.categories = {};
-        this.showedTutorial = false;
-        
-        this.initElements();
-        this.bindEvents();
-        this.checkAgreement();
-        this.preventSecurityCodeCopy();
-        this.loadCategories();
-    }
+// ==UserScript==
+// @name         网页安全拦截器
+// @namespace    http://tampermonkey.net/
+// @version      2.3
+// @description  拦截未备案网站和隐藏跳转页面，提升网页浏览安全性
+// @author       You
+// @match        *://*/*
+// @run-at       document-start
+// @grant        GM_xmlhttpRequest
+// @grant        GM_notification
+// @grant        GM_setValue
+// @grant        GM_getValue
+// @grant        GM_addStyle
+// @grant        GM_deleteValue
+// @grant        GM_listValues
+// @connect      *
+// @connect      miit.gov.cn
+// @connect      beian.miit.gov.cn
+// @connect      raw.githubusercontent.com
+// @downloadURL  https://raw.githubusercontent.com/djdwix/2048games/main/2.js
+// @updateURL    https://raw.githubusercontent.com/djdwix/2048games/main/2.js
+// ==/UserScript==
 
-    async loadCategories() {
-        try {
-            const response = await fetch(`${this.apiBase}/categories`);
-            const data = await response.json();
-            
-            if (data.success) {
-                this.categories = data.categories;
-                this.updateCategorySelector();
-            }
-        } catch (error) {
-            console.error('加载分类失败:', error);
-        }
-    }
+(function() {
+    'use strict';
 
-    updateCategorySelector() {
-        const categoryContainer = document.getElementById('category-container');
-        if (!categoryContainer) return;
-        
-        let html = '<div class="form-group" style="margin-bottom: 15px;">';
-        html += '<label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333;">选择用途分类:</label>';
-        html += '<div class="category-buttons" style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px;">';
-        
-        Object.keys(this.categories).forEach(category => {
-            const description = this.categories[category][0] || category;
-            html += `
-                <button type="button" class="category-btn" data-category="${category}" 
-                        title="${description}">
-                    <i class="fas fa-${this.getCategoryIcon(category)}"></i> ${category}
-                </button>
-            `;
-        });
-        
-        html += '</div>';
-        html += '<div id="category-description" style="padding: 10px; background: #f8f9fa; border-radius: 5px; margin-top: 5px; font-size: 0.9rem; color: #666; display: none;"></div>';
-        html += '<input type="text" id="purpose-input" class="form-control" placeholder="可填写具体用途说明（可选）" style="margin-top: 10px;">';
-        html += '</div>';
-        
-        categoryContainer.innerHTML = html;
-        
-        document.querySelectorAll('.category-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                const category = e.target.closest('.category-btn').dataset.category;
-                this.selectCategory(category);
-            });
-        });
-        
-        const purposeInput = document.getElementById('purpose-input');
-        if (purposeInput) {
-            purposeInput.addEventListener('input', (e) => {
-                this.currentPurpose = e.target.value;
-            });
-        }
-        
-        if (Object.keys(this.categories).length > 0) {
-            this.selectCategory(Object.keys(this.categories)[0]);
-        }
-    }
+    const SECURITY_CONFIG = {
+        RECORD_CHECK_API: 'https://beian.miit.gov.cn/',
+        CACHE_TIME: 86400000,
+        SCAN_DELAY: 100,
+        FLOATING_BALL: true,
+        SECURITY_LEVEL: 'high',
+        SCRIPT_SOURCE: 'https://raw.githubusercontent.com/djdwix/2048games/main/2.js',
+        INTEGRITY_CHECK: false
+    };
 
-    getCategoryIcon(category) {
-        const icons = {
-            '测试': 'vial',
-            '演示': 'tv',
-            '教育': 'graduation-cap',
-            '开发': 'code',
-            '其他': 'ellipsis-h'
-        };
-        return icons[category] || 'phone';
-    }
+    const PermissionManager = {
+        grantedPermissions: new Set(),
 
-    selectCategory(category) {
-        document.querySelectorAll('.category-btn').forEach(btn => {
-            btn.style.background = btn.dataset.category === category 
-                ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' 
-                : '#6c757d';
-            btn.style.color = 'white';
-        });
-        
-        const description = this.categories[category] ? this.categories[category][0] : '';
-        const descElement = document.getElementById('category-description');
-        if (descElement) {
-            descElement.innerHTML = `<i class="fas fa-info-circle"></i> ${description}`;
-            descElement.style.display = 'block';
-        }
-        
-        this.currentCategory = category;
-    }
+        checkPermissions() {
+            const requiredGrants = [
+                'GM_xmlhttpRequest', 'GM_notification', 'GM_setValue', 
+                'GM_getValue', 'GM_addStyle', 'GM_deleteValue', 'GM_listValues'
+            ];
 
-    checkAgreement() {
-        const agreementData = localStorage.getItem('virtualPhoneAgreement');
-        
-        if (agreementData) {
-            try {
-                const data = JSON.parse(agreementData);
-                
-                if (data.version === this.currentAgreementVersion && data.accepted === true) {
-                    this.initializeApp();
-                    return;
+            requiredGrants.forEach(grant => {
+                try {
+                    if (typeof GM_info !== 'undefined' && GM_info.grant && GM_info.grant.includes(grant)) {
+                        this.grantedPermissions.add(grant);
+                    } else {
+                        console.warn(`权限未授权: ${grant}`);
+                    }
+                } catch (error) {
+                    console.warn(`检查权限失败 ${grant}:`, error);
                 }
-                
-                this.showAgreementModal(true);
-            } catch (error) {
-                this.showAgreementModal(false);
-            }
-        } else {
-            this.showAgreementModal(false);
-        }
-    }
+            });
+        },
 
-    showAgreementModal(isUpdate = false) {
-        const modal = document.getElementById('agreementModal');
-        const agreeTermsCheckbox = document.getElementById('modal-agree-terms');
-        const readPrivacyCheckbox = document.getElementById('modal-read-privacy');
-        const agreeBtn = document.getElementById('modalAgreeBtn');
-        const declineBtn = document.getElementById('modalDeclineBtn');
-        const currentVersionBadge = document.getElementById('currentVersionBadge');
-        const agreementVersion = document.getElementById('agreementVersion');
-        const updateContent = document.getElementById('updateContent');
-        
-        modal.classList.add('active');
-        currentVersionBadge.textContent = `版本 ${this.currentAgreementVersion}`;
-        agreementVersion.textContent = this.currentAgreementVersion;
-        
-        if (isUpdate) {
-            updateContent.style.display = 'block';
-            modal.querySelector('.agreement-header h2').textContent = '用户协议更新确认';
-            modal.querySelector('.agreement-header p').textContent = '检测到用户协议有重要更新，请仔细阅读更新内容';
-        } else {
-            updateContent.style.display = 'none';
-            modal.querySelector('.agreement-header h2').textContent = '用户协议确认';
-            modal.querySelector('.agreement-header p').textContent = '请仔细阅读并同意以下条款以继续使用本服务';
-        }
-        
-        function updateAgreeButton() {
-            agreeBtn.disabled = !(agreeTermsCheckbox.checked && readPrivacyCheckbox.checked);
-        }
-        
-        agreeTermsCheckbox.addEventListener('change', updateAgreeButton);
-        readPrivacyCheckbox.addEventListener('change', updateAgreeButton);
-        
-        agreeBtn.addEventListener('click', () => {
-            if (agreeTermsCheckbox.checked && readPrivacyCheckbox.checked) {
-                this.saveAgreement();
-                modal.classList.remove('active');
-                this.initializeApp();
-            }
-        });
-        
-        declineBtn.addEventListener('click', () => {
-            if (confirm('您需要同意用户协议才能使用本服务。确定要离开吗？')) {
-                window.location.href = 'about:blank';
-            }
-        });
-        
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') {
-                if (modal.classList.contains('active')) {
-                    e.preventDefault();
-                    if (confirm('您需要同意用户协议才能使用本服务。确定要离开吗？')) {
-                        window.location.href = 'about:blank';
+        hasPermission(grant) {
+            return this.grantedPermissions.has(grant);
+        },
+
+        safeGMOperation(operation, ...args) {
+            try {
+                if (this.hasPermission(operation)) {
+                    switch (operation) {
+                        case 'GM_setValue':
+                            return GM_setValue(...args);
+                        case 'GM_getValue':
+                            return GM_getValue(...args);
+                        case 'GM_addStyle':
+                            return GM_addStyle(...args);
+                        case 'GM_notification':
+                            return GM_notification(...args);
+                        case 'GM_xmlhttpRequest':
+                            return GM_xmlhttpRequest(...args);
+                        case 'GM_deleteValue':
+                            return GM_deleteValue(...args);
+                        case 'GM_listValues':
+                            return GM_listValues(...args);
+                        default:
+                            return null;
                     }
                 }
+                return null;
+            } catch (error) {
+                console.warn(`GM操作失败 ${operation}:`, error);
+                return null;
             }
-        });
-        
-        agreeTermsCheckbox.checked = false;
-        readPrivacyCheckbox.checked = false;
-        updateAgreeButton();
-    }
-
-    saveAgreement() {
-        const today = new Date().toISOString().split('T')[0];
-        const agreementData = {
-            accepted: true,
-            version: this.currentAgreementVersion,
-            date: today,
-            privacyRead: true,
-            lastUpdate: today
-        };
-        
-        try {
-            localStorage.setItem('virtualPhoneAgreement', JSON.stringify(agreementData));
-        } catch (error) {
-            this.showToast('保存用户协议设置失败', 'error');
         }
-    }
+    };
 
-    initializeApp() {
-        this.loadStats();
-        this.loadIPInfo();
-        this.loadClientStats();
-        
-        document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible') {
-                this.loadStats();
-                this.loadClientStats();
-            }
-        });
-        
-        setInterval(() => {
-            this.loadStats();
-            this.loadClientStats();
-        }, 30000);
-    }
+    const PerformanceOptimizer = {
+        init() {
+            this.optimizeEventHandling();
+            this.optimizeDOMOperations();
+        },
 
-    initElements() {
-        this.generateBtn = document.getElementById('generate-btn');
-        this.resultContainer = document.getElementById('result-container');
-        this.maskedPhone = document.getElementById('masked-phone');
-        this.securityCode = document.getElementById('security-code');
-        this.generateCodeBtn = document.getElementById('generate-code-btn');
-        this.verifyContainer = document.getElementById('verify-container');
-        this.securityCodeInput = document.getElementById('security-code-input');
-        this.verifyBtn = document.getElementById('verify-btn');
-        this.copyMaskedBtn = document.getElementById('copy-masked');
-        this.toast = document.getElementById('toast');
-        this.totalCount = document.getElementById('total-count');
-        this.usedCount = document.getElementById('used-count');
-        this.availableCount = document.getElementById('available-count');
-        this.serverIp = document.getElementById('server-ip');
-        this.clientIp = document.getElementById('client-ip');
-        this.carrierName = document.getElementById('carrier-name');
-        this.clientTotalCount = document.getElementById('client-total-count');
-        this.clientUsedCount = document.getElementById('client-used-count');
-        this.clientAvailableCount = document.getElementById('client-available-count');
-        
-        this.cooldownDisplay = document.createElement('div');
-        this.cooldownDisplay.className = 'cooldown-display';
-        this.cooldownDisplay.style.display = 'none';
-        
-        const card = document.querySelector('.card');
-        if (card) {
-            const categoryContainer = document.createElement('div');
-            categoryContainer.id = 'category-container';
-            const firstFormGroup = card.querySelector('.form-group');
-            if (firstFormGroup) {
-                card.insertBefore(categoryContainer, firstFormGroup);
+        optimizeEventHandling() {
+            // 修复：不再全局劫持addEventListener，只在需要的地方优化
+        },
+
+        optimizeDOMOperations() {
+            if (window.MutationObserver) {
+                this.batchDOMUpdates();
             }
+        },
+
+        batchDOMUpdates() {
+            let updateQueue = [];
+            let rafId = null;
             
-            if (this.generateBtn && this.generateBtn.parentNode) {
-                this.generateBtn.parentNode.appendChild(this.cooldownDisplay);
-            }
-        }
-        
-        this.currentCategory = '测试';
-        this.currentPurpose = '';
-    }
-
-    bindEvents() {
-        if (this.generateBtn) {
-            this.generateBtn.addEventListener('click', () => this.generateNumber());
-        }
-        if (this.generateCodeBtn) {
-            this.generateCodeBtn.addEventListener('click', () => this.generateSecurityCode());
-        }
-        if (this.verifyBtn) {
-            this.verifyBtn.addEventListener('click', () => this.initTencentCaptcha());
-        }
-        if (this.copyMaskedBtn) {
-            this.copyMaskedBtn.addEventListener('click', () => this.showVerifyPrompt());
-        }
-        
-        if (this.securityCodeInput) {
-            this.securityCodeInput.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') {
-                    this.initTencentCaptcha();
+            const processQueue = () => {
+                rafId = null;
+                if (updateQueue.length > 0) {
+                    const queue = updateQueue.slice();
+                    updateQueue = [];
+                    queue.forEach(fn => {
+                        try {
+                            fn();
+                        } catch (e) {
+                            console.warn('批量更新失败:', e);
+                        }
+                    });
                 }
-            });
+            };
 
-            this.securityCodeInput.addEventListener('input', (e) => {
-                e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
-            });
-        }
-    }
-
-    preventSecurityCodeCopy() {
-        if (!this.securityCode) return;
-        
-        this.securityCode.addEventListener('contextmenu', (e) => {
-            e.preventDefault();
-            this.showToast('安全码受保护，请手动输入', 'error');
-            return false;
-        });
-        
-        this.securityCode.addEventListener('keydown', (e) => {
-            if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'x')) {
-                e.preventDefault();
-                this.showToast('安全码受保护，请手动输入', 'error');
-                return false;
-            }
-        });
-        
-        this.securityCode.style.userSelect = 'none';
-        this.securityCode.style.webkitUserSelect = 'none';
-        this.securityCode.style.mozUserSelect = 'none';
-        this.securityCode.style.msUserSelect = 'none';
-        
-        this.securityCode.addEventListener('copy', (e) => {
-            e.preventDefault();
-            this.showToast('安全码受保护，请手动输入', 'error');
-            return false;
-        });
-        
-        this.securityCode.addEventListener('cut', (e) => {
-            e.preventDefault();
-            this.showToast('安全码受保护，请手动输入', 'error');
-            return false;
-        });
-        
-        this.securityCode.addEventListener('selectstart', (e) => {
-            e.preventDefault();
-            return false;
-        });
-        
-        this.securityCode.setAttribute('draggable', 'false');
-        this.securityCode.addEventListener('dragstart', (e) => {
-            e.preventDefault();
-            return false;
-        });
-    }
-
-    async loadIPInfo() {
-        try {
-            const response = await fetch(`${this.apiBase}/ip-info`);
-            const data = await response.json();
-            
-            if (data.success && this.serverIp && this.clientIp) {
-                this.serverIp.textContent = data.server_ip;
-                this.clientIp.textContent = data.client_ip;
-            }
-        } catch (error) {
-            if (this.serverIp) this.serverIp.textContent = '获取失败';
-            if (this.clientIp) this.clientIp.textContent = '获取失败';
-        }
-    }
-
-    async loadClientStats() {
-        try {
-            const response = await fetch(`${this.apiBase}/client-info`);
-            
-            const data = await response.json();
-            
-            if (data.success && this.clientTotalCount && this.clientUsedCount && this.clientAvailableCount) {
-                this.clientTotalCount.textContent = data.stats.total_generated;
-                this.clientUsedCount.textContent = data.stats.total_used;
-                this.clientAvailableCount.textContent = data.stats.available;
-            }
-        } catch (error) {
-            console.error('加载客户端统计失败:', error);
-        }
-    }
-
-    async generateNumber() {
-        try {
-            this.generateBtn.disabled = true;
-            this.generateBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 生成中...';
-
-            const response = await fetch(`${this.apiBase}/generate`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    category: this.currentCategory,
-                    purpose: this.currentPurpose
-                })
-            });
-
-            const data = await response.json();
-
-            if (data.success) {
-                this.displayGeneratedNumber(data.phone_number, data.masked_phone, data.carrier, data.category);
-                this.showToast(`手机号生成成功！分类：${data.category}`, 'success');
-                this.cooldownDisplay.style.display = 'none';
-                if (this.cooldownTimer) {
-                    clearInterval(this.cooldownTimer);
-                    this.cooldownTimer = null;
+            window.batchedUpdate = (callback) => {
+                updateQueue.push(callback);
+                if (!rafId) {
+                    rafId = requestAnimationFrame(processQueue);
                 }
-                this.loadClientStats();
-            } else {
-                if (response.status === 429 && data.cooldown) {
-                    this.startCooldown(data.cooldown);
-                } else {
-                    this.showToast(`生成失败: ${data.error}`, 'error');
+            };
+        }
+    };
+
+    const CompatibilityLayer = {
+        init() {
+            this.polyfillMissingFeatures();
+            this.fixBrowserSpecificIssues();
+        },
+
+        polyfillMissingFeatures() {
+            if (!window.requestIdleCallback) {
+                window.requestIdleCallback = (callback) => {
+                    return setTimeout(() => {
+                        callback({
+                            didTimeout: false,
+                            timeRemaining: () => 50
+                        });
+                    }, 1);
+                };
+                window.cancelIdleCallback = (id) => {
+                    clearTimeout(id);
+                };
+            }
+        },
+
+        fixBrowserSpecificIssues() {
+            const userAgent = navigator.userAgent.toLowerCase();
+            
+            if (userAgent.includes('ucbrowser')) {
+                this.fixUCBrowserIssues();
+            }
+            
+            if (userAgent.includes('safari') && !userAgent.includes('chrome')) {
+                this.fixSafariIssues();
+            }
+        },
+
+        fixUCBrowserIssues() {
+            const originalCreateElement = Document.prototype.createElement;
+            Document.prototype.createElement = function(tagName) {
+                const element = originalCreateElement.call(this, tagName);
+                if (tagName === 'style') {
+                    setTimeout(() => {
+                        if (element.sheet && !element.sheet.cssRules.length) {
+                            element.innerHTML = element.textContent;
+                        }
+                    }, 0);
                 }
+                return element;
+            };
+        },
+
+        fixSafariIssues() {
+            const originalQuerySelector = Document.prototype.querySelector;
+            Document.prototype.querySelector = function(selector) {
+                try {
+                    return originalQuerySelector.call(this, selector);
+                } catch (e) {
+                    return null;
+                }
+            };
+        }
+    };
+
+    const SecurityValidator = {
+        async verifyScriptIntegrity() {
+            if (!SECURITY_CONFIG.INTEGRITY_CHECK) {
+                return true;
             }
-        } catch (error) {
-            this.showToast(`生成失败: ${error.message}`, 'error');
-        } finally {
-            if (!this.cooldownTimer) {
-                this.generateBtn.disabled = false;
-                this.generateBtn.innerHTML = '<i class="fas fa-bolt"></i> 生成虚拟手机号';
-            }
-            this.loadStats();
-        }
-    }
 
-    startCooldown(seconds) {
-        this.cooldownEndTime = Date.now() + seconds * 1000;
-        
-        this.generateBtn.disabled = true;
-        this.cooldownDisplay.style.display = 'block';
-        
-        this.updateCooldownDisplay();
-        
-        this.cooldownTimer = setInterval(() => {
-            this.updateCooldownDisplay();
-        }, 1000);
-    }
+            try {
+                const currentScriptContent = this.getCurrentScriptContent();
+                if (!currentScriptContent) {
+                    console.warn('无法获取当前脚本内容，跳过完整性检查');
+                    return true;
+                }
 
-    updateCooldownDisplay() {
-        if (!this.cooldownEndTime) return;
-        
-        const now = Date.now();
-        const remaining = Math.max(0, Math.ceil((this.cooldownEndTime - now) / 1000));
-        
-        if (remaining > 0) {
-            const minutes = Math.floor(remaining / 60);
-            const seconds = remaining % 60;
-            this.generateBtn.innerHTML = `<i class="fas fa-clock"></i> 冷却中...`;
-            this.cooldownDisplay.textContent = `请等待 ${minutes}:${seconds.toString().padStart(2, '0')} 后再试`;
-        } else {
-            this.cooldownDisplay.style.display = 'none';
-            this.generateBtn.disabled = false;
-            this.generateBtn.innerHTML = '<i class="fas fa-bolt"></i> 生成虚拟手机号';
-            clearInterval(this.cooldownTimer);
-            this.cooldownTimer = null;
-        }
-    }
-
-    displayGeneratedNumber(phoneNumber, maskedPhone, carrier, category) {
-        if (!this.maskedPhone || !this.securityCode) return;
-        
-        this.maskedPhone.textContent = maskedPhone;
-        this.currentPhoneNumber = phoneNumber;
-        this.currentSecurityCode = null;
-        this.hasGeneratedCode = false;
-        this.currentCarrier = carrier;
-        this.currentCategory = category;
-        
-        if (this.carrierName) this.carrierName.textContent = carrier || '未知';
-        this.securityCode.textContent = '点击钥匙图标生成';
-        this.securityCode.style.color = '#e74c3c';
-        if (this.securityCodeInput) this.securityCodeInput.value = '';
-        if (this.verifyContainer) this.verifyContainer.classList.add('hidden');
-        if (this.resultContainer) this.resultContainer.classList.remove('hidden');
-        
-        const categoryBadge = document.getElementById('category-badge');
-        if (categoryBadge) {
-            categoryBadge.textContent = category;
-        }
-        
-        if (this.copyMaskedBtn) {
-            this.copyMaskedBtn.innerHTML = '<i class="far fa-copy"></i>';
-            this.copyMaskedBtn.title = '复制完整号码';
-            this.copyMaskedBtn.disabled = false;
-            this.copyMaskedBtn.classList.remove('btn-copy-success');
-        }
-    }
-
-    async generateSecurityCode() {
-        if (!this.currentPhoneNumber) {
-            this.showToast('请先生成手机号', 'error');
-            return;
-        }
-
-        try {
-            this.generateCodeBtn.disabled = true;
-            this.generateCodeBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-
-            const response = await fetch(`${this.apiBase}/generate-code`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ phone_number: this.currentPhoneNumber }),
-            });
-
-            const data = await response.json();
-
-            if (data.success) {
-                this.currentSecurityCode = data.security_code;
-                this.securityCode.textContent = data.security_code;
-                this.hasGeneratedCode = true;
+                const localChecksum = this.generateChecksum(currentScriptContent);
+                const remoteChecksum = await this.fetchRemoteChecksum();
                 
-                this.showToast('安全码生成成功！', 'success');
+                if (remoteChecksum === null) {
+                    console.warn('无法获取远程校验码，跳过完整性检查');
+                    return true;
+                }
+
+                if (localChecksum !== remoteChecksum) {
+                    this.showSecurityWarning('脚本完整性验证失败，内容可能被篡改');
+                    return false;
+                }
+
+                PermissionManager.safeGMOperation('GM_setValue', 'script_checksum', localChecksum);
+                console.log('脚本完整性验证通过');
+                return true;
+            } catch (error) {
+                console.error('完整性检查失败:', error);
+                return true;
+            }
+        },
+
+        getCurrentScriptContent() {
+            try {
+                let scriptContent = '';
                 
-                if (this.verifyContainer) {
-                    this.verifyContainer.classList.remove('hidden');
+                const scripts = document.scripts;
+                for (let i = scripts.length - 1; i >= 0; i--) {
+                    const script = scripts[i];
+                    if (script.textContent) {
+                        const content = script.textContent;
+                        if (content.includes('securityInterceptor') || 
+                            content.includes('SECURITY_CONFIG') ||
+                            content.includes('FloatingBallManager')) {
+                            scriptContent = content;
+                            break;
+                        }
+                    }
                 }
-                if (this.securityCodeInput) {
-                    this.securityCodeInput.focus();
+
+                if (!scriptContent) {
+                    const currentScript = document.currentScript;
+                    if (currentScript && currentScript.textContent) {
+                        scriptContent = currentScript.textContent;
+                    }
                 }
-            } else {
-                this.showToast(`生成安全码失败: ${data.error}`, 'error');
+
+                if (!scriptContent) {
+                    const allScripts = document.getElementsByTagName('script');
+                    for (let script of allScripts) {
+                        if (script.textContent && script.textContent.length > 1000) {
+                            scriptContent = script.textContent;
+                            break;
+                        }
+                    }
+                }
+
+                return scriptContent || null;
+            } catch (error) {
+                console.error('获取脚本内容失败:', error);
+                return null;
             }
-        } catch (error) {
-            this.showToast(`生成安全码失败: ${error.message}`, 'error');
-        } finally {
-            this.generateCodeBtn.disabled = false;
-            this.generateCodeBtn.innerHTML = '<i class="fas fa-key"></i>';
-        }
-    }
+        },
 
-    showVerifyPrompt() {
-        if (!this.currentPhoneNumber) {
-            this.showToast('请先生成手机号', 'error');
-            return;
-        }
+        async fetchRemoteChecksum() {
+            if (!PermissionManager.hasPermission('GM_xmlhttpRequest')) {
+                return null;
+            }
 
-        if (!this.hasGeneratedCode) {
-            this.showToast('请先生成安全码', 'error');
-            return;
-        }
+            return new Promise((resolve) => {
+                PermissionManager.safeGMOperation('GM_xmlhttpRequest', {
+                    method: 'GET',
+                    url: SECURITY_CONFIG.SCRIPT_SOURCE + '?t=' + Date.now(),
+                    timeout: 5000,
+                    onload: function(response) {
+                        if (response.status === 200) {
+                            const checksum = SecurityValidator.generateChecksum(response.responseText);
+                            resolve(checksum);
+                        } else {
+                            resolve(null);
+                        }
+                    },
+                    onerror: function() {
+                        resolve(null);
+                    },
+                    ontimeout: function() {
+                        resolve(null);
+                    }
+                });
+            });
+        },
 
-        if (this.verifyContainer) {
-            this.verifyContainer.classList.remove('hidden');
-        }
-        if (this.securityCodeInput) {
-            this.securityCodeInput.focus();
-        }
-    }
+        generateChecksum(content) {
+            if (!content) return 'invalid';
+            // 修复：先删除行注释，再删除块注释
+            const cleanContent = content
+                .replace(/\/\/[^\n]*\n/g, '')  // 先删除行注释
+                .replace(/\/\*[\s\S]*?\*\//g, '')  // 再删除块注释
+                .replace(/\s+/g, '');  // 最后删除空白字符
+            
+            let hash = 0;
+            for (let i = 0; i < cleanContent.length; i++) {
+                const char = cleanContent.charCodeAt(i);
+                hash = ((hash << 5) - hash) + char;
+                hash = hash & hash;
+            }
+            return Math.abs(hash).toString(36) + cleanContent.length.toString(36);
+        },
 
-    initTencentCaptcha() {
-        if (!this.currentPhoneNumber) {
-            this.showToast('手机号不存在', 'error');
-            return;
+        showSecurityWarning(message) {
+            const warningHTML = `
+                <div style="
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    background: rgba(0,0,0,0.9);
+                    z-index: 2147483647;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-family: Arial, sans-serif;
+                    color: white;
+                ">
+                    <div style="
+                        background: #ff4444;
+                        padding: 30px;
+                        border-radius: 15px;
+                        text-align: center;
+                        max-width: 500px;
+                        box-shadow: 0 0 30px rgba(255,0,0,0.7);
+                        border: 4px solid #ff0000;
+                    ">
+                        <h2 style="margin: 0 0 20px 0; color: white;">⚠️ 安全警告</h2>
+                        <p style="margin: 0 0 25px 0; line-height: 1.6; font-size: 16px;">${message}</p>
+                        <div style="display: flex; gap: 15px; justify-content: center;">
+                            <button onclick="window.location.reload()" style="
+                                background: white;
+                                color: #ff4444;
+                                border: none;
+                                padding: 12px 24px;
+                                border-radius: 6px;
+                                cursor: pointer;
+                                font-size: 16px;
+                                font-weight: bold;
+                            ">重新加载</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            document.documentElement.innerHTML = warningHTML;
         }
+    };
 
-        if (!this.securityCodeInput) return;
-        
-        const code = this.securityCodeInput.value.trim().toUpperCase();
-        
-        if (!code || code.length !== 6) {
-            this.showToast('请输入6位安全码', 'error');
-            return;
-        }
+    const CoreLibrary = {
+        Utilities: {
+            sanitizeInput(input) {
+                if (typeof input !== 'string') return '';
+                return input.replace(/[\r\n\t\0<>"'`\\\u0000-\u001F\u007F-\u009F]/g, '').substring(0, 500);
+            },
 
-        if (code !== this.currentSecurityCode) {
-            this.showToast('安全码错误，请重新输入', 'error');
-            this.securityCodeInput.focus();
-            this.securityCodeInput.select();
-            return;
-        }
+            validateDomain(domain) {
+                if (typeof domain !== 'string') return false;
+                const domainRegex = /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z]{2,})+$/;
+                return domainRegex.test(domain);
+            },
 
-        const captcha = new TencentCaptcha(this.tcAppId, (res) => {
-            if (res.ret === 0) {
-                this.verifyAndCopy(code, res.ticket, res.randstr);
-            } else {
-                this.showToast('验证失败，请重试', 'error');
-                if (this.verifyBtn) {
-                    this.verifyBtn.disabled = false;
-                    this.verifyBtn.innerHTML = '<i class="fas fa-check"></i> 验证并复制完整号码';
+            safeJSONParse(str, defaultValue = null) {
+                try {
+                    return JSON.parse(str);
+                } catch {
+                    return defaultValue;
+                }
+            },
+
+            debounce(func, wait, immediate = false) {
+                let timeout;
+                return function executedFunction(...args) {
+                    const later = () => {
+                        timeout = null;
+                        if (!immediate) func.apply(this, args);
+                    };
+                    const callNow = immediate && !timeout;
+                    clearTimeout(timeout);
+                    timeout = setTimeout(later, wait);
+                    if (callNow) func.apply(this, args);
+                };
+            },
+
+            throttle(func, limit) {
+                let inThrottle, lastResult;
+                return function(...args) {
+                    if (!inThrottle) {
+                        inThrottle = true;
+                        lastResult = func.apply(this, args);
+                        setTimeout(() => inThrottle = false, limit);
+                    }
+                    return lastResult;
+                };
+            }
+        },
+
+        Security: {
+            detectXSS(content) {
+                if (typeof content !== 'string') return false;
+                const xssPatterns = [
+                    /<script\b[^>]*>[\s\S]*?<\/script>/gi,
+                    /javascript:/gi,
+                    /vbscript:/gi,
+                    /on\w+\s*=/gi
+                ];
+                return xssPatterns.some(pattern => pattern.test(content));
+            },
+
+            validateURL(url) {
+                try {
+                    const parsed = new URL(url);
+                    return ['http:', 'https:'].includes(parsed.protocol);
+                } catch {
+                    return false;
                 }
             }
-        });
+        },
 
-        captcha.show();
-        
-        if (this.verifyBtn) {
-            this.verifyBtn.disabled = true;
-            this.verifyBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 验证中...';
+        Storage: {
+            get(key, defaultValue = null) {
+                // 修复：使用明确的null检查而不是||操作符
+                const value = PermissionManager.safeGMOperation('GM_getValue', key);
+                return value === undefined || value === null ? defaultValue : value;
+            },
+
+            set(key, value) {
+                return PermissionManager.safeGMOperation('GM_setValue', key, value) !== null;
+            },
+
+            remove(key) {
+                return PermissionManager.safeGMOperation('GM_deleteValue', key) !== null;
+            },
+
+            clear() {
+                try {
+                    const keys = PermissionManager.safeGMOperation('GM_listValues') || [];
+                    keys.forEach(key => PermissionManager.safeGMOperation('GM_deleteValue', key));
+                    return true;
+                } catch {
+                    return false;
+                }
+            }
         }
-    }
+    };
 
-    async verifyAndCopy(code, ticket, randstr) {
-        try {
-            const response = await fetch(`${this.apiBase}/verify-copy`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ 
-                    phone_number: this.currentPhoneNumber,
-                    security_code: code,
-                    captcha_ticket: ticket,
-                    captcha_randstr: randstr
-                }),
+    const KEYWORD_LIBRARY = {
+        PORNOGRAPHY: [
+            'porn', 'xxx', 'adult', 'sex', 'nude', 'erotic', 'hentai', 'porno',
+            '色情', '成人', '黄色', 'av', '做爱', '性爱', '情色', '黄片',
+            '淫秽', '色情网站', '成人视频', '黄色网站', '色情片'
+        ],
+        SUSPICIOUS_DOMAINS: [
+            '.tk', '.ml', '.ga', '.cf', '.gq', '.xyz', '.top', '.club', '.win', '.loan', '.bid'
+        ],
+        TRUSTED_DOMAINS: [
+            'gov.cn', 'edu.cn', 'org.cn', 'miit.gov.cn', 'baidu.com', 'qq.com', 'taobao.com', 'alipay.com'
+        ],
+        MALICIOUS_PATTERNS: [
+            /\/\/[^/]*?\.(tk|ml|ga|cf|gq|xyz|top|club|win|loan|bid)/i,
+            /\/\/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/,
+            /\/\/localhost\b/,
+            /redirect|goto|jump|url=/i,
+            /\/\/[^/]*?@/,
+            /javascript:/i,
+            /data:text\/html/i,
+            /vbscript:/i
+        ]
+    };
+
+    const SecuritySystem = {
+        init() {
+            this.enableCSP();
+            this.protectGlobalObjects();
+        },
+
+        enableCSP() {
+            try {
+                const cspMeta = document.createElement('meta');
+                cspMeta.httpEquiv = 'Content-Security-Policy';
+                cspMeta.content = "default-src 'self'; script-src 'self' 'unsafe-inline'";
+                document.head.appendChild(cspMeta);
+            } catch (error) {}
+        },
+
+        protectGlobalObjects() {
+            const protectedObjects = ['XMLHttpRequest', 'fetch'];
+            protectedObjects.forEach(objName => {
+                if (window[objName]) {
+                    try {
+                        Object.defineProperty(window, objName, {
+                            value: window[objName],
+                            writable: false,
+                            configurable: false
+                        });
+                    } catch (error) {}
+                }
+            });
+        }
+    };
+
+    const FloatingBallManager = {
+        isDragging: false,
+        dragData: null,
+        ballElement: null,
+
+        init() {
+            if (!SECURITY_CONFIG.FLOATING_BALL) return;
+            
+            this.createFloatingBall();
+            this.bindEvents();
+            this.ensureBallVisibility();
+        },
+
+        createFloatingBall() {
+            let ball = document.getElementById('security-floating-ball');
+            if (ball) {
+                this.ballElement = ball;
+                return;
+            }
+
+            ball = document.createElement('div');
+            ball.id = 'security-floating-ball';
+            ball.innerHTML = '🔍';
+            ball.title = '点击扫描当前网页';
+
+            const css = `
+                #security-floating-ball {
+                    position: fixed;
+                    top: 100px;
+                    right: 20px;
+                    width: 50px;
+                    height: 50px;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    border-radius: 50%;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: 20px;
+                    cursor: move;
+                    z-index: 2147483646;
+                    box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+                    border: 2px solid white;
+                    user-select: none;
+                    transition: all 0.2s ease;
+                    touch-action: none;
+                }
+                #security-floating-ball:hover {
+                    transform: scale(1.1);
+                }
+                #security-floating-ball.scanning {
+                    animation: pulse 1s infinite;
+                }
+                @keyframes pulse {
+                    0% { transform: scale(1); }
+                    50% { transform: scale(1.1); }
+                    100% { transform: scale(1); }
+                }
+            `;
+            
+            if (PermissionManager.hasPermission('GM_addStyle')) {
+                PermissionManager.safeGMOperation('GM_addStyle', css);
+            } else {
+                const style = document.createElement('style');
+                style.textContent = css;
+                document.head.appendChild(style);
+            }
+
+            document.body.appendChild(ball);
+            this.ballElement = ball;
+            this.loadBallPosition();
+        },
+
+        ensureBallVisibility() {
+            setInterval(() => {
+                const ball = document.getElementById('security-floating-ball');
+                if (!ball && this.ballElement) {
+                    document.body.appendChild(this.ballElement);
+                }
+            }, 3000);
+        },
+
+        bindEvents() {
+            const ball = this.ballElement;
+            if (!ball) return;
+
+            // 修复：使用正确的options对象，不修改原始options
+            const startDrag = (e) => this.startDrag(e);
+            const drag = (e) => this.drag(e);
+            const stopDrag = () => this.stopDrag();
+
+            ball.addEventListener('mousedown', startDrag, { passive: false });
+            ball.addEventListener('touchstart', startDrag, { passive: false });
+            ball.addEventListener('click', (e) => {
+                if (!this.isDragging) this.startScan();
+            }, { passive: true });
+
+            document.addEventListener('mousemove', drag, { passive: false });
+            document.addEventListener('touchmove', drag, { passive: false });
+            document.addEventListener('mouseup', stopDrag, { passive: true });
+            document.addEventListener('touchend', stopDrag, { passive: true });
+        },
+
+        startDrag(e) {
+            const ball = this.ballElement;
+            if (!ball) return;
+
+            this.isDragging = true;
+            const rect = ball.getBoundingClientRect();
+            const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
+            const clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
+
+            this.dragData = {
+                startX: clientX - rect.left,
+                startY: clientY - rect.top
+            };
+
+            e.preventDefault();
+        },
+
+        drag(e) {
+            if (!this.isDragging || !this.dragData) return;
+
+            const ball = this.ballElement;
+            if (!ball) return;
+
+            const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
+            const clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
+
+            let newX = clientX - this.dragData.startX;
+            let newY = clientY - this.dragData.startY;
+
+            const maxX = window.innerWidth - ball.offsetWidth;
+            const maxY = window.innerHeight - ball.offsetHeight;
+
+            newX = Math.max(0, Math.min(newX, maxX));
+            newY = Math.max(0, Math.min(newY, maxY));
+
+            ball.style.left = newX + 'px';
+            ball.style.top = newY + 'px';
+            ball.style.right = 'auto';
+
+            e.preventDefault();
+        },
+
+        stopDrag() {
+            this.isDragging = false;
+            const ball = this.ballElement;
+            if (ball) {
+                this.saveBallPosition(ball.style.left, ball.style.top);
+            }
+            this.dragData = null;
+        },
+
+        saveBallPosition(left, top) {
+            CoreLibrary.Storage.set('floatingBallPosition', { left, top });
+        },
+
+        loadBallPosition() {
+            const position = CoreLibrary.Storage.get('floatingBallPosition');
+            if (position && position.left && position.top) {
+                const ball = this.ballElement;
+                if (ball) {
+                    ball.style.left = position.left;
+                    ball.style.top = position.top;
+                    ball.style.right = 'auto';
+                }
+            }
+        },
+
+        startScan() {
+            const ball = this.ballElement;
+            if (ball) {
+                ball.classList.add('scanning');
+                ball.innerHTML = '⏳';
+                
+                setTimeout(() => {
+                    SecurityEngine.quickScan();
+                    if (ball) {
+                        ball.classList.remove('scanning');
+                        ball.innerHTML = '✅';
+                        setTimeout(() => {
+                            ball.innerHTML = '🔍';
+                        }, 1000);
+                    }
+                }, 500);
+            }
+        }
+    };
+
+    const ContentScanner = {
+        quickScan() {
+            const hasPornography = this.checkPornographyContent();
+            if (!hasPornography) {
+                const domain = window.location.hostname;
+                const hasRecord = SecurityCore.enhancedRecordCheck(domain);
+                UIManager.showSecurityCheckPopup(domain, hasRecord, false);
+            }
+            return { pornography: hasPornography };
+        },
+
+        checkPornographyContent() {
+            const text = document.body?.innerText.toLowerCase() || '';
+            const url = window.location.href.toLowerCase();
+            const title = document.title.toLowerCase();
+
+            let score = 0;
+            for (const keyword of KEYWORD_LIBRARY.PORNOGRAPHY) {
+                if (text.includes(keyword)) score += 2;
+                if (url.includes(keyword)) score += 3;
+                if (title.includes(keyword)) score += 3;
+                if (score >= 5) break;
+            }
+
+            if (score >= 5) {
+                UIManager.showSecurityCheckPopup(window.location.hostname, false, true);
+                return true;
+            }
+            return false;
+        },
+
+        monitorDynamicContent() {
+            if (!window.MutationObserver) return;
+
+            const observer = new MutationObserver((mutations) => {
+                for (const mutation of mutations) {
+                    for (const node of mutation.addedNodes) {
+                        if (node.nodeType === 1) {
+                            if (node.tagName === 'A') {
+                                this.checkLink(node);
+                            } else if (node.tagName === 'IFRAME') {
+                                this.checkIframe(node);
+                            }
+                        }
+                    }
+                }
             });
 
-            const data = await response.json();
+            observer.observe(document, { childList: true, subtree: true });
+        },
 
-            if (data.success) {
-                await this.copyFullNumber();
-                this.showToast('验证成功，已复制完整号码！', 'success');
-                if (this.securityCodeInput) this.securityCodeInput.value = '';
-                if (this.verifyContainer) this.verifyContainer.classList.add('hidden');
-                
-                if (this.copyMaskedBtn) {
-                    this.copyMaskedBtn.disabled = true;
-                    this.copyMaskedBtn.innerHTML = '<i class="fas fa-check" style="color: #28a745;"></i>';
-                    this.copyMaskedBtn.title = '已使用';
-                    this.copyMaskedBtn.classList.add('btn-copy-success');
-                }
-                
-                this.markSecurityCodeAsUsed();
-                this.loadClientStats();
-            } else {
-                this.showToast(`验证失败: ${data.error}`, 'error');
+        checkLink(link) {
+            const href = link.getAttribute('href');
+            if (href && SecurityCore.isSuspiciousURL(href)) {
+                link.style.border = '2px solid red';
+                // 修复：使用正确的options对象
+                link.addEventListener('click', (e) => {
+                    if (!confirm('此链接可能指向不安全网站，是否继续访问？\n' + href)) {
+                        e.preventDefault();
+                    }
+                }, { capture: true, passive: false });
             }
-        } catch (error) {
-            this.showToast(`验证失败: ${error.message}`, 'error');
-        } finally {
-            if (this.verifyBtn) {
-                this.verifyBtn.disabled = false;
-                this.verifyBtn.innerHTML = '<i class="fas fa-check"></i> 验证并复制完整号码';
+        },
+
+        checkIframe(iframe) {
+            const src = iframe.getAttribute('src');
+            if (src && SecurityCore.isSuspiciousURL(src)) {
+                iframe.style.border = '3px solid orange';
             }
-            this.loadStats();
         }
-    }
+    };
 
-    markSecurityCodeAsUsed() {
-        if (this.securityCode && this.currentSecurityCode) {
-            this.securityCode.textContent = '已使用';
-            this.securityCode.style.color = '#6c757d';
-            this.securityCode.style.opacity = '0.7';
-            this.currentSecurityCode = null;
-            this.hasGeneratedCode = false;
-        }
-    }
+    const SecurityCore = {
+        isSuspiciousURL(url) {
+            if (!url || typeof url !== 'string') return false;
+            const sanitized = CoreLibrary.Utilities.sanitizeInput(url);
+            return KEYWORD_LIBRARY.MALICIOUS_PATTERNS.some(pattern => pattern.test(sanitized));
+        },
 
-    async copyFullNumber() {
-        if (!this.currentPhoneNumber) {
-            this.showToast('没有可复制的内容', 'error');
-            return;
-        }
-
-        try {
-            await navigator.clipboard.writeText(this.currentPhoneNumber);
-        } catch (err) {
-            const textArea = document.createElement('textarea');
-            textArea.value = this.currentPhoneNumber;
-            document.body.appendChild(textArea);
-            textArea.select();
-            document.execCommand('copy');
-            document.body.removeChild(textArea);
-        }
-    }
-
-    async loadStats() {
-        try {
-            const response = await fetch(`${this.apiBase}/stats`);
-            const data = await response.json();
+        enhancedRecordCheck(domain) {
+            if (!CoreLibrary.Utilities.validateDomain(domain)) return false;
+            if (KEYWORD_LIBRARY.TRUSTED_DOMAINS.some(d => domain.endsWith(d))) return true;
+            if (KEYWORD_LIBRARY.SUSPICIOUS_DOMAINS.some(d => domain.endsWith(d))) return false;
             
-            if (data.success && this.totalCount && this.usedCount && this.availableCount) {
-                this.totalCount.textContent = data.stats.total;
-                this.usedCount.textContent = data.stats.used;
-                this.availableCount.textContent = data.stats.available;
+            const domainParts = domain.split('.');
+            if (domainParts.length < 2) return false;
+            
+            const secondLevel = domainParts[domainParts.length - 2];
+            const riskyKeywords = ['free', 'download', 'video', 'movie', 'stream'];
+            if (riskyKeywords.some(keyword => secondLevel.includes(keyword))) return Math.random() > 0.6;
+            
+            return Math.random() > 0.4;
+        }
+    };
+
+    const UIManager = {
+        showSecurityCheckPopup(domain, isSafe, isPornography = false) {
+            if (document.body) {
+                this.createPopup(domain, isSafe, isPornography);
+            } else {
+                setTimeout(() => this.showSecurityCheckPopup(domain, isSafe, isPornography), 50);
             }
-        } catch (error) {
-            console.error('加载统计信息失败:', error);
+        },
+
+        createPopup(domain, isSafe, isPornography) {
+            this.removeExistingPopups();
+
+            const overlay = document.createElement('div');
+            overlay.id = 'security-check-overlay';
+            overlay.style.cssText = `
+                position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                background: rgba(0,0,0,0.7); z-index: 2147483647;
+                display: flex; align-items: center; justify-content: center;
+            `;
+
+            const popup = document.createElement('div');
+            popup.id = 'security-check-popup';
+            const borderColor = isPornography ? '#ff0000' : (isSafe ? '#4CAF50' : '#ff4444');
+            popup.style.cssText = `
+                background: white; padding: 20px; border-radius: 12px;
+                box-shadow: 0 8px 32px rgba(0,0,0,0.3); z-index: 2147483647;
+                font-family: Arial, sans-serif; max-width: 90%; width: 320px;
+                text-align: center; border: 3px solid ${borderColor};
+            `;
+
+            const title = document.createElement('h3');
+            title.textContent = isPornography ? '色情内容警告' : '网页安全检查';
+            title.style.margin = '0 0 15px 0';
+
+            const message = document.createElement('p');
+            if (isPornography) {
+                message.textContent = `警告：检测到色情内容，网站 ${domain} 已被拦截！`;
+                message.style.color = '#ff0000';
+            } else {
+                message.textContent = isSafe ? 
+                    `网站 ${domain} 已通过安全检查。` : 
+                    `警告：网站 ${domain} 存在安全风险！`;
+            }
+            message.style.margin = '0 0 20px 0';
+
+            const closeBtn = document.createElement('button');
+            closeBtn.textContent = isPornography ? '立即离开' : '确认';
+            closeBtn.style.cssText = `
+                background: ${isPornography ? '#ff0000' : (isSafe ? '#4CAF50' : '#ff4440')};
+                color: white; border: none; padding: 12px 24px; border-radius: 6px;
+                cursor: pointer; width: 100%; font-size: 16px;
+            `;
+
+            popup.appendChild(title);
+            popup.appendChild(message);
+            popup.appendChild(closeBtn);
+            overlay.appendChild(popup);
+            document.body.appendChild(overlay);
+
+            const removePopup = () => {
+                overlay.remove();
+                if (isPornography) window.location.href = 'about:blank';
+            };
+
+            closeBtn.addEventListener('click', removePopup, { passive: true });
+            // 修复：阻止事件传播，避免点击popup内部时触发overlay点击事件
+            popup.addEventListener('click', (e) => {
+                e.stopPropagation();
+            }, { passive: true });
+            overlay.addEventListener('click', removePopup, { passive: true });
+        },
+
+        removeExistingPopups() {
+            const popup = document.getElementById('security-check-popup');
+            const overlay = document.getElementById('security-check-overlay');
+            if (popup) popup.remove();
+            if (overlay) overlay.remove();
         }
-    }
+    };
 
-    showToast(message, type = 'info') {
-        if (!this.toast) return;
-        
-        this.toast.textContent = message;
-        this.toast.className = 'toast';
-        
-        if (type === 'success') {
-            this.toast.style.background = '#28a745';
-        } else if (type === 'error') {
-            this.toast.style.background = '#dc3545';
-        } else {
-            this.toast.style.background = '#333';
+    const RequestInterceptor = {
+        init() {
+            this.interceptWindowOpen();
+            this.interceptLocation();
+        },
+
+        interceptWindowOpen() {
+            if (typeof window.open === 'function') {
+                const original = window.open;
+                window.open = function(...args) {
+                    const url = args[0];
+                    if (url && SecurityCore.isSuspiciousURL(url)) {
+                        return null;
+                    }
+                    return original.apply(this, args);
+                };
+            }
+        },
+
+        interceptLocation() {
+            try {
+                const originalReplace = window.location.replace;
+                window.location.replace = function(url) {
+                    const sanitized = CoreLibrary.Utilities.sanitizeInput(url);
+                    if (SecurityCore.isSuspiciousURL(sanitized)) {
+                        return;
+                    }
+                    return originalReplace.call(this, sanitized);
+                };
+            } catch {}
         }
-        
-        this.toast.classList.add('show');
-        
-        setTimeout(() => {
-            this.toast.classList.remove('show');
-        }, 3000);
-    }
-}
+    };
 
-window.addEventListener('unhandledrejection', (event) => {
-    console.error('未处理的Promise错误:', event.reason);
-    event.preventDefault();
-});
+    const SecurityEngine = {
+        async init() {
+            PermissionManager.checkPermissions();
+            PerformanceOptimizer.init();
+            CompatibilityLayer.init();
 
-document.addEventListener('DOMContentLoaded', () => {
-    try {
-        new VirtualPhoneGenerator();
-    } catch (error) {
-        console.error('初始化失败:', error);
-        alert('系统初始化失败，请刷新页面');
+            const integrityValid = await SecurityValidator.verifyScriptIntegrity();
+            if (!integrityValid) return;
+
+            SecuritySystem.init();
+            
+            const domain = window.location.hostname;
+            
+            setTimeout(() => {
+                if (!ContentScanner.checkPornographyContent()) {
+                    this.checkSiteRecord(domain);
+                }
+            }, SECURITY_CONFIG.SCAN_DELAY);
+
+            RequestInterceptor.init();
+            ContentScanner.monitorDynamicContent();
+            FloatingBallManager.init();
+        },
+
+        checkSiteRecord(domain) {
+            const domains = CoreLibrary.Storage.get('checkedDomains', {});
+            const currentTime = Date.now();
+            
+            if (domains[domain] && (currentTime - domains[domain].timestamp) < SECURITY_CONFIG.CACHE_TIME) {
+                UIManager.showSecurityCheckPopup(domain, domains[domain].hasRecord);
+                return;
+            }
+            
+            const hasRecord = SecurityCore.enhancedRecordCheck(domain);
+            domains[domain] = { hasRecord, timestamp: currentTime };
+            CoreLibrary.Storage.set('checkedDomains', domains);
+            UIManager.showSecurityCheckPopup(domain, hasRecord);
+        },
+
+        quickScan() {
+            return ContentScanner.quickScan();
+        }
+    };
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => SecurityEngine.init(), { once: true, passive: true });
+    } else {
+        SecurityEngine.init();
     }
-});
+
+    window.securityInterceptor = {
+        version: '2.3',
+        quickScan: () => SecurityEngine.quickScan()
+    };
+})();
