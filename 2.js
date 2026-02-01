@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         网页安全拦截器
 // @namespace    http://tampermonkey.net/
-// @version      2.3
+// @version      2.4
 // @description  拦截未备案网站和隐藏跳转页面，提升网页浏览安全性
 // @author       You
 // @match        *://*/*
@@ -1109,7 +1109,7 @@
     }
 
     window.securityInterceptor = {
-        version: '2.3',
+        version: '2.4',
         quickScan: () => SecurityEngine.quickScan()
     };
 })();
