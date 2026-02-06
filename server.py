@@ -358,6 +358,7 @@ def get_db_connection():
     conn.execute('PRAGMA cache_size=20000')
     conn.execute('PRAGMA temp_store=MEMORY')
     conn.execute('PRAGMA mmap_size=268435456')
+    conn.execute('PRAGMA optimize')
     
     return conn
 
@@ -374,9 +375,9 @@ def parse_datetime(dt_str):
         
         formats = [
             '%Y-%m-%d %H:%M:%S',
-            '%Y-%m-%d %H:%M:%S.%f',
+            '%Y-%m-d %H:%M:%S',
             '%Y-%m-%dT%H:%M:%S',
-            '%Y-%m-%dT%H:%M:%S.%f'
+            '%Y-%m-%d %H:%M:%S.%f'
         ]
         
         for fmt in formats:
@@ -425,18 +426,23 @@ def init_database():
     )
     ''')
     
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_phone ON phone_numbers(phone_number)')
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_code ON phone_numbers(security_code)')
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_used ON phone_numbers(is_used)')
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_created ON phone_numbers(created_at)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_phone_number ON phone_numbers(phone_number)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_security_code ON phone_numbers(security_code)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_is_used ON phone_numbers(is_used)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_created_at ON phone_numbers(created_at)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_client_ip ON phone_numbers(client_ip)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_category ON phone_numbers(category)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_request_id ON phone_numbers(request_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_custom_prefix ON phone_numbers(custom_prefix)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_security_code_expires_at ON phone_numbers(security_code_expires_at)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_comp_used_created ON phone_numbers(is_used, created_at)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_comp_ip_used ON phone_numbers(client_ip, is_used)')
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_code_expires ON phone_numbers(security_code_expires_at)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_comp_code_expires ON phone_numbers(security_code_expires_at, is_used)')
     
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_stats_date ON usage_stats(date)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_usage_stats_date ON usage_stats(date)')
+    
+    cursor.execute('PRAGMA optimize')
+    cursor.execute('PRAGMA incremental_vacuum')
     
     conn.commit()
     conn.close()
@@ -445,16 +451,6 @@ def cleanup_unused_phone_numbers():
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        
-        cursor.execute('''
-            SELECT COUNT(*) as count FROM phone_numbers 
-            WHERE (is_used = 0 AND security_code IS NULL AND 
-                  (strftime('%s', 'now') - strftime('%s', created_at)) > 300)
-               OR (security_code IS NOT NULL AND is_used = 0 AND 
-                  (strftime('%s', 'now') - strftime('%s', last_accessed)) > 3600)
-        ''')
-        result = cursor.fetchone()
-        count_before = result['count'] if result else 0
         
         cursor.execute('''
             DELETE FROM phone_numbers 
@@ -466,17 +462,13 @@ def cleanup_unused_phone_numbers():
         
         deleted_count = cursor.rowcount
         
-        cursor.execute('ANALYZE')
-        cursor.execute('PRAGMA optimize')
+        if deleted_count > 0:
+            cursor.execute('PRAGMA optimize')
+            cursor.execute('PRAGMA wal_checkpoint(TRUNCATE)')
         
         conn.commit()
         conn.close()
         
-        if deleted_count > 500:
-            conn_vacuum = sqlite3.connect(DATABASE)
-            conn_vacuum.execute('VACUUM')
-            conn_vacuum.commit()
-            conn_vacuum.close()
     except Exception as e:
         pass
 
@@ -548,7 +540,6 @@ def rate_limit():
                     last_request_time = recent_requests[client_ip]
                     time_diff = now - last_request_time
                     min_wait = 5.00
-                    max_wait = 5.01
                     if time_diff < min_wait:
                         wait_time = max(min_wait - time_diff, 0)
                         update_api_stats(request.endpoint, False)
@@ -939,7 +930,7 @@ def generate_custom_number():
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        max_attempts = 20
+        max_attempts = 10
         for _ in range(max_attempts):
             try:
                 phone_number = generate_phone_number(custom_prefix if custom_prefix else None)
@@ -1671,4 +1662,4 @@ if __name__ == '__main__':
         print("将启动HTTP服务器...")
         
         app.last_cleanup = time.time()
-        app.run(debug=True, host='0.0.0.0', port=port, threaded=True)
+        app.run(debug=True, host='0.0.0.0', port=port, threaded=True
