@@ -839,7 +839,6 @@ def health_check():
         
         health_status = {
             'status': 'healthy',
-            'server_status': '在线',
             'database': {
                 'total_records': total_records,
                 'used_records': used_records,
@@ -869,12 +868,6 @@ def health_check():
             }
         }
         
-        if memory_info.percent > 90 or disk_usage.percent > 90 or cpu_percent > 90:
-            health_status['status'] = 'warning'
-        if memory_info.percent > 95 or disk_usage.percent > 95 or cpu_percent > 95:
-            health_status['status'] = 'critical'
-            health_status['server_status'] = '离线'
-        
         return jsonify({
             'success': True,
             'health': health_status
@@ -883,9 +876,7 @@ def health_check():
     except Exception as e:
         return jsonify({
             'success': False,
-            'error': str(e),
-            'status': 'unhealthy',
-            'server_status': '离线'
+            'error': str(e)
         }), 500
 
 @app.route('/api/ip-info', methods=['GET'])
