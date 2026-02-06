@@ -498,7 +498,7 @@ class VirtualPhoneGenerator {
         }
         
         if (this.codeExpiryInfo) {
-            this.codeExpiryInfo.style.display = 'none';
+            this.codeExpiryInfo.style.display = 'block';
         }
         
         if (this.copyMaskedBtn) {
@@ -507,8 +507,6 @@ class VirtualPhoneGenerator {
             this.copyMaskedBtn.disabled = false;
             this.copyMaskedBtn.classList.remove('btn-copy-success');
         }
-        
-        this.checkSecurityCodeExpiry();
     }
 
     async checkSecurityCodeExpiry() {
@@ -526,10 +524,9 @@ class VirtualPhoneGenerator {
             const data = await response.json();
             
             if (data.success) {
-                if (data.is_valid) {
+                if (data.is_valid && data.remaining_seconds > 0) {
+                    this.currentSecurityCode = data.security_code || null;
                     this.startSecurityCodeTimer(data.remaining_seconds);
-                    this.securityCode.textContent = data.security_code || '安全码有效';
-                    this.securityCode.style.color = '#28a745';
                 } else if (data.is_expired && data.can_regenerate) {
                     this.securityCode.textContent = '点击钥匙图标生成';
                     this.securityCode.style.color = '#e74c3c';
@@ -569,11 +566,16 @@ class VirtualPhoneGenerator {
                 this.hasGeneratedCode = true;
                 this.securityCode.style.color = '#28a745';
                 
-                this.securityCodeExpiryTime = new Date(data.expires_at).getTime();
+                const expiresAt = new Date(data.expires_at).getTime();
                 const now = Date.now();
-                const remainingSeconds = Math.floor((this.securityCodeExpiryTime - now) / 1000);
+                const remainingSeconds = Math.floor((expiresAt - now) / 1000);
                 
-                this.startSecurityCodeTimer(remainingSeconds);
+                if (remainingSeconds > 0) {
+                    this.startSecurityCodeTimer(remainingSeconds);
+                } else {
+                    this.securityCode.textContent = '安全码已过期';
+                    this.securityCode.style.color = '#dc3545';
+                }
                 
                 this.showToast('安全码生成成功！有效期180秒', 'success');
                 
