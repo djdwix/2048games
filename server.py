@@ -1420,20 +1420,77 @@ def download_quota_data():
         now = datetime.now()
         today_date = now.strftime('%Y-%m-%d')
         
-        csv_content = "时间段,客户端IP,请求次数\n"
-        
-        for hour_key, hour_data in sorted(quota_data.items()):
-            if hour_key.startswith(today_date):
-                for ip, count in hour_data.items():
-                    csv_content += f'{hour_key},{ip},{count}\n'
-        
-        from flask import make_response
-        response = make_response(csv_content)
-        response.headers['Content-Disposition'] = f'attachment; filename=quota_data_{today_date}.csv'
-        response.headers['Content-Type'] = 'text/csv; charset=utf-8'
-        
-        update_api_stats('download_quota_data', True)
-        return response
+        try:
+            import openpyxl
+            from openpyxl import Workbook
+            from openpyxl.styles import Font, PatternFill, Border, Side, Alignment
+            
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "配额数据"
+            
+            ws['A1'] = '时间段'
+            ws['B1'] = '客户端IP'
+            ws['C1'] = '请求次数'
+            
+            header_font = Font(bold=True, color="FFFFFF")
+            header_fill = PatternFill(start_color="4F81BD", end_color="4F81BD", fill_type="solid")
+            header_alignment = Alignment(horizontal="center", vertical="center")
+            
+            for cell in ['A1', 'B1', 'C1']:
+                ws[cell].font = header_font
+                ws[cell].fill = header_fill
+                ws[cell].alignment = header_alignment
+            
+            row = 2
+            for hour_key, hour_data in sorted(quota_data.items()):
+                if hour_key.startswith(today_date):
+                    for ip, count in hour_data.items():
+                        ws[f'A{row}'] = hour_key
+                        ws[f'B{row}'] = ip
+                        ws[f'C{row}'] = count
+                        row += 1
+            
+            for column in ['A', 'B', 'C']:
+                max_length = 0
+                column_letter = column
+                for cell in ws[column_letter]:
+                    try:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(str(cell.value))
+                    except:
+                        pass
+                adjusted_width = min(max_length + 2, 50)
+                ws.column_dimensions[column_letter].width = adjusted_width
+            
+            from io import BytesIO
+            output = BytesIO()
+            wb.save(output)
+            output.seek(0)
+            
+            from flask import make_response
+            response = make_response(output.getvalue())
+            response.headers['Content-Disposition'] = f'attachment; filename=quota_data_{today_date}.xlsx'
+            response.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            
+            update_api_stats('download_quota_data', True)
+            return response
+            
+        except ImportError:
+            csv_content = "时间段,客户端IP,请求次数\n"
+            
+            for hour_key, hour_data in sorted(quota_data.items()):
+                if hour_key.startswith(today_date):
+                    for ip, count in hour_data.items():
+                        csv_content += f'{hour_key},{ip},{count}\n'
+            
+            from flask import make_response
+            response = make_response(csv_content)
+            response.headers['Content-Disposition'] = f'attachment; filename=quota_data_{today_date}.csv'
+            response.headers['Content-Type'] = 'text/csv; charset=utf-8'
+            
+            update_api_stats('download_quota_data', True)
+            return response
         
     except Exception as e:
         update_api_stats('download_quota_data', False)
@@ -1662,4 +1719,4 @@ if __name__ == '__main__':
         print("将启动HTTP服务器...")
         
         app.last_cleanup = time.time()
-        app.run(debug=True, host='0.0.0.0', port=port, threaded=True
+        app.run(debug=True, host='0.0.0.0', port=port, threaded=True)
