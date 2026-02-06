@@ -589,6 +589,11 @@ class VirtualPhoneGenerator {
                 if (this.codeExpiryInfo) {
                     this.codeExpiryInfo.style.display = 'none';
                 }
+                
+                if (this.generateCodeBtn) {
+                    this.generateCodeBtn.disabled = false;
+                    this.generateCodeBtn.innerHTML = '<i class="fas fa-key"></i>';
+                }
             } else {
                 this.showToast(`生成安全码失败: ${data.error}`, 'error');
                 if (this.generateCodeBtn) {
@@ -628,7 +633,7 @@ class VirtualPhoneGenerator {
         
         this.updateSecurityCodeTimer(seconds);
         
-        this.securityCodeTimer = setInterval(() => {
+        this.securityCodeTimerInterval = setInterval(() => {
             seconds--;
             this.updateSecurityCodeTimer(seconds);
             
@@ -673,9 +678,9 @@ class VirtualPhoneGenerator {
     }
 
     stopSecurityCodeTimer() {
-        if (this.securityCodeTimer) {
-            clearInterval(this.securityCodeTimer);
-            this.securityCodeTimer = null;
+        if (this.securityCodeTimerInterval) {
+            clearInterval(this.securityCodeTimerInterval);
+            this.securityCodeTimerInterval = null;
         }
     }
 
@@ -867,8 +872,8 @@ class VirtualPhoneGenerator {
         if (this.quotaUpdateInterval) {
             clearInterval(this.quotaUpdateInterval);
         }
-        if (this.securityCodeTimer) {
-            clearInterval(this.securityCodeTimer);
+        if (this.securityCodeTimerInterval) {
+            clearInterval(this.securityCodeTimerInterval);
         }
     }
 }
