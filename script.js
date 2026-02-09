@@ -718,13 +718,6 @@ class VirtualPhoneGenerator {
             return;
         }
 
-        if (code !== this.currentSecurityCode) {
-            this.showToast('安全码错误，请重新输入', 'error');
-            this.securityCodeInput.focus();
-            this.securityCodeInput.select();
-            return;
-        }
-
         const captcha = new TencentCaptcha(this.tcAppId, (res) => {
             if (res.ret === 0) {
                 this.verifyAndCopy(code, res.ticket, res.randstr);
