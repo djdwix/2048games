@@ -32,13 +32,13 @@ DATABASE = 'phone_numbers.db'
 CARRIER_PREFIXES = {
     '中国移动': ['134', '135', '136', '137', '138', '139', '147', '148', '150', 
                 '151', '152', '157', '158', '159', '172', '178', '182', '183', 
-                '184', '187', '188', '198'],
+                '184', '187', '188', '198', '195', '197'],
     '中国联通': ['130', '131', '132', '145', '146', '155', '156', '166', '171', 
-                '175', '176', '185', '186'],
+                '175', '176', '185', '186', '196'],
     '中国电信': ['133', '149', '153', '173', '177', '180', '181', '189', '191', 
-                '193', '199'],
-    '中国广电': ['192'],
-    '虚拟运营商': ['170', '171']
+                '193', '199', '190', '197'],
+    '中国广电': ['192', '194'],
+    '虚拟运营商': ['170', '171', '165', '167', '162']
 }
 
 api_usage_stats = {
@@ -1477,20 +1477,11 @@ def download_quota_data():
             return response
             
         except ImportError:
-            csv_content = "时间段,客户端IP,请求次数\n"
-            
-            for hour_key, hour_data in sorted(quota_data.items()):
-                if hour_key.startswith(today_date):
-                    for ip, count in hour_data.items():
-                        csv_content += f'{hour_key},{ip},{count}\n'
-            
-            from flask import make_response
-            response = make_response(csv_content)
-            response.headers['Content-Disposition'] = f'attachment; filename=quota_data_{today_date}.csv'
-            response.headers['Content-Type'] = 'text/csv; charset=utf-8'
-            
-            update_api_stats('download_quota_data', True)
-            return response
+            update_api_stats('download_quota_data', False)
+            return jsonify({
+                'success': False,
+                'error': 'openpyxl 库未安装，无法生成Excel文件'
+            }), 500
         
     except Exception as e:
         update_api_stats('download_quota_data', False)
