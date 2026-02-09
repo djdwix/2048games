@@ -358,7 +358,6 @@ def get_db_connection():
     conn.execute('PRAGMA cache_size=20000')
     conn.execute('PRAGMA temp_store=MEMORY')
     conn.execute('PRAGMA mmap_size=268435456')
-    conn.execute('PRAGMA optimize')
     
     return conn
 
@@ -442,7 +441,6 @@ def init_database():
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_usage_stats_date ON usage_stats(date)')
     
     cursor.execute('PRAGMA optimize')
-    cursor.execute('PRAGMA incremental_vacuum')
     
     conn.commit()
     conn.close()
@@ -459,12 +457,6 @@ def cleanup_unused_phone_numbers():
                OR (security_code IS NOT NULL AND is_used = 0 AND 
                   (strftime('%s', 'now') - strftime('%s', last_accessed)) > 3600)
         ''')
-        
-        deleted_count = cursor.rowcount
-        
-        if deleted_count > 0:
-            cursor.execute('PRAGMA optimize')
-            cursor.execute('PRAGMA wal_checkpoint(TRUNCATE)')
         
         conn.commit()
         conn.close()
