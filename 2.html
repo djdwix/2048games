@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>隐私政策 - 虚拟手机号生成器</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px;
+            text-align: center;
+        }
+
+        header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+
+        header .subtitle {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .content {
+            padding: 40px;
+        }
+
+        .content-section {
+            margin-bottom: 30px;
+        }
+
+        .content-section h2 {
+            color: #667eea;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+
+        .content-section h3 {
+            color: #764ba2;
+            margin: 20px 0 10px 0;
+        }
+
+        .content-section p {
+            margin-bottom: 15px;
+            text-align: justify;
+        }
+
+        .content-section ul, .content-section ol {
+            margin-left: 20px;
+            margin-bottom: 15px;
+        }
+
+        .content-section li {
+            margin-bottom: 8px;
+        }
+
+        .highlight {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-left: 4px solid #667eea;
+            margin: 15px 0;
+            border-radius: 5px;
+        }
+
+        .contact-info {
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            padding: 25px;
+            border-radius: 10px;
+            margin-top: 30px;
+            border-left: 5px solid #667eea;
+        }
+
+        .contact-info h3 {
+            color: #333;
+            margin-bottom: 15px;
+        }
+
+        footer {
+            padding: 30px;
+            background: #f8f9fa;
+            border-top: 1px solid #e9ecef;
+            text-align: center;
+            color: #666;
+        }
+
+        .back-button {
+            display: inline-block;
+            padding: 12px 30px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-decoration: none;
+            border-radius: 10px;
+            font-weight: 600;
+            transition: all 0.3s;
+            border: none;
+            cursor: pointer;
+        }
+
+        .back-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .effective-date {
+            text-align: right;
+            color: #666;
+            font-style: italic;
+            margin-bottom: 20px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #e9ecef;
+        }
+
+        .important-notice {
+            background-color: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-left: 5px solid #fdcb6e;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 5px;
+        }
+
+        .important-notice h3 {
+            color: #d35400;
+            margin-bottom: 10px;
+        }
+
+        .update-highlight {
+            background-color: #e8f5e9;
+            border: 1px solid #c8e6c9;
+            border-left: 5px solid #4caf50;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 5px;
+        }
+
+        .update-highlight h4 {
+            color: #2e7d32;
+            margin-top: 0;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .update-highlight ul {
+            margin-left: 20px;
+            margin-bottom: 0;
+        }
+
+        .update-highlight li {
+            margin-bottom: 8px;
+            color: #333;
+        }
+
+        .version-badge {
+            background: #667eea;
+            color: white;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            display: inline-block;
+            margin-left: 10px;
+        }
+
+        @media (max-width: 768px) {
+            body {
+                padding: 10px;
+            }
+
+            .container {
+                border-radius: 15px;
+            }
+
+            header {
+                padding: 30px 20px;
+            }
+
+            header h1 {
+                font-size: 2rem;
+            }
+
+            .content {
+                padding: 25px;
+            }
+
+            .effective-date {
+                text-align: left;
+            }
+        }
+
+        @media (max-width: 576px) {
+            header {
+                padding: 25px 15px;
+            }
+
+            header h1 {
+                font-size: 1.6rem;
+            }
+
+            .content {
+                padding: 20px;
+            }
+
+            .content-section h2 {
+                font-size: 1.3rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>隐私政策 <span class="version-badge">版本 5.0</span></h1>
+            <p class="subtitle">虚拟手机号生成器</p>
+        </header>
+
+        <div class="content">
+            <div class="effective-date">
+                生效日期：2026年2月4日
+            </div>
+
+            <div class="update-highlight">
+                <h4><i class="fas fa-sync-alt"></i> 版本 5.0 重要更新</h4>
+                <ul>
+                    <li><strong>自定义号段功能：</strong>新增自定义号段生成功能，可指定前3位</li>
+                    <li><strong>移除分类系统：</strong>简化用户界面，移除复杂的分类选择</li>
+                    <li><strong>频率限制优化：</strong>生成频率从2～4秒/次调整为5秒/次</li>
+                    <li><strong>配额数据存储：</strong>JSON文件保存当天24小时内所有配额记录</li>
+                    <li><strong>简化使用流程：</strong>用户只需选择是否使用自定义号段</li>
+                    <li><strong>界面优化：</strong>移除分类选择，添加自定义号段输入框</li>
+                    <li><strong>性能优化：</strong>简化数据库结构，提高生成效率</li>
+                    <li><strong>稳定性提升：</strong>修复已知bug和逻辑问题</li>
+                    <li><strong>用户体验改进：</strong>更简洁直观的操作界面</li>
+                    <li><strong>安全性增强：</strong>进一步加强数据验证和保护</li>
+                    <li><strong>配额密钥验证系统：</strong>新增配额管理密钥验证机制，增强访问控制</li>
+                    <li><strong>密钥申请限制：</strong>每个IP每小时最多申请3次密钥，防止滥用</li>
+                    <li><strong>密钥安全特性：</strong>一次性使用、5分钟过期、IP地址绑定</li>
+                    <li><strong>配额管理页面保护：</strong>配额管理页面需通过密钥验证才能访问</li>
+                    <li><strong>密钥申请延迟：</strong>申请密钥需等待15-30秒随机延迟，防止自动化攻击</li>
+                    <li><strong>密钥管理界面：</strong>新增专门的密钥申请和验证页面</li>
+                    <li><strong>客户端状态监控：</strong>密钥申请页面显示客户端当前状态和申请次数</li>
+                    <li><strong>配额管理系统：</strong>新增每小时30次的IP配额限制，防止服务滥用</li>
+                    <li><strong>配额监控页面：</strong>新增配额管理页面，实时查看使用情况和统计</li>
+                </ul>
+            </div>
+
+            <div class="content-section">
+                <h2>1. 引言</h2>
+                <p>欢迎使用虚拟手机号生成器（以下简称"本服务"）。我们深知个人信息对您的重要性，并庄严承诺保护您的个人信息安全。本隐私政策旨在向您说明我们在您使用本服务时如何收集、使用、存储、共享和保护您的个人信息，以及您享有的相关权利。</p>
+                <p>请您在使用本服务前，仔细阅读并理解本隐私政策的全部内容。如果您不同意本隐私政策的任何内容，您应立即停止使用本服务。当您开始使用本服务时，即表示您已充分理解并同意本隐私政策的全部条款。</p>
+                
+                <div class="important-notice">
+                    <h3>重要功能更新 - 版本 5.0</h3>
+                    <p>本服务已升级至版本 5.0，主要优化包括：</p>
+                    <ul>
+                        <li><strong>自定义号段功能：</strong>支持指定手机号前3位数字</li>
+                        <li><strong>界面简化：</strong>移除分类选择系统，操作更直观</li>
+                        <li><strong>频率优化：</strong>生成频率优化为5秒/次</li>
+                        <li><strong>配额数据存储：</strong>配额记录存储在独立JSON文件中，24小时自动清理</li>
+                        <li><strong>配额密钥验证系统：</strong>新增配额管理密钥验证机制，保护配额管理页面访问</li>
+                        <li><strong>密钥安全机制：</strong>一次性使用、5分钟过期、IP地址绑定，防止滥用</li>
+                        <li><strong>密钥申请限制：</strong>每个IP每小时最多申请3次密钥，防止自动化攻击</li>
+                        <li><strong>密钥申请延迟：</strong>申请密钥需等待15-30秒随机延迟，增强安全性</li>
+                        <li><strong>配额管理：</strong>新增每小时30次IP配额限制系统，确保服务公平性</li>
+                        <li><strong>配额监控：</strong>新增配额管理页面，提供实时统计和历史查看功能</li>
+                        <li><strong>数据安全：</strong>优化配额数据存储，定期清理过期记录以保护隐私</li>
+                        <li><strong>性能提升：</strong>简化数据库结构，提升生成和查询效率</li>
+                        <li><strong>稳定性增强：</strong>修复已知逻辑问题，提升系统稳定性</li>
+                        <li><strong>用户体验：</strong>更简洁直观的操作界面，提升易用性</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="content-section">
+                <h2>2. 信息收集与使用</h2>
+                
+                <h3>2.1 生成的信息</h3>
+                <p>当您使用本服务生成虚拟手机号码时，系统会生成以下信息：</p>
+                <ul>
+                    <li>虚拟手机号码（11位数字）</li>
+                    <li>对应的安全验证码（6位大写字母和数字组合，不含易混淆字符）</li>
+                    <li>手机号对应的运营商信息</li>
+                    <li>生成时间戳</li>
+                    <li>客户端IP地址（用于安全码绑定、频率限制、配额管理和密钥验证）</li>
+                    <li>使用状态标记</li>
+                    <li><strong>自定义号段</strong>（用户指定的手机号前3位数字）</li>
+                    <li><strong>具体用途说明</strong>（用户可选的文字说明）</li>
+                    <li><strong>请求ID</strong>（用于跟踪和审计）</li>
+                    <li><strong>配额使用标记</strong>（用于记录本次生成是否计入配额）</li>
+                    <li><strong>配额密钥申请记录</strong>（当您申请配额管理密钥时生成）</li>
+                </ul>
+                <div class="highlight">
+                    <p><strong>重要说明：</strong>所有生成的虚拟手机号码均为随机生成的测试号码，不关联任何真实的个人身份信息、通信账户或服务。这些号码仅用于技术测试和学习目的，不具备真实的通信功能。运营商信息仅根据号码前缀自动识别，不代表真实的运营商服务。安全码已优化，移除O、0、I、l、1等易混淆字符。安全码与客户端IP地址绑定，只能在生成时的客户端下使用。配额数据仅用于服务管理和资源公平分配。配额密钥仅用于访问配额管理页面，不用于其他目的。</p>
+                </div>
+
+                <h3>2.2 IP地址信息</h3>
+                <p>为保障服务的安全性和防止滥用，我们会收集和处理以下信息：</p>
+                <ul>
+                    <li><strong>服务器IP地址：</strong>用于显示服务运行的网络位置</li>
+                    <li><strong>客户端IP地址：</strong>用于安全码绑定、频率限制、配额管理、密钥验证和防止滥用</li>
+                </ul>
+                <p>信息处理方式：</p>
+                <ul>
+                    <li>服务器IP地址会在页面中显示，帮助您了解服务部署位置</li>
+                    <li>您的客户端IP地址会显示在页面上，仅用于透明化展示</li>
+                    <li>客户端IP地址用于与安全码绑定，确保安全码只能在生成时的客户端下使用</li>
+                    <li>客户端IP地址用于频率限制（每5秒一次）</li>
+                    <li>客户端IP地址用于配额管理系统（每个IP每小时限30次）</li>
+                    <li>客户端IP地址用于密钥验证系统（密钥与申请时的客户端IP地址绑定）</li>
+                    <li>请求时间记录在服务器内存中，不持久化存储，30秒后自动清理</li>
+                    <li>客户端IP地址用于配额统计，提供配额使用情况信息</li>
+                    <li>客户端IP地址用于密钥申请限制（每个IP每小时最多申请3次密钥）</li>
+                    <li><strong>重要：</strong>本服务已简化界面和操作流程，使用客户端IP地址进行安全码绑定、配额管理和密钥验证</li>
+                </ul>
+
+                <h3>2.3 技术性信息</h3>
+                <p>为保障服务的正常运行和安全性，我们会自动收集以下技术信息：</p>
+                <ul>
+                    <li><strong>请求时间戳：</strong>用于记录操作时间，实现频率限制、配额计算和密钥验证</li>
+                    <li><strong>浏览器类型和版本：</strong>用于优化用户体验</li>
+                    <li><strong>设备信息：</strong>基本的设备类型信息，用于适配不同屏幕尺寸</li>
+                    <li><strong>请求类型和状态：</strong>用于服务监控和优化</li>
+                    <li><strong>腾讯云验证信息：</strong>复制完整号码时进行的腾讯云人机验证数据</li>
+                    <li><strong>自定义号段信息：</strong>用户指定的手机号前3位数字</li>
+                    <li><strong>配额使用数据：</strong>用于记录每个IP地址每小时的生成次数</li>
+                    <li><strong>配额统计信息：</strong>用于生成配额使用报告和管理</li>
+                    <li><strong>密钥申请数据：</strong>用于记录密钥申请和使用情况</li>
+                    <li><strong>密钥验证数据：</strong>用于记录密钥验证过程和结果</li>
+                    <li><strong>密钥申请延迟数据：</strong>用于记录密钥申请等待时间和状态</li>
+                </ul>
+                <p>这些技术信息不会用于识别个人身份，且会在匿名化处理后用于服务优化。腾讯云验证信息仅用于验证用户是否为真实人类，不会用于其他目的。配额数据仅用于服务资源管理和防止滥用。密钥数据仅用于配额管理访问控制。</p>
+            </div>
+
+            <div class="content-section">
+                <h2>3. 信息存储与保护</h2>
+                
+                <h3>3.1 存储方式</h3>
+                <p>所有生成的数据存储在本地的SQLite数据库中，采用以下安全措施：</p>
+                <ul>
+                    <li>数据库文件位于服务器本地，不对外公开访问</li>
+                    <li>安全码与客户端IP地址绑定存储</li>
+                    <li>频率限制使用内存字典存储，不持久化到磁盘</li>
+                    <li>采用WAL（Write-Ahead Logging）日志模式，确保数据完整性</li>
+                    <li>定期清理过期数据（未使用的记录保留5分钟，已使用的记录保留24小时）</li>
+                    <li>使用事务处理确保操作的原子性</li>
+                    <li>安全码与客户端IP地址绑定，增强安全性</li>
+                    <li><strong>自动备份机制：</strong>关闭服务器时自动备份数据库，最多保留5个备份文件</li>
+                    <li><strong>数据清理优化：</strong>真正清除数据库中的过期内容，在事务外执行VACUUM回收空间</li>
+                    <li><strong>简化数据库结构：</strong>移除分类相关字段，优化查询性能</li>
+                    <li><strong>配额数据存储：</strong>配额使用数据存储在独立的JSON文件中，与主数据库分离</li>
+                    <li><strong>配额数据保护：</strong>配额文件仅包含必要的计数和IP信息，不存储其他敏感数据</li>
+                    <li><strong>密钥数据存储：</strong>配额密钥数据存储在独立的JSON文件中，与主数据库和配额数据分离</li>
+                    <li><strong>密钥数据保护：</strong>密钥文件仅包含密钥本身、IP地址和时间戳，不存储其他敏感信息</li>
+                    <li><strong>密钥申请记录存储：</strong>密钥申请记录存储在独立的数据结构中，定期清理</li>
+                </ul>
+
+                <h3>3.2 数据保留期限</h3>
+                <p>我们仅会在实现本政策所述目的所需的最短时间内保留您的信息：</p>
+                <ul>
+                    <li><strong>未使用的虚拟号码：</strong>生成后保留5分钟，之后真正从数据库中删除</li>
+                    <li><strong>已使用的虚拟号码：</strong>使用后保留24小时，之后真正从数据库中删除</li>
+                    <li><strong>客户端IP地址信息：</strong>与虚拟号码记录一同删除，不会单独长期存储</li>
+                    <li><strong>频率限制记录：</strong>仅存储在内存中，30秒后自动清理</li>
+                    <li><strong>技术日志：</strong>保留7天，用于安全审计和服务优化</li>
+                    <li><strong>数据库备份：</strong>最多保留5个最近的备份文件，自动清理旧备份</li>
+                    <li><strong>腾讯云验证数据：</strong>由腾讯云服务提供商管理，按照其隐私政策执行</li>
+                    <li><strong>配额使用数据：</strong>仅保留24小时内记录，每小时自动清理过期时段数据</li>
+                    <li><strong>配额统计信息：</strong>在数据清理时完全删除，不长期保留</li>
+                    <li><strong>密钥数据：</strong>生成后保留5分钟，过期自动删除</li>
+                    <li><strong>密钥申请记录：</strong>保留3小时，用于安全审计和防止滥用</li>
+                    <li><strong>密钥验证记录：</strong>保留1小时，用于安全审计和调试</li>
+                </ul>
+
+                <h3>3.3 安全保护措施</h3>
+                <p>我们采取以下措施保护您的信息安全：</p>
+                <ul>
+                    <li><strong>频率限制：</strong>每5秒一次，防止滥用</li>
+                    <li><strong>配额限制：</strong>每个IP每小时30次，确保服务资源公平分配</li>
+                    <li><strong>密钥申请限制：</strong>每个IP每小时最多申请3次密钥，防止滥用</li>
+                    <li><strong>密钥安全特性：</strong>一次性使用、5分钟过期、IP地址绑定</li>
+                    <li><strong>密钥申请延迟：</strong>申请密钥需等待15-30秒随机延迟，防止自动化攻击</li>
+                    <li><strong>内存存储：</strong>请求时间记录在内存中，不持久化存储</li>
+                    <li><strong>数据清理优化：</strong>真正清除数据库中的过期内容，使用VACUUM回收空间</li>
+                    <li><strong>安全码优化：</strong>移除O、0、I、l、1等易混淆字符</li>
+                    <li><strong>腾讯云人机验证：</strong>复制完整号码时需要腾讯云验证</li>
+                    <li><strong>安全码与客户端IP绑定：</strong>防止跨客户端使用</li>
+                    <li><strong>安全码防复制保护：</strong>防止安全码被直接复制</li>
+                    <li><strong>最小化数据收集和存储原则：</strong>仅收集必要信息</li>
+                    <li><strong>数据加密传输：</strong>确保数据传输安全</li>
+                    <li><strong>定期安全检查和漏洞修复：</strong>保持系统安全</li>
+                    <li><strong>数据库自动备份：</strong>确保数据安全，最多保留5个备份</li>
+                    <li><strong>安全码保护增强：</strong>防止JavaScript脚本直接获取安全码</li>
+                    <li><strong>隐私保护增强：</strong>改进数据清理策略，加强用户隐私保护</li>
+                    <li><strong>数据库结构简化：</strong>移除不必要字段，提升性能和安全性</li>
+                    <li><strong>使用统计审计：</strong>记录操作日志，便于安全审计</li>
+                    <li><strong>配额数据保护：</strong>配额数据独立存储，定期清理，不与个人身份信息关联</li>
+                    <li><strong>配额监控安全：</strong>配额管理页面需通过密钥验证访问，不暴露详细使用记录</li>
+                    <li><strong>密钥数据保护：</strong>密钥数据独立存储，定期清理，不与个人身份信息关联</li>
+                    <li><strong>密钥系统安全：</strong>密钥申请和验证过程受到多重保护，防止攻击</li>
+                </ul>
+            </div>
+
+            <div class="content-section">
+                <h2>4. 信息共享与披露</h2>
+                <p>我们承诺不会将您的个人信息出售给第三方。仅在以下情况下，我们可能会共享您的信息：</p>
+                <ul>
+                    <li><strong>腾讯云验证服务：</strong>当您复制完整号码时，需要通过腾讯云进行人机验证。此时，必要的验证信息会发送给腾讯云服务，具体数据收集和使用请参考<a href="https://cloud.tencent.com/document/product/1110" target="_blank">腾讯云验证码隐私政策</a></li>
+                    <li><strong>法律要求：</strong>根据法律法规、司法程序或政府主管部门的要求</li>
+                    <li><strong>保护权利：</strong>为保护本服务、用户或公众的安全、权利或财产</li>
+                </ul>
+                <p>与腾讯云共享的信息仅限于验证所需的基本数据，不会包含个人敏感信息。</p>
+                <p><strong>配额数据不共享：</strong>配额使用数据仅用于服务内部管理，不与任何第三方共享。</p>
+                <p><strong>密钥数据不共享：</strong>配额密钥数据仅用于服务内部访问控制，不与任何第三方共享。</p>
+            </div>
+
+            <div class="content-section">
+                <h2>5. 第三方服务</h2>
+                <p>本服务集成了以下第三方服务：</p>
+                <ul>
+                    <li><strong>腾讯云验证码服务：</strong>用于人机验证，防止自动化滥用。该服务由腾讯云计算（北京）有限责任公司提供，其隐私政策请参考：<a href="https://cloud.tencent.com/document/product/1110" target="_blank">腾讯云验证码隐私政策</a></li>
+                    <li><strong>Font Awesome图标库：</strong>用于界面图标显示，由Fonticons, Inc.提供</li>
+                    <li><strong>CDN服务：</strong>用于加速静态资源加载</li>
+                </ul>
+                <p>这些第三方服务可能有自己的隐私政策，我们建议您阅读这些政策以了解他们如何处理您的信息。</p>
+            </div>
+
+            <div class="content-section">
+                <h2>6. 您的权利</h2>
+                <p>根据相关法律法规，您对自己的个人信息享有以下权利：</p>
+                <ul>
+                    <li><strong>知情权：</strong>了解我们如何处理您的个人信息</li>
+                    <li><strong>访问权：</strong>请求访问我们持有的关于您的个人信息</li>
+                    <li><strong>更正权：</strong>请求更正不准确或不完整的个人信息</li>
+                    <li><strong>删除权：</strong>在某些情况下，请求删除您的个人信息</li>
+                    <li><strong>限制处理权：</strong>限制我们处理您的个人信息</li>
+                    <li><strong>撤回同意权：</strong>撤回您之前给予的同意</li>
+                    <li><strong>配额知情权：</strong>了解您的配额使用情况</li>
+                    <li><strong>密钥申请知情权：</strong>了解您的密钥申请情况</li>
+                </ul>
+                <p>如需行使上述权利，请通过本政策末尾的联系方式与我们联系。我们将在验证您的身份后，在法律规定的时限内响应您的请求。</p>
+            </div>
+
+            <div class="content-section">
+                <h2>7. 儿童隐私保护</h2>
+                <p>本服务不面向儿童设计。我们不会故意收集、使用或披露儿童的个人信息。如果您是儿童的父母或监护人，并认为您的孩子向我们提供了个人信息，请通过本政策末尾的联系方式与我们联系，我们将尽快删除这些信息。</p>
+            </div>
+
+            <div class="content-section">
+                <h2>8. 隐私政策更新</h2>
+                <p>我们可能会不时更新本隐私政策。更新后的隐私政策将在本页面上发布，并更新顶部的"生效日期"。我们鼓励您定期查看本隐私政策，以了解我们如何保护您的信息。如果您在隐私政策更新后继续使用本服务，即表示您接受更新后的政策。</p>
+                <div class="highlight">
+                    <p><strong>重要提示：</strong>本隐私政策版本号为5.0，于2026年2月4日生效。本次更新包含重要的功能增强和改进，包括自定义号段功能、配额密钥验证系统及新增的配额管理系统，建议您仔细阅读所有变更内容。</p>
+                </div>
+            </div>
+
+            <div class="content-section">
+                <h2>9. 免责声明</h2>
+                <p>本服务生成的所有手机号码均为虚拟测试号码，不关联任何真实的通信服务或账户。这些号码仅用于技术学习、测试和研究目的，不具备真实的通话、短信或其他通信功能。</p>
+                
+                <h3>9.1 服务可用性</h3>
+                <p>我们尽力确保服务的连续性和稳定性，但无法保证：</p>
+                <ul>
+                    <li>服务不会中断或完全无错误</li>
+                    <li>服务始终符合您的期望或需求</li>
+                    <li>服务的所有功能都可用或正常工作</li>
+                    <li>服务在任何时间都能访问</li>
+                    <li>配额系统100%准确无误</li>
+                    <li>配额统计信息实时同步</li>
+                    <li>密钥验证系统100%可靠</li>
+                    <li>密钥申请功能始终可用</li>
+                </ul>
+                
+                <h3>9.2 重要免责条款</h3>
+                <p><strong>重要免责条款：</strong></p>
+                <ul>
+                    <li>本服务仅用于技术学习、测试和研究目的</li>
+                    <li>生成的虚拟号码不关联任何真实的通信服务</li>
+                    <li>这些号码不具备真实的通话、短信或其他通信功能</li>
+                    <li>运营商信息仅根据号码前缀自动识别，不代表真实的运营商服务</li>
+                    <li>IP地址信息仅用于技术展示目的</li>
+                    <li>自定义号段仅用于生成指定前缀的测试号码</li>
+                    <li>配额信息仅用于服务管理，不保证绝对准确</li>
+                    <li>密钥系统仅用于访问控制，不保证绝对安全</li>
+                    <li>我们不对因使用本服务导致的任何直接或间接损失负责</li>
+                    <li>用户应对使用本服务的行为承担全部责任</li>
+                    <li>我们不保证服务的安全性、可靠性和及时性</li>
+                    <li>配额限制和密钥规则可能根据服务情况调整</li>
+                </ul>
+                
+                <p><strong>请勿使用本服务生成的号码进行以下行为：</strong></p>
+                <ul>
+                    <li>尝试注册真实的在线服务或应用程序</li>
+                    <li>用于任何可能侵犯他人权益的活动</li>
+                    <li>用于任何非法或欺诈目的</li>
+                    <li>传播垃圾信息或骚扰他人</li>
+                    <li>绕过腾讯云人机验证机制</li>
+                    <li>篡改或伪造客户端信息</li>
+                    <li>尝试破解或绕过安全防护措施</li>
+                    <li>进行任何可能对服务器造成过度负载的行为</li>
+                    <li>分享安全码或试图跨客户端使用安全码</li>
+                    <li>篡改统计信息或尝试操纵系统统计</li>
+                    <li>尝试绕过配额限制系统</li>
+                    <li>尝试绕过配额密钥验证系统</li>
+                    <li>滥用密钥申请功能进行不当操作</li>
+                    <li>使用多个IP地址规避配额限制或密钥申请限制</li>
+                    <li>恶意消耗配额资源影响其他用户</li>
+                    <li>尝试破解或伪造配额管理密钥</li>
+                    <li>分享或转让配额管理密钥给他人使用</li>
+                </ul>
+                
+                <div class="important-notice">
+                    <h3>禁止商业用途</h3>
+                    <p>本服务仅供个人非商业用途。严禁将本服务用于任何商业目的，包括但不限于：</p>
+                    <ul>
+                        <li>作为商业产品或服务的一部分</li>
+                        <li>用于盈利性活动</li>
+                        <li>为第三方提供类似服务</li>
+                        <li>其他任何商业性应用</li>
+                        <li>批量生成或自动化使用</li>
+                        <li>用于商业测试或商业演示</li>
+                        <li>收集统计信息用于商业分析</li>
+                        <li>利用配额系统进行商业测试</li>
+                        <li>基于配额统计进行商业分析</li>
+                        <li>利用密钥系统进行商业验证</li>
+                        <li>基于密钥数据开发商业工具</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="content-section">
+                <h2>10. IP地址和安全系统说明</h2>
+                <p>本服务显示IP地址和安全系统的目的是：</p>
+                <ul>
+                    <li>提供透明的服务信息，让您了解服务运行状态</li>
+                    <li>增强安全性，通过客户端IP绑定防止安全码被滥用</li>
+                    <li>实施频率限制，保障服务公平性</li>
+                    <li>实施配额管理，确保资源公平分配</li>
+                    <li>实施密钥验证，保护配额管理功能</li>
+                    <li>提供更好的用户体验，简化操作流程</li>
+                    <li>帮助理解手机号码的结构和分配规则</li>
+                    <li>提供配额使用情况信息</li>
+                    <li>提供密钥申请和管理功能</li>
+                </ul>
+                <p>请注意：</p>
+                <ul>
+                    <li>显示的运营商信息仅根据号码前缀自动识别</li>
+                    <li>190~197号段可能属于卫星通信等新业务</li>
+                    <li>IP地址显示有助于您了解网络连接状态</li>
+                    <li>安全码与客户端IP地址绑定，防止跨客户端使用</li>
+                    <li>安全码已移除O、0、I、l、1等易混淆字符</li>
+                    <li>复制完整号码时需要腾讯云人机验证</li>
+                    <li>频率限制使用内存存储，不持久化</li>
+                    <li>配额数据独立存储，定期清理以保护隐私</li>
+                    <li>密钥数据独立存储，定期清理以保护隐私</li>
+                    <li>过期数据会真正从数据库中清除，使用VACUUM回收空间</li>
+                    <li>安全码受保护，防止JavaScript脚本直接获取</li>
+                    <li>所有信息均为技术展示，不具备实际业务意义</li>
+                    <li>系统具有自动备份机制，确保数据安全</li>
+                    <li>已简化界面和操作流程，提升易用性</li>
+                    <li>采用安全的数据传输和存储技术</li>
+                    <li>实施数据最小化原则，仅收集必要信息</li>
+                    <li>配额信息用于服务管理，不包含个人敏感数据</li>
+                    <li>密钥信息用于访问控制，不包含个人敏感数据</li>
+                </ul>
+            </div>
+
+            <div class="content-section">
+                <h2>11. 新增功能说明</h2>
+                
+                <h3>11.1 自定义号段功能</h3>
+                <p>版本5.0新增了自定义号段功能：</p>
+                <ul>
+                    <li><strong>指定前缀：</strong>可指定手机号前3位数字（号段）</li>
+                    <li><strong>简化操作：</strong>移除分类选择，仅需选择是否使用自定义号段</li>
+                    <li><strong>界面优化：</strong>添加自定义号段输入框，操作更直观</li>
+                    <li><strong>性能优化：</strong>简化数据库结构，提升生成效率</li>
+                </ul>
+                <p>自定义号段仅用于生成指定前缀的测试号码，不会影响手机号的功能或安全性。</p>
+                
+                <h3>11.2 简化界面与操作</h3>
+                <p>版本5.0对用户界面进行了大幅简化：</p>
+                <ul>
+                    <li><strong>移除分类系统：</strong>简化操作流程，提升易用性</li>
+                    <li><strong>优化频率限制：</strong>生成频率调整为5秒/次，提升用户体验</li>
+                    <li><strong>简化流程：</strong>用户只需选择是否使用自定义号段即可生成号码</li>
+                    <li><strong>界面优化：</strong>移除复杂选择，添加直观输入框</li>
+                </ul>
+                
+                <h3>11.3 配额管理系统</h3>
+                <p>版本5.0完善了配额管理系统：</p>
+                <ul>
+                    <li><strong>配额限制：</strong>每个客户端IP地址每小时最多生成30个手机号</li>
+                    <li><strong>配额计算：</strong>按小时段计算配额（例如：14:00-14:59为一个时段）</li>
+                    <li><strong>配额监控：</strong>提供配额管理页面，实时查看使用情况和历史</li>
+                    <li><strong>数据存储：</strong>配额数据存储在独立JSON文件中，不与个人身份信息关联</li>
+                    <li><strong>数据清理：</strong>每小时自动清理过期配额数据，保护用户隐私</li>
+                    <li><strong>配额展示：</strong>在主页面显示实时配额使用情况</li>
+                    <li><strong>系统协同：</strong>配额系统与频率限制系统协同工作，防止服务滥用</li>
+                </ul>
+                <p>配额数据仅用于服务资源管理和防止滥用，经过匿名化处理，不关联个人身份。</p>
+
+                <h3>11.4 配额密钥验证系统</h3>
+                <p>版本5.0新增了配额密钥验证系统：</p>
+                <ul>
+                    <li><strong>密钥验证：</strong>访问配额管理页面需通过密钥验证</li>
+                    <li><strong>密钥申请限制：</strong>每个客户端IP地址每小时最多申请3次密钥</li>
+                    <li><strong>密钥安全特性：</strong>12位大写字母和数字组合，一次性使用、5分钟过期、IP地址绑定</li>
+                    <li><strong>申请延迟机制：</strong>申请密钥需等待15-30秒随机延迟，防止自动化攻击</li>
+                    <li><strong>密钥管理界面：</strong>新增专门的密钥申请和验证页面</li>
+                    <li><strong>状态监控：</strong>密钥申请页面显示客户端当前状态和申请次数</li>
+                    <li><strong>数据存储：</strong>密钥数据存储在独立JSON文件中，不与个人身份信息关联</li>
+                    <li><strong>数据清理：</strong>密钥数据5分钟后自动清理，密钥申请记录3小时后自动清理</li>
+                    <li><strong>系统保护：</strong>密钥系统保护配额管理功能免受未经授权访问</li>
+                </ul>
+                <p>密钥数据仅用于配额管理访问控制，经过匿名化处理，不关联个人身份，定期清理以保护隐私。</p>
+            </div>
+
+            <div class="contact-info">
+                <h3>联系我们</h3>
+                <p>如果您对本隐私政策或我们的个人信息处理实践有任何疑问、意见或建议，请通过以下方式联系我们：</p>
+                <p><strong>隐私相关：</strong> privacy@virtualphone-generator.example.com</p>
+                <p><strong>服务反馈：</strong> feedback@virtualphone-generator.example.com</p>
+                <p><strong>技术支持：</strong> support@virtualphone-generator.example.com</p>
+                <p><strong>配额管理咨询：</strong> quota@virtualphone-generator.example.com</p>
+                <p><strong>密钥相关咨询：</strong> key-support@virtualphone-generator.example.com</p>
+                <p><strong>服务时间：</strong> 工作日 9:00-18:00（北京时间）</p>
+                <p>我们承诺在收到您的联系后15个工作日内给予回复。</p>
+            </div>
+
+            <div style="text-align: center; margin-top: 40px;">
+                <a href="/" class="back-button">返回首页</a>
+            </div>
+        </div>
+
+        <footer>
+            <p>© 2026 虚拟手机号生成器 版权所有</p>
+            <p>隐私政策版本 5.0 | 生效日期：2026年2月4日</p>
+        </footer>
+    </div>
+</body>
+</html>
