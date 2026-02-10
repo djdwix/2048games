@@ -587,6 +587,7 @@ def quota_management():
     try:
         key = request.args.get('key', '').strip()
         client_ip = get_client_ip()
+        admin_mode = request.args.get('admin', '').lower() == 'true'
         
         if not key:
             return redirect(url_for('quota_key_page'))
@@ -605,7 +606,9 @@ def quota_management():
             if time.time() - key_info['created_at'] > 300:
                 return redirect(url_for('quota_key_page'))
             
-            return send_from_directory(PUBLIC_DIR, 'quota.html')
+            response = send_from_directory(PUBLIC_DIR, 'quota.html')
+            response.headers['X-Admin-Mode'] = str(admin_mode)
+            return response
             
     except Exception as e:
         return redirect(url_for('quota_key_page'))
