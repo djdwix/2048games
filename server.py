@@ -389,6 +389,26 @@ def parse_datetime(dt_str):
     except Exception:
         return None
 
+def is_maintenance_time():
+    """维护时间检测 - 以服务器实际时间为准"""
+    now = datetime.now()
+    hour = now.hour
+    minute = now.minute
+    second = now.second
+    
+    # 23:50:00 - 00:10:00 为维护时间段
+    if hour == 23 and minute >= 50:
+        return True
+    if hour == 0 and minute < 10:
+        return True
+    if hour == 0 and minute == 10 and second == 0:
+        return False
+    
+    return False
+
+def should_show_maintenance_page():
+    return is_maintenance_time()
+
 def init_database():
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -460,7 +480,6 @@ def cleanup_unused_phone_numbers():
         
         conn.commit()
         conn.close()
-        
     except Exception as e:
         pass
 
@@ -489,7 +508,6 @@ def update_usage_stats(success=True):
         
         conn.commit()
         conn.close()
-        
     except Exception as e:
         pass
 
@@ -573,21 +591,51 @@ def before_request():
         cleanup_quota_data()
         cleanup_key_data()
         app.last_cleanup = now
+    
+    # 后端全权管理维护状态 - API请求拦截
+    if request.path.startswith('/api/'):
+        if is_maintenance_time():
+            return jsonify({
+                'success': False,
+                'error': '系统维护中，请稍后再试',
+                'maintenance': True,
+                'redirect': '/404.html',
+                'server_time': datetime.now().isoformat()
+            }), 503
+        return
+    
+    # 页面路由 - 维护状态处理
+    if is_maintenance_time():
+        # 维护期间只允许访问404.html和静态资源
+        if request.path not in ['/404.html', '/style.css', '/script.js'] and not request.path.startswith('/api/'):
+            return send_from_directory(PUBLIC_DIR, '404.html'), 503
+    else:
+        # 非维护时间：如果访问404.html且不是由维护状态跳转而来，重定向到首页
+        if request.path == '/404.html':
+            referrer = request.referrer or ''
+            if '404.html' not in referrer and not is_maintenance_time():
+                return redirect(url_for('index'))
 
 @app.route('/')
 def index():
+    if is_maintenance_time():
+        return send_from_directory(PUBLIC_DIR, '404.html'), 503
     return send_from_directory(PUBLIC_DIR, 'index.html')
 
 @app.route('/quota-key', methods=['GET'])
 def quota_key_page():
+    if is_maintenance_time():
+        return send_from_directory(PUBLIC_DIR, '404.html'), 503
     return send_from_directory(PUBLIC_DIR, 'quota-key.html')
 
 @app.route('/quota', methods=['GET'])
 def quota_management():
     try:
+        if is_maintenance_time():
+            return send_from_directory(PUBLIC_DIR, '404.html'), 503
+        
         key = request.args.get('key', '').strip()
         client_ip = get_client_ip()
-        admin_mode = request.args.get('admin', '').lower() == 'true'
         
         if not key:
             return redirect(url_for('quota_key_page'))
@@ -606,23 +654,34 @@ def quota_management():
             if time.time() - key_info['created_at'] > 300:
                 return redirect(url_for('quota_key_page'))
             
-            response = send_from_directory(PUBLIC_DIR, 'quota.html')
-            response.headers['X-Admin-Mode'] = str(admin_mode)
-            return response
-            
+            return send_from_directory(PUBLIC_DIR, 'quota.html')
     except Exception as e:
         return redirect(url_for('quota_key_page'))
 
 @app.route('/privacy-policy')
 def privacy_policy():
+    if is_maintenance_time():
+        return send_from_directory(PUBLIC_DIR, '404.html'), 503
     return send_from_directory(PUBLIC_DIR, 'privacy-policy.html')
 
 @app.route('/terms')
 def terms_of_service():
+    if is_maintenance_time():
+        return send_from_directory(PUBLIC_DIR, '404.html'), 503
     return send_from_directory(PUBLIC_DIR, 'terms.html')
+
+@app.route('/404.html')
+def maintenance_page():
+    return send_from_directory(PUBLIC_DIR, '404.html')
 
 @app.route('/<path:path>')
 def serve_static(path):
+    if path == 'index.html' and is_maintenance_time():
+        return send_from_directory(PUBLIC_DIR, '404.html'), 503
+    
+    if is_maintenance_time() and path not in ['404.html', 'style.css', 'script.js']:
+        return send_from_directory(PUBLIC_DIR, '404.html'), 503
+    
     return send_from_directory(PUBLIC_DIR, path)
 
 def check_key_quota(client_ip):
@@ -643,6 +702,15 @@ def check_key_quota(client_ip):
 @app.route('/api/key/request', methods=['POST'])
 def request_key():
     try:
+        if is_maintenance_time():
+            update_api_stats('request_key', False)
+            return jsonify({
+                'success': False,
+                'error': '系统维护中，请稍后再试',
+                'maintenance': True,
+                'redirect': '/404.html'
+            }), 503
+        
         client_ip = get_client_ip()
         
         if not check_key_quota(client_ip):
@@ -687,12 +755,13 @@ def request_key():
             
             save_key_data(key_data)
             
+            update_api_stats('request_key', True)
+            
             return jsonify({
                 'success': True,
                 'key': new_key,
                 'expires_in': 300
             })
-            
     except Exception as e:
         update_api_stats('request_key', False)
         return jsonify({
@@ -703,6 +772,15 @@ def request_key():
 @app.route('/api/key/verify', methods=['POST'])
 def verify_key():
     try:
+        if is_maintenance_time():
+            update_api_stats('verify_key', False)
+            return jsonify({
+                'success': False,
+                'error': '系统维护中，请稍后再试',
+                'maintenance': True,
+                'redirect': '/404.html'
+            }), 503
+        
         data = request.json or {}
         key = data.get('key', '').strip()
         client_ip = get_client_ip()
@@ -746,7 +824,6 @@ def verify_key():
                 'message': '密钥验证成功',
                 'key': key
             })
-            
     except Exception as e:
         update_api_stats('verify_key', False)
         return jsonify({
@@ -757,6 +834,15 @@ def verify_key():
 @app.route('/api/key/request-count', methods=['GET'])
 def get_key_request_count():
     try:
+        if is_maintenance_time():
+            update_api_stats('get_key_request_count', False)
+            return jsonify({
+                'success': False,
+                'error': '系统维护中，请稍后再试',
+                'maintenance': True,
+                'redirect': '/404.html'
+            }), 503
+        
         client_ip = get_client_ip()
         
         with KEY_LOCK:
@@ -776,6 +862,8 @@ def get_key_request_count():
             next_hour = datetime(now.year, now.month, now.day, now.hour + 1, 0, 0)
             reset_time = time.mktime(next_hour.timetuple())
             
+            update_api_stats('get_key_request_count', True)
+            
             return jsonify({
                 'success': True,
                 'client_ip': client_ip,
@@ -784,7 +872,6 @@ def get_key_request_count():
                 'remaining_requests': max_requests - request_count,
                 'reset_time': reset_time
             })
-            
     except Exception as e:
         update_api_stats('get_key_request_count', False)
         return jsonify({
@@ -819,12 +906,17 @@ def health_check():
         disk_usage = psutil.disk_usage('.')
         cpu_percent = psutil.cpu_percent(interval=0.1)
         
-        now = time.time()
-        recent_hour = datetime.now().strftime('%Y-%m-%d %H:00')
+        now = datetime.now()
+        recent_hour = now.strftime('%Y-%m-%d %H:00')
         hourly_data = api_usage_stats['hourly_stats'].get(recent_hour, {'total': 0, 'success': 0, 'failed': 0})
         
+        maintenance_mode = is_maintenance_time()
+        
         health_status = {
-            'status': 'healthy',
+            'status': 'healthy' if not maintenance_mode else 'maintenance',
+            'maintenance_mode': maintenance_mode,
+            'server_time': now.isoformat(),
+            'maintenance_time_range': '23:50 - 00:10',
             'database': {
                 'total_records': total_records,
                 'used_records': used_records,
@@ -849,7 +941,7 @@ def health_check():
                 'hourly_requests': hourly_requests
             },
             'timestamps': {
-                'server_time': datetime.now().isoformat(),
+                'server_time': now.isoformat(),
                 'start_time': datetime.fromtimestamp(system_start_time).isoformat()
             }
         }
@@ -858,7 +950,6 @@ def health_check():
             'success': True,
             'health': health_status
         })
-        
     except Exception as e:
         return jsonify({
             'success': False,
@@ -868,6 +959,15 @@ def health_check():
 @app.route('/api/ip-info', methods=['GET'])
 def get_ip_info():
     try:
+        if is_maintenance_time():
+            update_api_stats('get_ip_info', False)
+            return jsonify({
+                'success': False,
+                'error': '系统维护中，请稍后再试',
+                'maintenance': True,
+                'redirect': '/404.html'
+            }), 503
+        
         update_api_stats('get_ip_info', True)
         server_ip = get_server_ip()
         client_ip = get_client_ip()
@@ -877,7 +977,6 @@ def get_ip_info():
             'server_ip': server_ip,
             'client_ip': client_ip
         })
-        
     except Exception as e:
         update_api_stats('get_ip_info', False)
         return jsonify({
@@ -891,6 +990,16 @@ def get_ip_info():
 @rate_limit()
 def generate_custom_number():
     try:
+        if is_maintenance_time():
+            update_usage_stats(False)
+            update_api_stats('generate_custom_number', False)
+            return jsonify({
+                'success': False,
+                'error': '系统维护中，请稍后再试',
+                'maintenance': True,
+                'redirect': '/404.html'
+            }), 503
+        
         client_ip = get_client_ip()
         
         quota_result, current_count = check_quota(client_ip)
@@ -971,7 +1080,6 @@ def generate_custom_number():
                     'quota_used': current_count,
                     'quota_remaining': QUOTA_LIMIT - current_count
                 })
-                
             except sqlite3.IntegrityError:
                 continue
         
@@ -981,7 +1089,6 @@ def generate_custom_number():
             'success': False,
             'error': '生成失败，请重试'
         }), 500
-        
     except Exception as e:
         update_usage_stats(False)
         update_api_stats('generate_custom_number', False)
@@ -996,6 +1103,15 @@ def generate_custom_number():
 @app.route('/api/generate-code', methods=['POST'])
 def generate_security_code_for_number():
     try:
+        if is_maintenance_time():
+            update_api_stats('generate_security_code_for_number', False)
+            return jsonify({
+                'success': False,
+                'error': '系统维护中，请稍后再试',
+                'maintenance': True,
+                'redirect': '/404.html'
+            }), 503
+        
         data = request.json
         phone_number = data.get('phone_number', '').strip()
         client_ip = get_client_ip()
@@ -1076,7 +1192,6 @@ def generate_security_code_for_number():
             'generated_at': generated_at.isoformat(),
             'expires_at': expires_at.isoformat()
         })
-            
     except Exception as e:
         update_api_stats('generate_security_code_for_number', False)
         return jsonify({
@@ -1090,6 +1205,14 @@ def generate_security_code_for_number():
 @app.route('/api/check-code-expiry', methods=['POST'])
 def check_security_code_expiry():
     try:
+        if is_maintenance_time():
+            return jsonify({
+                'success': False,
+                'error': '系统维护中，请稍后再试',
+                'maintenance': True,
+                'redirect': '/404.html'
+            }), 503
+        
         data = request.json
         phone_number = data.get('phone_number', '').strip()
         
@@ -1158,7 +1281,6 @@ def check_security_code_expiry():
             'remaining_seconds': remaining_seconds,
             'can_regenerate': not is_valid
         })
-            
     except Exception as e:
         return jsonify({
             'success': False,
@@ -1171,6 +1293,15 @@ def check_security_code_expiry():
 @app.route('/api/verify-copy', methods=['POST'])
 def verify_and_copy():
     try:
+        if is_maintenance_time():
+            update_api_stats('verify_and_copy', False)
+            return jsonify({
+                'success': False,
+                'error': '系统维护中，请稍后再试',
+                'maintenance': True,
+                'redirect': '/404.html'
+            }), 503
+        
         data = request.json
         phone_number = data.get('phone_number', '').strip()
         security_code = data.get('security_code', '').strip().upper()
@@ -1270,7 +1401,6 @@ def verify_and_copy():
             'phone_number': phone_number,
             'message': '验证成功，可以复制完整号码'
         })
-            
     except Exception as e:
         update_api_stats('verify_and_copy', False)
         return jsonify({
@@ -1284,6 +1414,15 @@ def verify_and_copy():
 @app.route('/api/quota', methods=['GET'])
 def get_quota_info():
     try:
+        if is_maintenance_time():
+            update_api_stats('get_quota_info', False)
+            return jsonify({
+                'success': False,
+                'error': '系统维护中，请稍后再试',
+                'maintenance': True,
+                'redirect': '/404.html'
+            }), 503
+        
         client_ip = get_client_ip()
         update_api_stats('get_quota_info', True)
         
@@ -1334,7 +1473,6 @@ def get_quota_info():
                 'top_users': top_users
             }
         })
-        
     except Exception as e:
         update_api_stats('get_quota_info', False)
         return jsonify({
@@ -1388,7 +1526,6 @@ def get_all_quota():
             'summary': summary,
             'overall_stats': overall_stats
         })
-        
     except Exception as e:
         update_api_stats('get_all_quota', False)
         return jsonify({
@@ -1470,14 +1607,12 @@ def download_quota_data():
             
             update_api_stats('download_quota_data', True)
             return response
-            
         except ImportError:
             update_api_stats('download_quota_data', False)
             return jsonify({
                 'success': False,
                 'error': 'openpyxl 库未安装，无法生成Excel文件'
             }), 500
-        
     except Exception as e:
         update_api_stats('download_quota_data', False)
         return jsonify({
@@ -1488,6 +1623,15 @@ def download_quota_data():
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
     try:
+        if is_maintenance_time():
+            update_api_stats('get_stats', False)
+            return jsonify({
+                'success': False,
+                'error': '系统维护中，请稍后再试',
+                'maintenance': True,
+                'redirect': '/404.html'
+            }), 503
+        
         update_api_stats('get_stats', True)
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -1531,7 +1675,6 @@ def get_stats():
                 }
             }
         })
-        
     except Exception as e:
         update_api_stats('get_stats', False)
         return jsonify({
@@ -1545,6 +1688,15 @@ def get_stats():
 @app.route('/api/client-info', methods=['GET'])
 def get_client_info():
     try:
+        if is_maintenance_time():
+            update_api_stats('get_client_info', False)
+            return jsonify({
+                'success': False,
+                'error': '系统维护中，请稍后再试',
+                'maintenance': True,
+                'redirect': '/404.html'
+            }), 503
+        
         update_api_stats('get_client_info', True)
         client_ip = get_client_ip()
         
@@ -1568,7 +1720,6 @@ def get_client_info():
                 'available': total_generated - total_used
             }
         })
-        
     except Exception as e:
         update_api_stats('get_client_info', False)
         return jsonify({
@@ -1579,6 +1730,15 @@ def get_client_info():
 @app.route('/api/api-stats', methods=['GET'])
 def get_api_stats():
     try:
+        if is_maintenance_time():
+            update_api_stats('get_api_stats', False)
+            return jsonify({
+                'success': False,
+                'error': '系统维护中，请稍后再试',
+                'maintenance': True,
+                'redirect': '/404.html'
+            }), 503
+        
         update_api_stats('get_api_stats', True)
         hourly_stats_list = []
         for hour, stats in sorted(api_usage_stats['hourly_stats'].items(), reverse=True)[:24]:
@@ -1638,7 +1798,7 @@ if __name__ == '__main__':
     if not os.path.exists(DATA_DIR):
         os.makedirs(DATA_DIR)
     
-    required_files = ['index.html', 'privacy-policy.html', 'terms.html', 'quota.html', 'quota-key.html', 'style.css', 'script.js']
+    required_files = ['index.html', 'privacy-policy.html', 'terms.html', 'quota.html', 'quota-key.html', 'style.css', 'script.js', '404.html']
     for file_name in required_files:
         file_path = os.path.join(PUBLIC_DIR, file_name)
         if not os.path.exists(file_path):
@@ -1690,10 +1850,7 @@ if __name__ == '__main__':
         print(f"配额限制: 每小时{QUOTA_LIMIT}次生成")
         print(f"管理员令牌哈希: {hashlib.sha256(ADMIN_TOKEN.encode()).hexdigest()}")
         print(f"安全码有效期: 180秒")
-        print("密钥机制: 客户端IP绑定，一次性使用，5分钟过期")
-        print("密钥申请限制: 每个IP每小时最多3次")
-        print("密钥申请延迟: 15-30秒随机延迟")
-        print("频率限制: 5秒/次")
+        print(f"维护时间: 每日 23:50 - 00:10 (以服务器实际时间为准)")
         print("=" * 60)
         
         app.last_cleanup = time.time()
@@ -1703,6 +1860,8 @@ if __name__ == '__main__':
         print("证书文件未找到!")
         print("=" * 60)
         print("将启动HTTP服务器...")
+        print(f"维护时间: 每日 23:50 - 00:10 (以服务器实际时间为准)")
+        print("=" * 60)
         
         app.last_cleanup = time.time()
         app.run(debug=True, host='0.0.0.0', port=port, threaded=True)
