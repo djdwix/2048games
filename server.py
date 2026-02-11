@@ -390,16 +390,16 @@ def parse_datetime(dt_str):
         return None
 
 def is_maintenance_time():
-    """维护时间检测 - 以服务器实际时间为准"""
     now = datetime.now()
     hour = now.hour
     minute = now.minute
     second = now.second
     
-    # 23:50:00 - 00:10:00 为维护时间段
     if hour == 23 and minute >= 50:
         return True
     if hour == 0 and minute < 10:
+        return True
+    if hour == 0 and minute == 9 and second > 0:
         return True
     if hour == 0 and minute == 10 and second == 0:
         return False
@@ -592,28 +592,15 @@ def before_request():
         cleanup_key_data()
         app.last_cleanup = now
     
-    # 后端全权管理维护状态 - API请求拦截
     if request.path.startswith('/api/'):
-        if is_maintenance_time():
-            return jsonify({
-                'success': False,
-                'error': '系统维护中，请稍后再试',
-                'maintenance': True,
-                'redirect': '/404.html',
-                'server_time': datetime.now().isoformat()
-            }), 503
         return
     
-    # 页面路由 - 维护状态处理
     if is_maintenance_time():
-        # 维护期间只允许访问404.html和静态资源
-        if request.path not in ['/404.html', '/style.css', '/script.js'] and not request.path.startswith('/api/'):
+        if request.path != '/404.html':
             return send_from_directory(PUBLIC_DIR, '404.html'), 503
     else:
-        # 非维护时间：如果访问404.html且不是由维护状态跳转而来，重定向到首页
         if request.path == '/404.html':
-            referrer = request.referrer or ''
-            if '404.html' not in referrer and not is_maintenance_time():
+            if not request.referrer or '404.html' not in request.referrer:
                 return redirect(url_for('index'))
 
 @app.route('/')
@@ -679,7 +666,7 @@ def serve_static(path):
     if path == 'index.html' and is_maintenance_time():
         return send_from_directory(PUBLIC_DIR, '404.html'), 503
     
-    if is_maintenance_time() and path not in ['404.html', 'style.css', 'script.js']:
+    if is_maintenance_time() and path not in ['404.html', 'style.css']:
         return send_from_directory(PUBLIC_DIR, '404.html'), 503
     
     return send_from_directory(PUBLIC_DIR, path)
@@ -706,9 +693,7 @@ def request_key():
             update_api_stats('request_key', False)
             return jsonify({
                 'success': False,
-                'error': '系统维护中，请稍后再试',
-                'maintenance': True,
-                'redirect': '/404.html'
+                'error': '系统维护中，请稍后再试'
             }), 503
         
         client_ip = get_client_ip()
@@ -776,9 +761,7 @@ def verify_key():
             update_api_stats('verify_key', False)
             return jsonify({
                 'success': False,
-                'error': '系统维护中，请稍后再试',
-                'maintenance': True,
-                'redirect': '/404.html'
+                'error': '系统维护中，请稍后再试'
             }), 503
         
         data = request.json or {}
@@ -838,9 +821,7 @@ def get_key_request_count():
             update_api_stats('get_key_request_count', False)
             return jsonify({
                 'success': False,
-                'error': '系统维护中，请稍后再试',
-                'maintenance': True,
-                'redirect': '/404.html'
+                'error': '系统维护中，请稍后再试'
             }), 503
         
         client_ip = get_client_ip()
@@ -915,8 +896,6 @@ def health_check():
         health_status = {
             'status': 'healthy' if not maintenance_mode else 'maintenance',
             'maintenance_mode': maintenance_mode,
-            'server_time': now.isoformat(),
-            'maintenance_time_range': '23:50 - 00:10',
             'database': {
                 'total_records': total_records,
                 'used_records': used_records,
@@ -941,7 +920,7 @@ def health_check():
                 'hourly_requests': hourly_requests
             },
             'timestamps': {
-                'server_time': now.isoformat(),
+                'server_time': datetime.now().isoformat(),
                 'start_time': datetime.fromtimestamp(system_start_time).isoformat()
             }
         }
@@ -963,9 +942,7 @@ def get_ip_info():
             update_api_stats('get_ip_info', False)
             return jsonify({
                 'success': False,
-                'error': '系统维护中，请稍后再试',
-                'maintenance': True,
-                'redirect': '/404.html'
+                'error': '系统维护中，请稍后再试'
             }), 503
         
         update_api_stats('get_ip_info', True)
@@ -995,9 +972,7 @@ def generate_custom_number():
             update_api_stats('generate_custom_number', False)
             return jsonify({
                 'success': False,
-                'error': '系统维护中，请稍后再试',
-                'maintenance': True,
-                'redirect': '/404.html'
+                'error': '系统维护中，请稍后再试'
             }), 503
         
         client_ip = get_client_ip()
@@ -1107,9 +1082,7 @@ def generate_security_code_for_number():
             update_api_stats('generate_security_code_for_number', False)
             return jsonify({
                 'success': False,
-                'error': '系统维护中，请稍后再试',
-                'maintenance': True,
-                'redirect': '/404.html'
+                'error': '系统维护中，请稍后再试'
             }), 503
         
         data = request.json
@@ -1208,9 +1181,7 @@ def check_security_code_expiry():
         if is_maintenance_time():
             return jsonify({
                 'success': False,
-                'error': '系统维护中，请稍后再试',
-                'maintenance': True,
-                'redirect': '/404.html'
+                'error': '系统维护中，请稍后再试'
             }), 503
         
         data = request.json
@@ -1297,9 +1268,7 @@ def verify_and_copy():
             update_api_stats('verify_and_copy', False)
             return jsonify({
                 'success': False,
-                'error': '系统维护中，请稍后再试',
-                'maintenance': True,
-                'redirect': '/404.html'
+                'error': '系统维护中，请稍后再试'
             }), 503
         
         data = request.json
@@ -1418,9 +1387,7 @@ def get_quota_info():
             update_api_stats('get_quota_info', False)
             return jsonify({
                 'success': False,
-                'error': '系统维护中，请稍后再试',
-                'maintenance': True,
-                'redirect': '/404.html'
+                'error': '系统维护中，请稍后再试'
             }), 503
         
         client_ip = get_client_ip()
@@ -1627,9 +1594,7 @@ def get_stats():
             update_api_stats('get_stats', False)
             return jsonify({
                 'success': False,
-                'error': '系统维护中，请稍后再试',
-                'maintenance': True,
-                'redirect': '/404.html'
+                'error': '系统维护中，请稍后再试'
             }), 503
         
         update_api_stats('get_stats', True)
@@ -1692,9 +1657,7 @@ def get_client_info():
             update_api_stats('get_client_info', False)
             return jsonify({
                 'success': False,
-                'error': '系统维护中，请稍后再试',
-                'maintenance': True,
-                'redirect': '/404.html'
+                'error': '系统维护中，请稍后再试'
             }), 503
         
         update_api_stats('get_client_info', True)
@@ -1734,9 +1697,7 @@ def get_api_stats():
             update_api_stats('get_api_stats', False)
             return jsonify({
                 'success': False,
-                'error': '系统维护中，请稍后再试',
-                'maintenance': True,
-                'redirect': '/404.html'
+                'error': '系统维护中，请稍后再试'
             }), 503
         
         update_api_stats('get_api_stats', True)
@@ -1850,7 +1811,7 @@ if __name__ == '__main__':
         print(f"配额限制: 每小时{QUOTA_LIMIT}次生成")
         print(f"管理员令牌哈希: {hashlib.sha256(ADMIN_TOKEN.encode()).hexdigest()}")
         print(f"安全码有效期: 180秒")
-        print(f"维护时间: 每日 23:50 - 00:10 (以服务器实际时间为准)")
+        print(f"维护时间: 每日 23:50 - 00:10")
         print("=" * 60)
         
         app.last_cleanup = time.time()
@@ -1860,7 +1821,7 @@ if __name__ == '__main__':
         print("证书文件未找到!")
         print("=" * 60)
         print("将启动HTTP服务器...")
-        print(f"维护时间: 每日 23:50 - 00:10 (以服务器实际时间为准)")
+        print(f"维护时间: 每日 23:50 - 00:10")
         print("=" * 60)
         
         app.last_cleanup = time.time()
