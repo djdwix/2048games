@@ -64,7 +64,6 @@ class VirtualPhoneGenerator {
                 this.tempQuota = data.temp_quota || 0;
                 this.updateUserSection();
                 this.loadQuotaInfo();
-                this.loadClientStats();
             } else {
                 this.isLoggedIn = false;
                 this.currentUser = null;
@@ -105,9 +104,6 @@ class VirtualPhoneGenerator {
                             ${tempQuotaHtml}
                         </span>
                         <div class="user-actions">
-                            <a href="/points-leaderboard" class="btn btn-secondary" style="padding: 8px 16px; text-decoration: none; background: #ffc107; color: #333;">
-                                <i class="fas fa-trophy"></i> 积分榜
-                            </a>
                             <a href="/points-shop" class="btn btn-secondary" style="padding: 8px 16px; text-decoration: none; background: #28a745;">
                                 <i class="fas fa-shopping-cart"></i> 积分商城
                             </a>
@@ -531,7 +527,6 @@ class VirtualPhoneGenerator {
             if (document.visibilityState === 'visible') {
                 this.loadStats();
                 this.checkLoginStatus();
-                this.loadClientStats();
                 this.loadQuotaInfo();
                 this.checkMaintenanceStatus();
             }
@@ -539,7 +534,6 @@ class VirtualPhoneGenerator {
         setInterval(() => {
             this.loadStats();
             if (this.isLoggedIn) {
-                this.loadClientStats();
                 this.checkLoginStatus();
             }
         }, 30000);
@@ -683,25 +677,6 @@ class VirtualPhoneGenerator {
         }
     }
 
-    async loadClientStats() {
-        if (!this.isLoggedIn) return;
-        try {
-            const response = await fetch(`${this.apiBase}/client-info`, {
-                credentials: 'include'
-            });
-            const data = await response.json();
-            if (data.success && this.clientTotalCount && this.clientUsedCount && this.clientAvailableCount) {
-                this.clientTotalCount.textContent = data.stats.total_generated;
-                this.clientUsedCount.textContent = data.stats.total_used;
-                this.clientAvailableCount.textContent = data.stats.available;
-                this.pointsBalance = data.stats.points || 0;
-                this.tempQuota = data.stats.temp_quota || 0;
-                this.updateUserSection();
-            }
-        } catch (error) {
-        }
-    }
-
     async generateNumber() {
         if (!this.isLoggedIn) {
             this.showToast('请先登录', 'error');
@@ -730,7 +705,6 @@ class VirtualPhoneGenerator {
                     clearInterval(this.cooldownTimer);
                     this.cooldownTimer = null;
                 }
-                this.loadClientStats();
                 this.loadQuotaInfo();
                 this.pointsBalance = data.points_balance;
                 this.tempQuota = data.temp_quota || 0;
@@ -1054,7 +1028,6 @@ class VirtualPhoneGenerator {
                     this.copyMaskedBtn.classList.add('btn-copy-success');
                 }
                 this.markSecurityCodeAsUsed();
-                this.loadClientStats();
             } else {
                 this.showToast(`验证失败: ${data.error}`, 'error');
             }
