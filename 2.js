@@ -1,1403 +1,1181 @@
-// ==UserScript==
-// @name         网页安全拦截器
-// @namespace    http://tampermonkey.net/
-// @version      2.5
-// @description  拦截未备案网站和隐藏跳转页面，提升网页浏览安全性
-// @author       You
-// @match        *://*/*
-// @run-at       document-start
-// @grant        GM_xmlhttpRequest
-// @grant        GM_notification
-// @grant        GM_setValue
-// @grant        GM_getValue
-// @grant        GM_addStyle
-// @grant        GM_deleteValue
-// @grant        GM_listValues
-// @connect      *
-// @connect      miit.gov.cn
-// @connect      beian.miit.gov.cn
-// @connect      raw.githubusercontent.com
-// @connect      api.mywot.com
-// @connect      safebrowsing.googleapis.com
-// @downloadURL  https://raw.githubusercontent.com/djdwix/2048games/main/2.js
-// @updateURL    https://raw.githubusercontent.com/djdwix/2048games/main/2.js
-// ==/UserScript==
-
-(function() {
-    'use strict';
-
-    const SECURITY_CONFIG = {
-        RECORD_CHECK_API: 'https://beian.miit.gov.cn/',
-        WOT_API: 'https://api.mywot.com/0.4/public_link_json2',
-        SAFE_BROWSING_API: 'https://safebrowsing.googleapis.com/v4/threatMatches:find',
-        CACHE_TIME: 86400000,
-        SCAN_DELAY: 100,
-        FLOATING_BALL: true,
-        SECURITY_LEVEL: 'high',
-        SCRIPT_SOURCE: 'https://raw.githubusercontent.com/djdwix/2048games/main/2.js',
-        INTEGRITY_CHECK: false,
-        RISK_THRESHOLD: 3,
-        ALLOW_OVERRIDE: true // 允许用户忽略高风险警告继续访问
-    };
-
-    const PermissionManager = {
-        grantedPermissions: new Set(),
-
-        checkPermissions() {
-            const requiredGrants = [
-                'GM_xmlhttpRequest', 'GM_notification', 'GM_setValue', 
-                'GM_getValue', 'GM_addStyle', 'GM_deleteValue', 'GM_listValues'
-            ];
-
-            requiredGrants.forEach(grant => {
-                try {
-                    if (typeof GM_info !== 'undefined' && GM_info.grant && GM_info.grant.includes(grant)) {
-                        this.grantedPermissions.add(grant);
-                    } else {
-                        console.warn(`权限未授权: ${grant}`);
-                    }
-                } catch (error) {
-                    console.warn(`检查权限失败 ${grant}:`, error);
-                }
-            });
-        },
-
-        hasPermission(grant) {
-            return this.grantedPermissions.has(grant);
-        },
-
-        safeGMOperation(operation, ...args) {
-            try {
-                if (this.hasPermission(operation)) {
-                    switch (operation) {
-                        case 'GM_setValue':
-                            return GM_setValue(...args);
-                        case 'GM_getValue':
-                            return GM_getValue(...args);
-                        case 'GM_addStyle':
-                            return GM_addStyle(...args);
-                        case 'GM_notification':
-                            return GM_notification(...args);
-                        case 'GM_xmlhttpRequest':
-                            return GM_xmlhttpRequest(...args);
-                        case 'GM_deleteValue':
-                            return GM_deleteValue(...args);
-                        case 'GM_listValues':
-                            return GM_listValues(...args);
-                        default:
-                            return null;
-                    }
-                }
-                return null;
-            } catch (error) {
-                console.warn(`GM操作失败 ${operation}:`, error);
-                return null;
-            }
-        }
-    };
-
-    const PerformanceOptimizer = {
-        init() {
-            this.optimizeEventHandling();
-            this.optimizeDOMOperations();
-        },
-
-        optimizeEventHandling() {
-        },
-
-        optimizeDOMOperations() {
-            if (window.MutationObserver) {
-                this.batchDOMUpdates();
-            }
-        },
-
-        batchDOMUpdates() {
-            let updateQueue = [];
-            let rafId = null;
-
-            const processQueue = () => {
-                rafId = null;
-                if (updateQueue.length > 0) {
-                    const queue = updateQueue.slice();
-                    updateQueue = [];
-                    queue.forEach(fn => {
-                        try {
-                            fn();
-                        } catch (e) {
-                            console.warn('批量更新失败:', e);
-                        }
-                    });
-                }
-            };
-
-            window.batchedUpdate = (callback) => {
-                updateQueue.push(callback);
-                if (!rafId) {
-                    rafId = requestAnimationFrame(processQueue);
-                }
-            };
-        }
-    };
-
-    const CompatibilityLayer = {
-        init() {
-            this.polyfillMissingFeatures();
-            this.fixBrowserSpecificIssues();
-        },
-
-        polyfillMissingFeatures() {
-            if (!window.requestIdleCallback) {
-                window.requestIdleCallback = (callback) => {
-                    return setTimeout(() => {
-                        callback({
-                            didTimeout: false,
-                            timeRemaining: () => 50
-                        });
-                    }, 1);
-                };
-                window.cancelIdleCallback = (id) => {
-                    clearTimeout(id);
-                };
-            }
-        },
-
-        fixBrowserSpecificIssues() {
-            const userAgent = navigator.userAgent.toLowerCase();
-
-            if (userAgent.includes('ucbrowser')) {
-                this.fixUCBrowserIssues();
-            }
-
-            if (userAgent.includes('safari') && !userAgent.includes('chrome')) {
-                this.fixSafariIssues();
-            }
-        },
-
-        fixUCBrowserIssues() {
-            const originalCreateElement = Document.prototype.createElement;
-            Document.prototype.createElement = function(tagName) {
-                const element = originalCreateElement.call(this, tagName);
-                if (tagName === 'style') {
-                    setTimeout(() => {
-                        if (element.sheet && !element.sheet.cssRules.length) {
-                            element.innerHTML = element.textContent;
-                        }
-                    }, 0);
-                }
-                return element;
-            };
-        },
-
-        fixSafariIssues() {
-            const originalQuerySelector = Document.prototype.querySelector;
-            Document.prototype.querySelector = function(selector) {
-                try {
-                    return originalQuerySelector.call(this, selector);
-                } catch (e) {
-                    return null;
-                }
-            };
-        }
-    };
-
-    const SecurityValidator = {
-        async verifyScriptIntegrity() {
-            if (!SECURITY_CONFIG.INTEGRITY_CHECK) {
-                return true;
-            }
-
-            try {
-                const currentScriptContent = this.getCurrentScriptContent();
-                if (!currentScriptContent) {
-                    console.warn('无法获取当前脚本内容，跳过完整性检查');
-                    return true;
-                }
-
-                const localChecksum = this.generateChecksum(currentScriptContent);
-                const remoteChecksum = await this.fetchRemoteChecksum();
-
-                if (remoteChecksum === null) {
-                    console.warn('无法获取远程校验码，跳过完整性检查');
-                    return true;
-                }
-
-                if (localChecksum !== remoteChecksum) {
-                    this.showSecurityWarning('脚本完整性验证失败，内容可能被篡改');
-                    return false;
-                }
-
-                PermissionManager.safeGMOperation('GM_setValue', 'script_checksum', localChecksum);
-                console.log('脚本完整性验证通过');
-                return true;
-            } catch (error) {
-                console.error('完整性检查失败:', error);
-                return true;
-            }
-        },
-
-        getCurrentScriptContent() {
-            try {
-                let scriptContent = '';
-
-                const scripts = document.scripts;
-                for (let i = scripts.length - 1; i >= 0; i--) {
-                    const script = scripts[i];
-                    if (script.textContent) {
-                        const content = script.textContent;
-                        if (content.includes('securityInterceptor') || 
-                            content.includes('SECURITY_CONFIG') ||
-                            content.includes('FloatingBallManager')) {
-                            scriptContent = content;
-                            break;
-                        }
-                    }
-                }
-
-                if (!scriptContent) {
-                    const currentScript = document.currentScript;
-                    if (currentScript && currentScript.textContent) {
-                        scriptContent = currentScript.textContent;
-                    }
-                }
-
-                if (!scriptContent) {
-                    const allScripts = document.getElementsByTagName('script');
-                    for (let script of allScripts) {
-                        if (script.textContent && script.textContent.length > 1000) {
-                            scriptContent = script.textContent;
-                            break;
-                        }
-                    }
-                }
-
-                return scriptContent || null;
-            } catch (error) {
-                console.error('获取脚本内容失败:', error);
-                return null;
-            }
-        },
-
-        async fetchRemoteChecksum() {
-            if (!PermissionManager.hasPermission('GM_xmlhttpRequest')) {
-                return null;
-            }
-
-            return new Promise((resolve) => {
-                PermissionManager.safeGMOperation('GM_xmlhttpRequest', {
-                    method: 'GET',
-                    url: SECURITY_CONFIG.SCRIPT_SOURCE + '?t=' + Date.now(),
-                    timeout: 5000,
-                    onload: function(response) {
-                        if (response.status === 200) {
-                            const checksum = SecurityValidator.generateChecksum(response.responseText);
-                            resolve(checksum);
-                        } else {
-                            resolve(null);
-                        }
-                    },
-                    onerror: function() {
-                        resolve(null);
-                    },
-                    ontimeout: function() {
-                        resolve(null);
-                    }
-                });
-            });
-        },
-
-        generateChecksum(content) {
-            if (!content) return 'invalid';
-            const cleanContent = content
-                .replace(/\/\/[^\n]*\n/g, '')
-                .replace(/\/\*[\s\S]*?\*\//g, '')
-                .replace(/\s+/g, '');
-
-            let hash = 0;
-            for (let i = 0; i < cleanContent.length; i++) {
-                const char = cleanContent.charCodeAt(i);
-                hash = ((hash << 5) - hash) + char;
-                hash = hash & hash;
-            }
-            return Math.abs(hash).toString(36) + cleanContent.length.toString(36);
-        },
-
-        showSecurityWarning(message) {
-            const warningHTML = `
-                <div style="
-                    position: fixed;
-                    top: 0;
-                    left: 0;
-                    width: 100%;
-                    height: 100%;
-                    background: rgba(0,0,0,0.9);
-                    z-index: 2147483647;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    font-family: Arial, sans-serif;
-                    color: white;
-                ">
-                    <div style="
-                        background: #ff4444;
-                        padding: 30px;
-                        border-radius: 15px;
-                        text-align: center;
-                        max-width: 500px;
-                        box-shadow: 0 0 30px rgba(255,0,0,0.7);
-                        border: 4px solid #ff0000;
-                    ">
-                        <h2 style="margin: 0 0 20px 0; color: white;">⚠️ 安全警告</h2>
-                        <p style="margin: 0 0 25px 0; line-height: 1.6; font-size: 16px;">${message}</p>
-                        <div style="display: flex; gap: 15px; justify-content: center;">
-                            <button onclick="window.location.reload()" style="
-                                background: white;
-                                color: #ff4444;
-                                border: none;
-                                padding: 12px 24px;
-                                border-radius: 6px;
-                                cursor: pointer;
-                                font-size: 16px;
-                                font-weight: bold;
-                            ">重新加载</button>
-                        </div>
-                    </div>
-                </div>
-            `;
-
-            document.documentElement.innerHTML = warningHTML;
-        }
-    };
-
-    const CoreLibrary = {
-        Utilities: {
-            sanitizeInput(input) {
-                if (typeof input !== 'string') return '';
-                return input.replace(/[\r\n\t\0<>"'`\\\u0000-\u001F\u007F-\u009F]/g, '').substring(0, 500);
-            },
-
-            validateDomain(domain) {
-                if (typeof domain !== 'string') return false;
-                const domainRegex = /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z]{2,})+$/;
-                return domainRegex.test(domain);
-            },
-
-            safeJSONParse(str, defaultValue = null) {
-                try {
-                    return JSON.parse(str);
-                } catch {
-                    return defaultValue;
-                }
-            },
-
-            debounce(func, wait, immediate = false) {
-                let timeout;
-                return function executedFunction(...args) {
-                    const later = () => {
-                        timeout = null;
-                        if (!immediate) func.apply(this, args);
-                    };
-                    const callNow = immediate && !timeout;
-                    clearTimeout(timeout);
-                    timeout = setTimeout(later, wait);
-                    if (callNow) func.apply(this, args);
-                };
-            },
-
-            throttle(func, limit) {
-                let inThrottle, lastResult;
-                return function(...args) {
-                    if (!inThrottle) {
-                        inThrottle = true;
-                        lastResult = func.apply(this, args);
-                        setTimeout(() => inThrottle = false, limit);
-                    }
-                    return lastResult;
-                };
-            }
-        },
-
-        Security: {
-            detectXSS(content) {
-                if (typeof content !== 'string') return false;
-                const xssPatterns = [
-                    /<script\b[^>]*>[\s\S]*?<\/script>/gi,
-                    /javascript:/gi,
-                    /vbscript:/gi,
-                    /on\w+\s*=/gi
-                ];
-                return xssPatterns.some(pattern => pattern.test(content));
-            },
-
-            validateURL(url) {
-                try {
-                    const parsed = new URL(url);
-                    return ['http:', 'https:'].includes(parsed.protocol);
-                } catch {
-                    return false;
-                }
-            }
-        },
-
-        Storage: {
-            get(key, defaultValue = null) {
-                const value = PermissionManager.safeGMOperation('GM_getValue', key);
-                return value === undefined || value === null ? defaultValue : value;
-            },
-
-            set(key, value) {
-                return PermissionManager.safeGMOperation('GM_setValue', key, value) !== null;
-            },
-
-            remove(key) {
-                return PermissionManager.safeGMOperation('GM_deleteValue', key) !== null;
-            },
-
-            clear() {
-                try {
-                    const keys = PermissionManager.safeGMOperation('GM_listValues') || [];
-                    keys.forEach(key => PermissionManager.safeGMOperation('GM_deleteValue', key));
-                    return true;
-                } catch {
-                    return false;
-                }
-            }
-        }
-    };
-
-    const KEYWORD_LIBRARY = {
-        PORNOGRAPHY: [
-            'porn', 'xxx', 'adult', 'sex', 'nude', 'erotic', 'hentai', 'porno',
-            '色情', '成人', '黄色', 'av', '做爱', '性爱', '情色', '黄片',
-            '淫秽', '色情网站', '成人视频', '黄色网站', '色情片'
-        ],
-        SUSPICIOUS_DOMAINS: [
-            '.tk', '.ml', '.ga', '.cf', '.gq', '.xyz', '.top', '.club', '.win', '.loan', '.bid'
-        ],
-        TRUSTED_DOMAINS: [
-            'gov.cn', 'edu.cn', 'org.cn', 'miit.gov.cn', 'baidu.com', 'qq.com', 'taobao.com', 'alipay.com'
-        ],
-        MALICIOUS_PATTERNS: [
-            /\/\/[^/]*?\.(tk|ml|ga|cf|gq|xyz|top|club|win|loan|bid)/i,
-            /\/\/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/,
-            /\/\/localhost\b/,
-            /redirect|goto|jump|url=/i,
-            /\/\/[^/]*?@/,
-            /javascript:/i,
-            /data:text\/html/i,
-            /vbscript:/i
-        ]
-    };
-
-    const SecuritySystem = {
-        init() {
-            this.enableCSP();
-            this.protectGlobalObjects();
-        },
-
-        enableCSP() {
-            try {
-                const cspMeta = document.createElement('meta');
-                cspMeta.httpEquiv = 'Content-Security-Policy';
-                cspMeta.content = "default-src 'self'; script-src 'self' 'unsafe-inline'";
-                document.head.appendChild(cspMeta);
-            } catch (error) {}
-        },
-
-        protectGlobalObjects() {
-            const protectedObjects = ['XMLHttpRequest', 'fetch'];
-            protectedObjects.forEach(objName => {
-                if (window[objName]) {
-                    try {
-                        Object.defineProperty(window, objName, {
-                            value: window[objName],
-                            writable: false,
-                            configurable: false
-                        });
-                    } catch (error) {}
-                }
-            });
-        }
-    };
-
-    const FloatingBallManager = {
-        isDragging: false,
-        dragData: null,
-        ballElement: null,
-
-        init() {
-            if (!SECURITY_CONFIG.FLOATING_BALL) return;
-
-            this.createFloatingBall();
-            this.bindEvents();
-            this.ensureBallVisibility();
-        },
-
-        createFloatingBall() {
-            let ball = document.getElementById('security-floating-ball');
-            if (ball) {
-                this.ballElement = ball;
-                return;
-            }
-
-            ball = document.createElement('div');
-            ball.id = 'security-floating-ball';
-            ball.innerHTML = '🔍';
-            ball.title = '点击扫描当前网页';
-
-            const css = `
-                #security-floating-ball {
-                    position: fixed;
-                    top: 100px;
-                    right: 20px;
-                    width: 50px;
-                    height: 50px;
-                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                    border-radius: 50%;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    font-size: 20px;
-                    cursor: move;
-                    z-index: 2147483646;
-                    box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-                    border: 2px solid white;
-                    user-select: none;
-                    transition: all 0.2s ease;
-                    touch-action: none;
-                }
-                #security-floating-ball:hover {
-                    transform: scale(1.1);
-                }
-                #security-floating-ball.scanning {
-                    animation: pulse 1s infinite;
-                }
-                @keyframes pulse {
-                    0% { transform: scale(1); }
-                    50% { transform: scale(1.1); }
-                    100% { transform: scale(1); }
-                }
-            `;
-
-            if (PermissionManager.hasPermission('GM_addStyle')) {
-                PermissionManager.safeGMOperation('GM_addStyle', css);
-            } else {
-                const style = document.createElement('style');
-                style.textContent = css;
-                document.head.appendChild(style);
-            }
-
-            document.body.appendChild(ball);
-            this.ballElement = ball;
-            this.loadBallPosition();
-        },
-
-        ensureBallVisibility() {
-            setInterval(() => {
-                const ball = document.getElementById('security-floating-ball');
-                if (!ball && this.ballElement) {
-                    document.body.appendChild(this.ballElement);
-                }
-            }, 3000);
-        },
-
-        bindEvents() {
-            const ball = this.ballElement;
-            if (!ball) return;
-
-            const startDrag = (e) => this.startDrag(e);
-            const drag = (e) => this.drag(e);
-            const stopDrag = () => this.stopDrag();
-
-            ball.addEventListener('mousedown', startDrag, { passive: false });
-            ball.addEventListener('touchstart', startDrag, { passive: false });
-            ball.addEventListener('click', (e) => {
-                if (!this.isDragging) this.startScan();
-            }, { passive: true });
-
-            document.addEventListener('mousemove', drag, { passive: false });
-            document.addEventListener('touchmove', drag, { passive: false });
-            document.addEventListener('mouseup', stopDrag, { passive: true });
-            document.addEventListener('touchend', stopDrag, { passive: true });
-        },
-
-        startDrag(e) {
-            const ball = this.ballElement;
-            if (!ball) return;
-
-            this.isDragging = true;
-            const rect = ball.getBoundingClientRect();
-            const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
-            const clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
-
-            this.dragData = {
-                startX: clientX - rect.left,
-                startY: clientY - rect.top
-            };
-
-            e.preventDefault();
-        },
-
-        drag(e) {
-            if (!this.isDragging || !this.dragData) return;
-
-            const ball = this.ballElement;
-            if (!ball) return;
-
-            const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
-            const clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
-
-            let newX = clientX - this.dragData.startX;
-            let newY = clientY - this.dragData.startY;
-
-            const maxX = window.innerWidth - ball.offsetWidth;
-            const maxY = window.innerHeight - ball.offsetHeight;
-
-            newX = Math.max(0, Math.min(newX, maxX));
-            newY = Math.max(0, Math.min(newY, maxY));
-
-            ball.style.left = newX + 'px';
-            ball.style.top = newY + 'px';
-            ball.style.right = 'auto';
-
-            e.preventDefault();
-        },
-
-        stopDrag() {
-            this.isDragging = false;
-            const ball = this.ballElement;
-            if (ball) {
-                this.saveBallPosition(ball.style.left, ball.style.top);
-            }
-            this.dragData = null;
-        },
-
-        saveBallPosition(left, top) {
-            CoreLibrary.Storage.set('floatingBallPosition', { left, top });
-        },
-
-        loadBallPosition() {
-            const position = CoreLibrary.Storage.get('floatingBallPosition');
-            if (position && position.left && position.top) {
-                const ball = this.ballElement;
-                if (ball) {
-                    ball.style.left = position.left;
-                    ball.style.top = position.top;
-                    ball.style.right = 'auto';
-                }
-            }
-        },
-
-        startScan() {
-            const ball = this.ballElement;
-            if (ball) {
-                ball.classList.add('scanning');
-                ball.innerHTML = '⏳';
-
-                setTimeout(() => {
-                    SecurityEngine.quickScan();
-                    if (ball) {
-                        ball.classList.remove('scanning');
-                        ball.innerHTML = '✅';
-                        setTimeout(() => {
-                            ball.innerHTML = '🔍';
-                        }, 1000);
-                    }
-                }, 500);
-            }
-        }
-    };
-
-    const ContentScanner = {
-        quickScan() {
-            const hasPornography = this.checkPornographyContent();
-            if (!hasPornography) {
-                const domain = window.location.hostname;
-                const result = SecurityCore.enhancedRecordCheck(domain);
-                if (result.level >= 3) {
-                    UIManager.showSecurityCheckPopup(domain, result, true, true);
-                    return { blocked: true, level: result.level, reason: result.reason };
-                } else {
-                    UIManager.showSecurityCheckPopup(domain, result, false, false);
-                }
-            }
-            return { pornography: hasPornography };
-        },
-
-        checkPornographyContent() {
-            const text = document.body?.innerText.toLowerCase() || '';
-            const url = window.location.href.toLowerCase();
-            const title = document.title.toLowerCase();
-
-            let score = 0;
-            for (const keyword of KEYWORD_LIBRARY.PORNOGRAPHY) {
-                if (text.includes(keyword)) score += 2;
-                if (url.includes(keyword)) score += 3;
-                if (title.includes(keyword)) score += 3;
-                if (score >= 5) break;
-            }
-
-            if (score >= 5) {
-                UIManager.showSecurityCheckPopup(window.location.hostname, { level: 4, reason: '检测到色情内容' }, true, true);
-                return true;
-            }
-            return false;
-        },
-
-        monitorDynamicContent() {
-            if (!window.MutationObserver) return;
-
-            const observer = new MutationObserver((mutations) => {
-                for (const mutation of mutations) {
-                    for (const node of mutation.addedNodes) {
-                        if (node.nodeType === 1) {
-                            if (node.tagName === 'A') {
-                                this.checkLink(node);
-                            } else if (node.tagName === 'IFRAME') {
-                                this.checkIframe(node);
-                            }
-                        }
-                    }
-                }
-            });
-
-            observer.observe(document, { childList: true, subtree: true });
-        },
-
-        checkLink(link) {
-            const href = link.getAttribute('href');
-            if (href) {
-                const result = SecurityCore.isSuspiciousURL(href);
-                if (result.level >= 2) {
-                    link.style.border = '2px solid red';
-                    link.addEventListener('click', (e) => {
-                        const message = `此链接可能指向危险网站（风险等级：${result.level}，原因：${result.reason}），是否继续访问？\n${href}`;
-                        if (!confirm(message)) {
-                            e.preventDefault();
-                        }
-                    }, { capture: true, passive: false });
-                } else if (result.level === 1) {
-                    link.style.border = '1px solid orange';
-                }
-            }
-        },
-
-        checkIframe(iframe) {
-            const src = iframe.getAttribute('src');
-            if (src) {
-                const result = SecurityCore.isSuspiciousURL(src);
-                if (result.level >= 2) {
-                    iframe.style.border = '3px solid orange';
-                }
-            }
-        }
-    };
-
-    const SecurityCore = {
-        isSuspiciousURL(url) {
-            if (!url || typeof url !== 'string') return { level: 0, reason: '' };
-            const sanitized = CoreLibrary.Utilities.sanitizeInput(url);
-
-            if (KEYWORD_LIBRARY.MALICIOUS_PATTERNS[0].test(sanitized)) {
-                return { level: 3, reason: '使用高风险免费域名' };
-            }
-            if (KEYWORD_LIBRARY.MALICIOUS_PATTERNS[1].test(sanitized)) {
-                return { level: 2, reason: '使用IP地址直接访问' };
-            }
-            if (KEYWORD_LIBRARY.MALICIOUS_PATTERNS[2].test(sanitized)) {
-                return { level: 3, reason: '访问本地主机' };
-            }
-            if (KEYWORD_LIBRARY.MALICIOUS_PATTERNS[3].test(sanitized)) {
-                return { level: 1, reason: '可能包含跳转' };
-            }
-            if (KEYWORD_LIBRARY.MALICIOUS_PATTERNS[4].test(sanitized)) {
-                return { level: 3, reason: 'URL包含用户认证信息' };
-            }
-            if (KEYWORD_LIBRARY.MALICIOUS_PATTERNS[5].test(sanitized)) {
-                return { level: 4, reason: '包含JavaScript代码' };
-            }
-            if (KEYWORD_LIBRARY.MALICIOUS_PATTERNS[6].test(sanitized)) {
-                return { level: 4, reason: '使用data协议' };
-            }
-            if (KEYWORD_LIBRARY.MALICIOUS_PATTERNS[7].test(sanitized)) {
-                return { level: 4, reason: '包含VBScript代码' };
-            }
-            return { level: 0, reason: '' };
-        },
-
-        async enhancedRecordCheck(domain) {
-            if (!CoreLibrary.Utilities.validateDomain(domain)) {
-                return { level: 4, reason: '域名格式无效', hasRecord: false };
-            }
-
-            if (KEYWORD_LIBRARY.TRUSTED_DOMAINS.some(d => domain.endsWith(d))) {
-                return { level: 0, reason: '可信域名', hasRecord: true };
-            }
-
-            if (KEYWORD_LIBRARY.SUSPICIOUS_DOMAINS.some(d => domain.endsWith(d))) {
-                return { level: 3, reason: '使用高风险免费域名', hasRecord: false };
-            }
-
-            // 基于公开数据源的智能分析
-            const riskScore = await this.analyzeDomainRisk(domain);
-            
-            if (riskScore >= 80) {
-                return { level: 4, reason: '基于公开数据源分析为高风险网站', hasRecord: false };
-            } else if (riskScore >= 60) {
-                return { level: 3, reason: '基于公开数据源分析为中等风险网站', hasRecord: false };
-            } else if (riskScore >= 40) {
-                return { level: 2, reason: '基于公开数据源分析为低风险网站', hasRecord: true };
-            } else if (riskScore >= 20) {
-                return { level: 1, reason: '基于公开数据源分析为可接受风险', hasRecord: true };
-            } else {
-                return { level: 0, reason: '基于公开数据源分析为安全网站', hasRecord: true };
-            }
-        },
-
-        async analyzeDomainRisk(domain) {
-            let totalRisk = 0;
-            let checkCount = 0;
-
-            try {
-                // 检查域名年龄
-                const domainAgeRisk = await this.checkDomainAge(domain);
-                if (domainAgeRisk !== null) {
-                    totalRisk += domainAgeRisk;
-                    checkCount++;
-                }
-            } catch (e) {
-                console.debug('域名年龄检查失败:', e);
-            }
-
-            try {
-                // 检查SSL证书
-                const sslRisk = await this.checkSSLCertificate(domain);
-                if (sslRisk !== null) {
-                    totalRisk += sslRisk;
-                    checkCount++;
-                }
-            } catch (e) {
-                console.debug('SSL检查失败:', e);
-            }
-
-            try {
-                // 检查WHOIS信息
-                const whoisRisk = await this.checkWHOISInfo(domain);
-                if (whoisRisk !== null) {
-                    totalRisk += whoisRisk;
-                    checkCount++;
-                }
-            } catch (e) {
-                console.debug('WHOIS检查失败:', e);
-            }
-
-            try {
-                // 检查公开黑名单
-                const blacklistRisk = await this.checkPublicBlacklists(domain);
-                if (blacklistRisk !== null) {
-                    totalRisk += blacklistRisk;
-                    checkCount++;
-                }
-            } catch (e) {
-                console.debug('黑名单检查失败:', e);
-            }
-
-            // 域名结构分析
-            const domainParts = domain.split('.');
-            if (domainParts.length < 2) {
-                totalRisk += 30;
-                checkCount++;
-            } else {
-                const secondLevel = domainParts[domainParts.length - 2];
-                const riskyKeywords = ['free', 'download', 'video', 'movie', 'stream', 'torrent', 'proxy', 'vpn'];
-                if (riskyKeywords.some(keyword => secondLevel.includes(keyword))) {
-                    totalRisk += 20;
-                    checkCount++;
-                }
-            }
-
-            if (checkCount === 0) {
-                return 0; // 无法获取任何数据，返回最低风险
-            }
-
-            return Math.min(100, Math.round(totalRisk / checkCount));
-        },
-
-        async checkDomainAge(domain) {
-            // 模拟域名年龄检查（实际实现需要接入域名注册商API）
-            return new Promise(resolve => {
-                setTimeout(() => {
-                    // 模拟：新域名风险更高
-                    const randomAge = Math.floor(Math.random() * 10) + 1;
-                    resolve(randomAge < 2 ? 30 : 10);
-                }, 100);
-            });
-        },
-
-        async checkSSLCertificate(domain) {
-            return new Promise(resolve => {
-                try {
-                    // 检查当前页面是否使用HTTPS
-                    const isHTTPS = window.location.protocol === 'https:';
-                    
-                    // 模拟SSL检查
-                    setTimeout(() => {
-                        if (isHTTPS) {
-                            // 有HTTPS，风险较低
-                            resolve(10);
-                        } else {
-                            // 无HTTPS，风险较高
-                            resolve(40);
-                        }
-                    }, 100);
-                } catch (e) {
-                    resolve(30); // 检查失败，中等风险
-                }
-            });
-        },
-
-        async checkWHOISInfo(domain) {
-            return new Promise(resolve => {
-                setTimeout(() => {
-                    // 模拟WHOIS检查
-                    // 免费域名风险较高
-                    const isFreeDomain = KEYWORD_LIBRARY.SUSPICIOUS_DOMAINS.some(d => domain.endsWith(d));
-                    resolve(isFreeDomain ? 50 : 20);
-                }, 150);
-            });
-        },
-
-        async checkPublicBlacklists(domain) {
-            if (!PermissionManager.hasPermission('GM_xmlhttpRequest')) {
-                return 0;
-            }
-
-            return new Promise(resolve => {
-                // 这里可以接入实际的公共黑名单API
-                // 例如: Google Safe Browsing, WOT (Web of Trust) 等
-                setTimeout(() => {
-                    // 模拟黑名单检查
-                    const maliciousKeywords = ['malware', 'phishing', 'scam', 'spam'];
-                    const domainLower = domain.toLowerCase();
-                    const isBlacklisted = maliciousKeywords.some(keyword => domainLower.includes(keyword));
-                    resolve(isBlacklisted ? 80 : 15);
-                }, 200);
-            });
-        }
-    };
-
-    const UIManager = {
-        showSecurityCheckPopup(domain, result, isPornography = false, isBlocked = false) {
-            if (isBlocked && result.level >= SECURITY_CONFIG.RISK_THRESHOLD) {
-                this.showBlockPage(domain, result);
-                return;
-            }
-
-            // 修复重叠问题：移除现有弹窗
-            this.removeExistingPopups();
-            
-            if (document.body) {
-                this.createPopup(domain, result, isPornography);
-            } else {
-                setTimeout(() => this.showSecurityCheckPopup(domain, result, isPornography, isBlocked), 50);
-            }
-        },
-
-        createPopup(domain, result, isPornography) {
-            this.removeExistingPopups();
-
-            const overlay = document.createElement('div');
-            overlay.id = 'security-check-overlay';
-            overlay.style.cssText = `
-                position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-                background: rgba(0,0,0,0.7); z-index: 2147483647;
-                display: flex; align-items: center; justify-content: center;
-            `;
-
-            const popup = document.createElement('div');
-            popup.id = 'security-check-popup';
-
-            let borderColor, titleText, messageText;
-
-            if (isPornography) {
-                borderColor = '#ff0000';
-                titleText = '色情内容警告';
-                messageText = `警告：检测到色情内容，网站 ${domain} 已被拦截！`;
-            } else {
-                if (result.level === 0) {
-                    borderColor = '#4CAF50';
-                    titleText = '安全检查通过';
-                    messageText = `网站 ${domain} 已通过安全检查。`;
-                } else if (result.level === 1) {
-                    borderColor = '#FF9800';
-                    titleText = '低风险警告';
-                    messageText = `网站 ${domain} 存在低风险。${result.reason ? `\n原因：${result.reason}` : ''}`;
-                } else if (result.level === 2) {
-                    borderColor = '#FF5722';
-                    titleText = '中风险警告';
-                    messageText = `网站 ${domain} 存在中等风险。${result.reason ? `\n原因：${result.reason}` : ''}`;
-                } else if (result.level === 3) {
-                    borderColor = '#F44336';
-                    titleText = '高风险警告';
-                    messageText = `网站 ${domain} 存在高风险！${result.reason ? `\n原因：${result.reason}` : ''}`;
-                } else {
-                    borderColor = '#D32F2F';
-                    titleText = '严重风险警告';
-                    messageText = `网站 ${domain} 存在严重风险！${result.reason ? `\n原因：${result.reason}` : ''}`;
-                }
-            }
-
-            // 修复UI重叠：确保每个元素有明确的位置和z-index
-            popup.style.cssText = `
-                background: white; padding: 25px; border-radius: 12px;
-                box-shadow: 0 8px 32px rgba(0,0,0,0.3); z-index: 2147483647;
-                font-family: Arial, sans-serif; max-width: 90%; width: 350px;
-                text-align: center; border: 3px solid ${borderColor};
-                position: relative; box-sizing: border-box;
-            `;
-
-            const title = document.createElement('h3');
-            title.textContent = titleText;
-            title.style.cssText = 'margin: 0 0 15px 0; color: #333; font-size: 18px; line-height: 1.4;';
-
-            const message = document.createElement('div');
-            message.style.cssText = 'margin: 0 0 20px 0; white-space: pre-line; text-align: left; color: #555; line-height: 1.6; font-size: 14px;';
-            
-            // 防止文本重叠
-            const messageLines = messageText.split('\n');
-            messageLines.forEach(line => {
-                const lineElement = document.createElement('div');
-                lineElement.textContent = line;
-                lineElement.style.marginBottom = '5px';
-                message.appendChild(lineElement);
-            });
-
-            const buttonContainer = document.createElement('div');
-            buttonContainer.style.cssText = 'display: flex; gap: 12px; justify-content: center;';
-
-            const closeBtn = document.createElement('button');
-            closeBtn.textContent = isPornography ? '立即离开' : '确认';
-            closeBtn.style.cssText = `
-                background: ${borderColor}; color: white; border: none; 
-                padding: 10px 20px; border-radius: 6px; cursor: pointer; 
-                font-size: 14px; font-weight: bold; flex: 1; min-height: 40px;
-            `;
-
-            // 高风险网站添加"继续访问"按钮
-            let overrideBtn = null;
-            if (SECURITY_CONFIG.ALLOW_OVERRIDE && result.level >= SECURITY_CONFIG.RISK_THRESHOLD && !isPornography) {
-                overrideBtn = document.createElement('button');
-                overrideBtn.textContent = '继续访问';
-                overrideBtn.style.cssText = `
-                    background: #4CAF50; color: white; border: none;
-                    padding: 10px 20px; border-radius: 6px; cursor: pointer;
-                    font-size: 14px; font-weight: bold; flex: 1; min-height: 40px;
-                `;
-                buttonContainer.appendChild(overrideBtn);
-            }
-
-            popup.appendChild(title);
-            popup.appendChild(message);
-            
-            // 按钮顺序：确认/离开按钮在右侧
-            if (overrideBtn) {
-                buttonContainer.appendChild(closeBtn);
-                buttonContainer.appendChild(overrideBtn);
-            } else {
-                buttonContainer.appendChild(closeBtn);
-            }
-            
-            popup.appendChild(buttonContainer);
-            overlay.appendChild(popup);
-            document.body.appendChild(overlay);
-
-            const removePopup = () => {
-                overlay.remove();
-                if (isPornography) window.location.href = 'about:blank';
-            };
-
-            closeBtn.addEventListener('click', removePopup, { passive: true });
-            
-            if (overrideBtn) {
-                overrideBtn.addEventListener('click', () => {
-                    // 标记该域名为已忽略
-                    const ignoredDomains = CoreLibrary.Storage.get('ignoredDomains', {});
-                    ignoredDomains[domain] = Date.now();
-                    CoreLibrary.Storage.set('ignoredDomains', ignoredDomains);
-                    
-                    // 更新缓存
-                    const domains = CoreLibrary.Storage.get('checkedDomains', {});
-                    domains[domain] = { 
-                        hasRecord: true, 
-                        level: result.level, 
-                        reason: result.reason + ' (用户选择忽略)',
-                        timestamp: Date.now(),
-                        ignored: true
-                    };
-                    CoreLibrary.Storage.set('checkedDomains', domains);
-                    
-                    overlay.remove();
-                }, { passive: true });
-            }
-
-            popup.addEventListener('click', (e) => {
-                e.stopPropagation();
-            }, { passive: true });
-            
-            overlay.addEventListener('click', removePopup, { passive: true });
-        },
-
-        showBlockPage(domain, result) {
-            // 检查用户是否已忽略该域名
-            const ignoredDomains = CoreLibrary.Storage.get('ignoredDomains', {});
-            const cacheTime = CoreLibrary.Storage.get('ignoredDomainsCacheTime', 3600000); // 1小时缓存
-            
-            if (ignoredDomains[domain] && (Date.now() - ignoredDomains[domain]) < cacheTime) {
-                // 用户已选择忽略，不拦截
-                return;
-            }
-
-            document.documentElement.innerHTML = `
-                <div style="
-                    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-                    background: linear-gradient(135deg, #ff4444 0%, #990000 100%);
-                    z-index: 2147483647; display: flex; align-items: center;
-                    justify-content: center; font-family: Arial, sans-serif; color: white;
-                ">
-                    <div style="
-                        background: rgba(255, 255, 255, 0.1); padding: 40px;
-                        border-radius: 15px; text-align: center; max-width: 500px;
-                        backdrop-filter: blur(10px); border: 3px solid white;
-                    ">
-                        <h1 style="margin: 0 0 20px 0; font-size: 32px;">🚫 网站已被拦截</h1>
-                        <p style="margin: 0 0 25px 0; line-height: 1.6; font-size: 18px;">
-                            由于安全原因，网站 <strong>${domain}</strong> 已被阻止访问。
-                        </p>
-                        <div style="background: rgba(255, 255, 255, 0.2); padding: 15px; border-radius: 8px; margin: 0 0 25px 0; text-align: left;">
-                            <p style="margin: 0 0 10px 0;"><strong>风险等级：</strong>${result.level}级（最高4级）</p>
-                            <p style="margin: 0;"><strong>拦截原因：</strong>${result.reason}</p>
-                        </div>
-                        <div style="display: flex; flex-direction: column; gap: 15px; justify-content: center;">
-                            <div style="display: flex; gap: 15px;">
-                                <button onclick="window.history.back()" style="
-                                    background: white; color: #ff4444; border: none;
-                                    padding: 12px 24px; border-radius: 6px; cursor: pointer;
-                                    font-size: 16px; font-weight: bold; flex: 1;
-                                ">返回上一页</button>
-                                <button onclick="window.location.href = 'https://www.baidu.com'" style="
-                                    background: transparent; color: white; border: 2px solid white;
-                                    padding: 12px 24px; border-radius: 6px; cursor: pointer;
-                                    font-size: 16px; font-weight: bold; flex: 1;
-                                ">访问安全网站</button>
-                            </div>
-                            ${SECURITY_CONFIG.ALLOW_OVERRIDE ? `
-                            <div style="margin-top: 15px;">
-                                <button onclick="ignoreAndContinue('${domain}', ${result.level}, '${result.reason.replace(/'/g, "\\'")}')" style="
-                                    background: #4CAF50; color: white; border: none;
-                                    padding: 12px 24px; border-radius: 6px; cursor: pointer;
-                                    font-size: 16px; font-weight: bold; width: 100%;
-                                ">不顾风险继续访问</button>
-                                <p style="margin: 10px 0 0 0; font-size: 12px; opacity: 0.8;">
-                                    ⚠️ 您将自行承担继续访问可能带来的安全风险
-                                </p>
-                            </div>
-                            ` : ''}
-                        </div>
-                    </div>
-                </div>
-                <script>
-                    function ignoreAndContinue(domain, level, reason) {
-                        try {
-                            // 存储忽略记录
-                            const ignoredDomains = JSON.parse(localStorage.getItem('security_ignored_domains') || '{}');
-                            ignoredDomains[domain] = Date.now();
-                            localStorage.setItem('security_ignored_domains', JSON.stringify(ignoredDomains));
-                            
-                            // 更新检查缓存
-                            const checkedDomains = JSON.parse(localStorage.getItem('security_checked_domains') || '{}');
-                            checkedDomains[domain] = { 
-                                hasRecord: true, 
-                                level: level, 
-                                reason: reason + ' (用户选择忽略)',
-                                timestamp: Date.now(),
-                                ignored: true
-                            };
-                            localStorage.setItem('security_checked_domains', JSON.stringify(checkedDomains));
-                            
-                            // 重新加载页面
-                            window.location.reload();
-                        } catch(e) {
-                            window.location.reload();
-                        }
-                    }
-                </script>
-            `;
-        },
-
-        removeExistingPopups() {
-            const popup = document.getElementById('security-check-popup');
-            const overlay = document.getElementById('security-check-overlay');
-            if (popup) popup.remove();
-            if (overlay) overlay.remove();
-        }
-    };
-
-    const RequestInterceptor = {
-        init() {
-            this.interceptWindowOpen();
-            this.interceptLocation();
-        },
-
-        interceptWindowOpen() {
-            if (typeof window.open === 'function') {
-                const original = window.open;
-                window.open = function(...args) {
-                    const url = args[0];
-                    if (url) {
-                        const result = SecurityCore.isSuspiciousURL(url);
-                        if (result.level >= 3) {
-                            // 检查是否被忽略
-                            const ignoredDomains = CoreLibrary.Storage.get('ignoredDomains', {});
-                            const domain = new URL(url).hostname;
-                            const cacheTime = CoreLibrary.Storage.get('ignoredDomainsCacheTime', 3600000);
-                            
-                            if (!ignoredDomains[domain] || (Date.now() - ignoredDomains[domain]) >= cacheTime) {
-                                UIManager.showBlockPage(domain, result);
-                                return null;
-                            }
-                        } else if (result.level >= 2) {
-                            const confirmMessage = `尝试打开新窗口到：${url}\n\n风险等级：${result.level}\n原因：${result.reason}\n\n是否继续？`;
-                            if (!confirm(confirmMessage)) {
-                                return null;
-                            }
-                        }
-                    }
-                    return original.apply(this, args);
-                };
-            }
-        },
-
-        interceptLocation() {
-            try {
-                const originalReplace = window.location.replace;
-                window.location.replace = function(url) {
-                    const sanitized = CoreLibrary.Utilities.sanitizeInput(url);
-                    const result = SecurityCore.isSuspiciousURL(sanitized);
-                    if (result.level >= 3) {
-                        // 检查是否被忽略
-                        const ignoredDomains = CoreLibrary.Storage.get('ignoredDomains', {});
-                        const domain = new URL(sanitized).hostname;
-                        const cacheTime = CoreLibrary.Storage.get('ignoredDomainsCacheTime', 3600000);
-                        
-                        if (!ignoredDomains[domain] || (Date.now() - ignoredDomains[domain]) >= cacheTime) {
-                            UIManager.showBlockPage(domain, result);
-                            return;
-                        }
-                    } else if (result.level >= 2) {
-                        const confirmMessage = `尝试跳转到：${url}\n\n风险等级：${result.level}\n原因：${result.reason}\n\n是否继续？`;
-                        if (!confirm(confirmMessage)) {
-                            return;
-                        }
-                    }
-                    return originalReplace.call(this, sanitized);
-                };
-            } catch {}
-        }
-    };
-
-    const SecurityEngine = {
-        async init() {
-            PermissionManager.checkPermissions();
-            PerformanceOptimizer.init();
-            CompatibilityLayer.init();
-
-            const integrityValid = await SecurityValidator.verifyScriptIntegrity();
-            if (!integrityValid) return;
-
-            SecuritySystem.init();
-
-            const domain = window.location.hostname;
-
-            // 检查是否已忽略该域名
-            const ignoredDomains = CoreLibrary.Storage.get('ignoredDomains', {});
-            const cacheTime = CoreLibrary.Storage.get('ignoredDomainsCacheTime', 3600000);
-            
-            if (ignoredDomains[domain] && (Date.now() - ignoredDomains[domain]) < cacheTime) {
-                // 用户已选择忽略该域名，不进行检查
-                console.log(`域名 ${domain} 已被用户忽略，跳过安全检查`);
-                FloatingBallManager.init();
-                return;
-            }
-
-            setTimeout(() => {
-                if (!ContentScanner.checkPornographyContent()) {
-                    this.checkSiteRecord(domain);
-                }
-            }, SECURITY_CONFIG.SCAN_DELAY);
-
-            RequestInterceptor.init();
-            ContentScanner.monitorDynamicContent();
-            FloatingBallManager.init();
-        },
-
-        async checkSiteRecord(domain) {
-            const domains = CoreLibrary.Storage.get('checkedDomains', {});
-            const currentTime = Date.now();
-
-            if (domains[domain] && (currentTime - domains[domain].timestamp) < SECURITY_CONFIG.CACHE_TIME) {
-                // 检查是否被忽略
-                if (domains[domain].ignored) {
-                    console.log(`域名 ${domain} 在缓存中标记为已忽略`);
-                    return;
-                }
-                
-                if (domains[domain].level >= SECURITY_CONFIG.RISK_THRESHOLD) {
-                    UIManager.showSecurityCheckPopup(domain, domains[domain], false, true);
-                } else {
-                    UIManager.showSecurityCheckPopup(domain, domains[domain], false, false);
-                }
-                return;
-            }
-
-            const result = await SecurityCore.enhancedRecordCheck(domain);
-            domains[domain] = { 
-                hasRecord: result.hasRecord, 
-                level: result.level, 
-                reason: result.reason,
-                timestamp: currentTime,
-                ignored: false
-            };
-            CoreLibrary.Storage.set('checkedDomains', domains);
-
-            if (result.level >= SECURITY_CONFIG.RISK_THRESHOLD) {
-                UIManager.showSecurityCheckPopup(domain, result, false, true);
-            } else {
-                UIManager.showSecurityCheckPopup(domain, result, false, false);
-            }
-        },
-
-        quickScan() {
-            return ContentScanner.quickScan();
-        }
-    };
-
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', () => SecurityEngine.init(), { once: true, passive: true });
-    } else {
-        SecurityEngine.init();
+class VirtualPhoneGenerator {
+    constructor() {
+        this.apiBase = window.location.origin + '/api';
+        this.tcAppId = '1314462072';
+        this.currentPhoneNumber = null;
+        this.currentSecurityCode = null;
+        this.hasGeneratedCode = false;
+        this.currentCarrier = null;
+        this.cooldownTimer = null;
+        this.cooldownEndTime = null;
+        this.currentAgreementVersion = '6.3';
+        this.quotaInfo = null;
+        this.quotaUpdateInterval = null;
+        this.securityCodeTimer = null;
+        this.securityCodeExpiryTime = null;
+        this.maintenanceCheckInterval = null;
+        this.currentUser = null;
+        this.isLoggedIn = false;
+        this.userCanDelete = false;
+        this.deleteEligibleTime = 0;
+        this.currentDeleteCode = null;
+        this.deleteCodeTimer = null;
+        this.pointsBalance = 0;
+        this.tempQuota = 0;
+        
+        this.initElements();
+        this.bindEvents();
+        this.checkAgreement();
+        this.preventSecurityCodeCopy();
+        this.setupQuotaMonitor();
+        this.startMaintenanceCheck();
+        this.checkLoginStatus();
     }
 
-    window.securityInterceptor = {
-        version: '2.5',
-        quickScan: () => SecurityEngine.quickScan(),
-        ignoreDomain: (domain) => {
-            const ignoredDomains = CoreLibrary.Storage.get('ignoredDomains', {});
-            ignoredDomains[domain] = Date.now();
-            CoreLibrary.Storage.set('ignoredDomains', ignoredDomains);
-            return true;
-        },
-        clearCache: () => {
-            CoreLibrary.Storage.clear();
-            return true;
+    startMaintenanceCheck() {
+        this.maintenanceCheckInterval = setInterval(() => {
+            this.checkMaintenanceStatus();
+        }, 30000);
+    }
+
+    async checkMaintenanceStatus() {
+        try {
+            const response = await fetch(`${this.apiBase}/health`);
+            const data = await response.json();
+            if (data.success && data.health && data.health.maintenance_mode === true) {
+                window.location.href = '/404.html';
+            }
+        } catch (error) {
         }
-    };
-})();
+    }
+
+    async checkLoginStatus() {
+        try {
+            const response = await fetch(`${this.apiBase}/user/info`, {
+                credentials: 'include'
+            });
+            const data = await response.json();
+            if (data.success) {
+                this.isLoggedIn = true;
+                this.currentUser = data.username;
+                this.userCanDelete = data.can_delete || false;
+                this.deleteEligibleTime = data.delete_eligible_in || 0;
+                this.pointsBalance = data.points || 0;
+                this.tempQuota = data.temp_quota || 0;
+                this.updateUserSection();
+                this.loadQuotaInfo();
+                this.loadClientStats();
+            } else {
+                this.isLoggedIn = false;
+                this.currentUser = null;
+                this.userCanDelete = false;
+                this.pointsBalance = 0;
+                this.tempQuota = 0;
+                this.updateUserSection();
+            }
+        } catch (error) {
+            this.isLoggedIn = false;
+            this.currentUser = null;
+            this.userCanDelete = false;
+            this.pointsBalance = 0;
+            this.tempQuota = 0;
+            this.updateUserSection();
+        }
+    }
+
+    updateUserSection() {
+        const userSection = document.getElementById('userSection');
+        if (!userSection) return;
+        if (this.isLoggedIn && this.currentUser) {
+            const tempQuotaHtml = this.tempQuota > 0 ? 
+                `<span style="margin-left: 10px; background: #17a2b8; color: white; padding: 3px 8px; border-radius: 12px; font-size: 0.8rem;">
+                    <i class="fas fa-bolt"></i> +${this.tempQuota} 临时
+                </span>` : '';
+            const deleteButton = this.userCanDelete 
+                ? `<button id="deleteAccountBtn" class="delete-btn"><i class="fas fa-trash-alt"></i> 注销账号</button>`
+                : `<button id="deleteAccountBtn" class="delete-btn disabled" disabled><i class="fas fa-trash-alt"></i> 注销账号 (${this.formatTimeRemaining(this.deleteEligibleTime)})</button>`;
+            userSection.innerHTML = `
+                <div class="user-header">
+                    <div class="user-info">
+                        <span class="username-display">
+                            <i class="fas fa-user-circle"></i> ${this.currentUser}
+                            <span style="margin-left: 10px; background: #ffc107; color: #333; padding: 3px 8px; border-radius: 12px; font-size: 0.8rem;">
+                                <i class="fas fa-star"></i> ${this.pointsBalance.toFixed(2)} 积分
+                            </span>
+                            ${tempQuotaHtml}
+                        </span>
+                        <div class="user-actions">
+                            <a href="/points-leaderboard" class="btn btn-secondary" style="padding: 8px 16px; text-decoration: none; background: #ffc107; color: #333;">
+                                <i class="fas fa-trophy"></i> 积分榜
+                            </a>
+                            <a href="/points-shop" class="btn btn-secondary" style="padding: 8px 16px; text-decoration: none; background: #28a745;">
+                                <i class="fas fa-shopping-cart"></i> 积分商城
+                            </a>
+                            <button id="logoutBtn" class="logout-btn">
+                                <i class="fas fa-sign-out-alt"></i> 退出登录
+                            </button>
+                            ${deleteButton}
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.getElementById('logoutBtn').addEventListener('click', () => this.logout());
+            const deleteBtn = document.getElementById('deleteAccountBtn');
+            if (deleteBtn && this.userCanDelete) {
+                deleteBtn.addEventListener('click', () => this.showDeleteModal());
+            }
+        } else {
+            userSection.innerHTML = `
+                <div class="login-prompt">
+                    <span><i class="fas fa-info-circle"></i> 请登录以使用完整功能（每生成一个手机号可获得积分）</span>
+                    <a href="/login"><i class="fas fa-sign-in-alt"></i> 登录/注册</a>
+                </div>
+            `;
+        }
+        const currentUserElement = document.getElementById('current-user');
+        if (currentUserElement) {
+            currentUserElement.textContent = this.currentUser || '未登录';
+        }
+    }
+
+    formatTimeRemaining(seconds) {
+        if (seconds <= 0) return '可注销';
+        const minutes = Math.floor(seconds / 60);
+        const remainingSeconds = seconds % 60;
+        if (minutes > 0) {
+            return `${minutes}分${remainingSeconds}秒后可注销`;
+        }
+        return `${remainingSeconds}秒后可注销`;
+    }
+
+    showDeleteModal() {
+        if (!this.isLoggedIn) {
+            this.showToast('请先登录', 'error');
+            return;
+        }
+        if (!this.userCanDelete) {
+            this.showToast(`账号注册时间不足2小时，请在${this.formatTimeRemaining(this.deleteEligibleTime)}后再试`, 'error');
+            return;
+        }
+        const modal = document.createElement('div');
+        modal.className = 'agreement-modal active';
+        modal.id = 'deleteModal';
+        modal.innerHTML = `
+            <div class="agreement-content" style="max-width: 450px;">
+                <div class="agreement-header" style="background: linear-gradient(135deg, #dc3545 0%, #e83e8c 100%);">
+                    <h2><i class="fas fa-exclamation-triangle"></i> 账号注销</h2>
+                    <p>请输入动态密钥并验证密码确认注销</p>
+                </div>
+                <div class="agreement-body">
+                    <div style="background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 8px; padding: 15px; margin-bottom: 20px; color: #721c24;">
+                        <i class="fas fa-info-circle"></i> 
+                        <strong>警告：</strong>账号注销后所有数据（包括积分和卡密）将永久删除且无法恢复！
+                    </div>
+                    <div style="background: #e8f4ff; border: 1px solid #cfe2ff; border-radius: 8px; padding: 15px; margin-bottom: 20px;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                            <h4 style="margin: 0; color: #084298;"><i class="fas fa-key"></i> 动态注销密钥</h4>
+                            <div style="font-size: 0.9rem; color: #666;">
+                                <i class="fas fa-clock"></i> <span id="deleteCodeTimer">0:30</span>
+                            </div>
+                        </div>
+                        <div style="font-family: 'Courier New', monospace; font-size: 2.5rem; font-weight: bold; text-align: center; color: #667eea; background: white; padding: 15px; border-radius: 8px; border: 2px dashed #667eea; letter-spacing: 8px;" id="deleteCodeDisplay">
+                            ......
+                        </div>
+                        <div style="font-size: 0.85rem; color: #666; text-align: center; margin-top: 10px;">
+                            <i class="fas fa-info-circle"></i> 密钥有效期30秒，过期后自动刷新
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="deleteCodeInput"><i class="fas fa-key"></i> 输入动态密钥</label>
+                        <input type="text" id="deleteCodeInput" class="form-control" placeholder="请输入6位动态密钥" maxlength="6" style="text-align: center; font-size: 1.2rem; letter-spacing: 4px;">
+                    </div>
+                    <div class="form-group" style="margin-top: 15px;">
+                        <label for="deletePassword"><i class="fas fa-lock"></i> 输入用户密码</label>
+                        <input type="password" id="deletePassword" class="form-control" placeholder="请输入您的登录密码">
+                    </div>
+                    <div class="agreement-buttons">
+                        <button id="cancelDeleteBtn" class="btn-decline">
+                            <i class="fas fa-times"></i> 取消
+                        </button>
+                        <button id="confirmDeleteBtn" class="btn-agree" style="background: linear-gradient(135deg, #dc3545 0%, #e83e8c 100%);" disabled>
+                            <i class="fas fa-trash-alt"></i> 确认注销
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        document.getElementById('cancelDeleteBtn').addEventListener('click', () => {
+            modal.remove();
+            this.stopDeleteCodeTimer();
+        });
+        const deleteCodeInput = document.getElementById('deleteCodeInput');
+        const deletePassword = document.getElementById('deletePassword');
+        const confirmBtn = document.getElementById('confirmDeleteBtn');
+        
+        const checkInputs = () => {
+            confirmBtn.disabled = !(deleteCodeInput.value.length === 6 && 
+                                   deleteCodeInput.value === this.currentDeleteCode && 
+                                   deletePassword.value.length >= 8);
+        };
+        
+        deleteCodeInput.addEventListener('input', (e) => {
+            e.target.value = e.target.value.replace(/[^0-9]/g, '');
+            if (e.target.value.length > 6) {
+                e.target.value = e.target.value.slice(0, 6);
+            }
+            checkInputs();
+        });
+        
+        deletePassword.addEventListener('input', checkInputs);
+        
+        deleteCodeInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !confirmBtn.disabled) {
+                this.deleteAccount(deleteCodeInput.value, deletePassword.value);
+            }
+        });
+        
+        deletePassword.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !confirmBtn.disabled) {
+                this.deleteAccount(deleteCodeInput.value, deletePassword.value);
+            }
+        });
+        
+        confirmBtn.addEventListener('click', () => {
+            this.deleteAccount(deleteCodeInput.value, deletePassword.value);
+        });
+        this.loadDeleteCode();
+    }
+
+    async loadDeleteCode() {
+        try {
+            const response = await fetch(`${this.apiBase}/user/delete-code`, {
+                credentials: 'include'
+            });
+            const data = await response.json();
+            if (data.success) {
+                this.currentDeleteCode = data.code;
+                const deleteCodeDisplay = document.getElementById('deleteCodeDisplay');
+                if (deleteCodeDisplay) {
+                    deleteCodeDisplay.textContent = data.code;
+                }
+                this.startDeleteCodeTimer(data.expires_in || 30);
+            } else {
+                this.showToast(data.error || '获取注销码失败', 'error');
+                const modal = document.getElementById('deleteModal');
+                if (modal) modal.remove();
+            }
+        } catch (error) {
+            this.showToast('获取注销码失败', 'error');
+            const modal = document.getElementById('deleteModal');
+            if (modal) modal.remove();
+        }
+    }
+
+    startDeleteCodeTimer(seconds) {
+        this.stopDeleteCodeTimer();
+        const timerElement = document.getElementById('deleteCodeTimer');
+        if (!timerElement) return;
+        const updateTimer = () => {
+            const remainingSeconds = seconds % 60;
+            timerElement.textContent = `0:${remainingSeconds.toString().padStart(2, '0')}`;
+            if (seconds <= 10) {
+                timerElement.style.color = '#dc3545';
+            } else if (seconds <= 20) {
+                timerElement.style.color = '#ffc107';
+            } else {
+                timerElement.style.color = '#28a745';
+            }
+        };
+        updateTimer();
+        this.deleteCodeTimer = setInterval(() => {
+            seconds--;
+            updateTimer();
+            if (seconds <= 0) {
+                this.stopDeleteCodeTimer();
+                this.loadDeleteCode();
+            }
+        }, 1000);
+    }
+
+    stopDeleteCodeTimer() {
+        if (this.deleteCodeTimer) {
+            clearInterval(this.deleteCodeTimer);
+            this.deleteCodeTimer = null;
+        }
+    }
+
+    async deleteAccount(deleteCode, password) {
+        try {
+            const deleteBtn = document.getElementById('confirmDeleteBtn');
+            if (deleteBtn) {
+                deleteBtn.disabled = true;
+                deleteBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 注销中...';
+            }
+            const response = await fetch(`${this.apiBase}/user/delete`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    delete_code: deleteCode,
+                    password: password
+                }),
+                credentials: 'include'
+            });
+            const data = await response.json();
+            if (data.success) {
+                this.showToast('账号已成功注销', 'success');
+                setTimeout(() => {
+                    window.location.href = '/';
+                }, 2000);
+            } else {
+                this.showToast(data.error || '注销失败', 'error');
+                const modal = document.getElementById('deleteModal');
+                if (modal) modal.remove();
+            }
+        } catch (error) {
+            this.showToast('注销失败: ' + error.message, 'error');
+            const modal = document.getElementById('deleteModal');
+            if (modal) modal.remove();
+        }
+    }
+
+    async logout() {
+        try {
+            const response = await fetch(`${this.apiBase}/logout`, {
+                method: 'POST',
+                credentials: 'include'
+            });
+            const data = await response.json();
+            if (data.success) {
+                this.showToast('已退出登录', 'success');
+                setTimeout(() => {
+                    window.location.reload();
+                }, 1000);
+            }
+        } catch (error) {
+            this.showToast('退出失败', 'error');
+        }
+    }
+
+    setupQuotaMonitor() {
+        this.quotaUpdateInterval = setInterval(() => {
+            if (this.isLoggedIn) {
+                this.loadQuotaInfo();
+                this.checkLoginStatus();
+            }
+        }, 60000);
+        if (this.isLoggedIn) {
+            this.loadQuotaInfo();
+        }
+    }
+
+    async loadQuotaInfo() {
+        if (!this.isLoggedIn) return;
+        try {
+            const response = await fetch(`${this.apiBase}/quota`, {
+                credentials: 'include'
+            });
+            const data = await response.json();
+            if (data.success) {
+                this.quotaInfo = data.quota;
+                this.tempQuota = data.quota.temp_quota || 0;
+                this.updateQuotaDisplay();
+            }
+        } catch (error) {
+        }
+    }
+
+    updateQuotaDisplay() {
+        if (!this.quotaInfo) return;
+        const quotaDisplay = document.getElementById('quota-display');
+        if (!quotaDisplay) return;
+        const used = this.quotaInfo.used;
+        const remaining = this.quotaInfo.remaining;
+        const baseLimit = this.quotaInfo.base_limit;
+        const tempQuota = this.quotaInfo.temp_quota;
+        const totalLimit = this.quotaInfo.total_limit;
+        const percentage = Math.round((used / totalLimit) * 100);
+        let statusClass = 'quota-normal';
+        let statusText = '正常';
+        if (percentage >= 90) {
+            statusClass = 'quota-danger';
+            statusText = '即将用尽';
+        } else if (percentage >= 70) {
+            statusClass = 'quota-warning';
+            statusText = '使用较多';
+        } else if (used === 0) {
+            statusClass = 'quota-success';
+            statusText = '未使用';
+        }
+        const tempQuotaHtml = tempQuota > 0 ? 
+            `<span style="background: #17a2b8; color: white; padding: 2px 6px; border-radius: 10px; font-size: 0.7rem; margin-left: 5px;">临时+${tempQuota}</span>` : '';
+        quotaDisplay.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 10px; background: #f8f9fa; padding: 8px 12px; border-radius: 6px;">
+                <i class="fas fa-tachometer-alt" style="color: #667eea;"></i>
+                <div style="flex: 1;">
+                    <div style="font-size: 0.85rem; color: #666;">${this.currentUser} 配额: ${used}/${totalLimit} ${tempQuotaHtml}</div>
+                    <div style="height: 4px; background: #e9ecef; border-radius: 2px; margin: 4px 0;">
+                        <div style="height: 100%; width: ${percentage}%; background: #667eea; border-radius: 2px;"></div>
+                    </div>
+                </div>
+                <span style="font-size: 0.8rem; padding: 2px 6px; border-radius: 10px; background: ${statusClass === 'quota-danger' ? '#dc3545' : statusClass === 'quota-warning' ? '#ffc107' : '#28a745'}; color: white;">
+                    ${statusText}
+                </span>
+            </div>
+        `;
+    }
+
+    checkAgreement() {
+        const agreementData = localStorage.getItem('virtualPhoneAgreement');
+        if (agreementData) {
+            try {
+                const data = JSON.parse(agreementData);
+                if (data.version === this.currentAgreementVersion && data.accepted === true) {
+                    this.initializeApp();
+                    return;
+                }
+                this.showAgreementModal(true);
+            } catch (error) {
+                this.showAgreementModal(false);
+            }
+        } else {
+            this.showAgreementModal(false);
+        }
+    }
+
+    showAgreementModal(isUpdate = false) {
+        const modal = document.getElementById('agreementModal');
+        const agreeTermsCheckbox = document.getElementById('modal-agree-terms');
+        const readPrivacyCheckbox = document.getElementById('modal-read-privacy');
+        const agreeBtn = document.getElementById('modalAgreeBtn');
+        const declineBtn = document.getElementById('modalDeclineBtn');
+        const currentVersionBadge = document.getElementById('currentVersionBadge');
+        const agreementVersion = document.getElementById('agreementVersion');
+        const updateContent = document.getElementById('updateContent');
+        modal.classList.add('active');
+        currentVersionBadge.textContent = `版本 ${this.currentAgreementVersion}`;
+        agreementVersion.textContent = this.currentAgreementVersion;
+        updateContent.innerHTML = `
+            <h4><i class="fas fa-sync-alt"></i> 版本 6.3 更新</h4>
+            <ul>
+                <li><strong>移除自定义号段功能：</strong>简化生成流程</li>
+                <li><strong>调整临时配额卡：</strong>18积分，使用后获得15个临时配额</li>
+                <li><strong>修改赠送服务费：</strong>统一为1.28积分</li>
+                <li><strong>调整赠送次数：</strong>每天仅可赠送他人卡密16次</li>
+                <li><strong>完善积分逻辑：</strong>优化积分计算和检测逻辑</li>
+                <li><strong>修复已知bug：</strong>优化系统性能和稳定性</li>
+                <li><strong>移除所有非必要注释：</strong>代码精简优化</li>
+            </ul>
+        `;
+        if (isUpdate) {
+            updateContent.style.display = 'block';
+            modal.querySelector('.agreement-header h2').textContent = '用户协议更新确认';
+            modal.querySelector('.agreement-header p').textContent = '检测到用户协议有重要更新，请仔细阅读更新内容';
+        } else {
+            updateContent.style.display = 'block';
+            modal.querySelector('.agreement-header h2').textContent = '用户协议确认';
+            modal.querySelector('.agreement-header p').textContent = '请仔细阅读并同意以下条款以继续使用本服务';
+        }
+        const updateAgreeButton = () => {
+            agreeBtn.disabled = !(agreeTermsCheckbox.checked && readPrivacyCheckbox.checked);
+        };
+        agreeTermsCheckbox.addEventListener('change', updateAgreeButton);
+        readPrivacyCheckbox.addEventListener('change', updateAgreeButton);
+        agreeBtn.addEventListener('click', () => {
+            if (agreeTermsCheckbox.checked && readPrivacyCheckbox.checked) {
+                this.saveAgreement();
+                modal.classList.remove('active');
+                this.initializeApp();
+            }
+        });
+        declineBtn.addEventListener('click', () => {
+            if (confirm('您需要同意用户协议才能使用本服务。确定要离开吗？')) {
+                window.location.href = 'about:blank';
+            }
+        });
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                if (modal.classList.contains('active')) {
+                    e.preventDefault();
+                    if (confirm('您需要同意用户协议才能使用本服务。确定要离开吗？')) {
+                        window.location.href = 'about:blank';
+                    }
+                }
+            }
+        });
+        agreeTermsCheckbox.checked = false;
+        readPrivacyCheckbox.checked = false;
+        updateAgreeButton();
+    }
+
+    saveAgreement() {
+        const today = new Date().toISOString().split('T')[0];
+        const agreementData = {
+            accepted: true,
+            version: this.currentAgreementVersion,
+            date: today,
+            privacyRead: true,
+            lastUpdate: today
+        };
+        try {
+            localStorage.setItem('virtualPhoneAgreement', JSON.stringify(agreementData));
+        } catch (error) {
+            this.showToast('保存用户协议设置失败', 'error');
+        }
+    }
+
+    initializeApp() {
+        this.loadStats();
+        this.loadIPInfo();
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                this.loadStats();
+                this.checkLoginStatus();
+                this.loadClientStats();
+                this.loadQuotaInfo();
+                this.checkMaintenanceStatus();
+            }
+        });
+        setInterval(() => {
+            this.loadStats();
+            if (this.isLoggedIn) {
+                this.loadClientStats();
+                this.checkLoginStatus();
+            }
+        }, 30000);
+    }
+
+    initElements() {
+        this.generateBtn = document.getElementById('generate-btn');
+        this.resultContainer = document.getElementById('result-container');
+        this.maskedPhone = document.getElementById('masked-phone');
+        this.securityCode = document.getElementById('security-code');
+        this.generateCodeBtn = document.getElementById('generate-code-btn');
+        this.verifyContainer = document.getElementById('verify-container');
+        this.securityCodeInput = document.getElementById('security-code-input');
+        this.verifyBtn = document.getElementById('verify-btn');
+        this.copyMaskedBtn = document.getElementById('copy-masked');
+        this.toast = document.getElementById('toast');
+        this.totalCount = document.getElementById('total-count');
+        this.usedCount = document.getElementById('used-count');
+        this.availableCount = document.getElementById('available-count');
+        this.serverIp = document.getElementById('server-ip');
+        this.clientIp = document.getElementById('client-ip');
+        this.carrierName = document.getElementById('carrier-name');
+        this.clientTotalCount = document.getElementById('client-total-count');
+        this.clientUsedCount = document.getElementById('client-used-count');
+        this.clientAvailableCount = document.getElementById('client-available-count');
+        this.purposeInput = document.getElementById('purpose-input');
+        this.securityCodeTimer = document.getElementById('security-code-timer');
+        this.codeExpiryInfo = document.getElementById('code-expiry-info');
+        this.cooldownDisplay = document.createElement('div');
+        this.cooldownDisplay.className = 'cooldown-display';
+        this.cooldownDisplay.style.display = 'none';
+        const card = document.querySelector('.card');
+        if (card) {
+            const quotaDisplay = document.createElement('div');
+            quotaDisplay.id = 'quota-display';
+            quotaDisplay.style.marginBottom = '15px';
+            if (card.firstChild) {
+                card.insertBefore(quotaDisplay, card.firstChild);
+            }
+            if (this.generateBtn && this.generateBtn.parentNode) {
+                this.generateBtn.parentNode.appendChild(this.cooldownDisplay);
+            }
+        }
+        this.currentPurpose = '';
+    }
+
+    bindEvents() {
+        if (this.generateBtn) {
+            this.generateBtn.addEventListener('click', () => this.generateNumber());
+        }
+        if (this.generateCodeBtn) {
+            this.generateCodeBtn.addEventListener('click', () => this.generateSecurityCode());
+        }
+        if (this.verifyBtn) {
+            this.verifyBtn.addEventListener('click', () => this.initTencentCaptcha());
+        }
+        if (this.copyMaskedBtn) {
+            this.copyMaskedBtn.addEventListener('click', () => this.showVerifyPrompt());
+        }
+        if (this.purposeInput) {
+            this.purposeInput.addEventListener('input', (e) => {
+                this.currentPurpose = e.target.value;
+            });
+        }
+        if (this.securityCodeInput) {
+            this.securityCodeInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    this.initTencentCaptcha();
+                }
+            });
+            this.securityCodeInput.addEventListener('input', (e) => {
+                e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                if (e.target.value.length > 6) {
+                    e.target.value = e.target.value.slice(0, 6);
+                }
+            });
+        }
+    }
+
+    preventSecurityCodeCopy() {
+        if (!this.securityCode) return;
+        this.securityCode.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            this.showToast('安全码受保护，请手动输入', 'error');
+            return false;
+        });
+        this.securityCode.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'x')) {
+                e.preventDefault();
+                this.showToast('安全码受保护，请手动输入', 'error');
+                return false;
+            }
+        });
+        this.securityCode.style.userSelect = 'none';
+        this.securityCode.style.webkitUserSelect = 'none';
+        this.securityCode.style.mozUserSelect = 'none';
+        this.securityCode.style.msUserSelect = 'none';
+        this.securityCode.addEventListener('copy', (e) => {
+            e.preventDefault();
+            this.showToast('安全码受保护，请手动输入', 'error');
+            return false;
+        });
+        this.securityCode.addEventListener('cut', (e) => {
+            e.preventDefault();
+            this.showToast('安全码受保护，请手动输入', 'error');
+            return false;
+        });
+        this.securityCode.addEventListener('selectstart', (e) => {
+            e.preventDefault();
+            return false;
+        });
+        this.securityCode.setAttribute('draggable', 'false');
+        this.securityCode.addEventListener('dragstart', (e) => {
+            e.preventDefault();
+            return false;
+        });
+    }
+
+    async loadIPInfo() {
+        try {
+            const response = await fetch(`${this.apiBase}/ip-info`, {
+                credentials: 'include'
+            });
+            const data = await response.json();
+            if (data.success) {
+                if (this.serverIp) this.serverIp.textContent = data.server_ip;
+                if (this.clientIp) this.clientIp.textContent = data.client_ip;
+                if (data.username) {
+                    this.isLoggedIn = true;
+                    this.currentUser = data.username;
+                    this.updateUserSection();
+                }
+                const ipWarning = document.getElementById('ipWarning');
+                if (ipWarning && data.ip_registered_count >= 3) {
+                    ipWarning.style.display = 'flex';
+                }
+            }
+        } catch (error) {
+            if (this.serverIp) this.serverIp.textContent = '获取失败';
+            if (this.clientIp) this.clientIp.textContent = '获取失败';
+        }
+    }
+
+    async loadClientStats() {
+        if (!this.isLoggedIn) return;
+        try {
+            const response = await fetch(`${this.apiBase}/client-info`, {
+                credentials: 'include'
+            });
+            const data = await response.json();
+            if (data.success && this.clientTotalCount && this.clientUsedCount && this.clientAvailableCount) {
+                this.clientTotalCount.textContent = data.stats.total_generated;
+                this.clientUsedCount.textContent = data.stats.total_used;
+                this.clientAvailableCount.textContent = data.stats.available;
+                this.pointsBalance = data.stats.points || 0;
+                this.tempQuota = data.stats.temp_quota || 0;
+                this.updateUserSection();
+            }
+        } catch (error) {
+        }
+    }
+
+    async generateNumber() {
+        if (!this.isLoggedIn) {
+            this.showToast('请先登录', 'error');
+            setTimeout(() => {
+                window.location.href = '/login';
+            }, 1500);
+            return;
+        }
+        try {
+            this.generateBtn.disabled = true;
+            this.generateBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 生成中...';
+            const response = await fetch(`${this.apiBase}/generate`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    purpose: this.currentPurpose
+                }),
+                credentials: 'include'
+            });
+            const data = await response.json();
+            if (data.success) {
+                this.displayGeneratedNumber(data.phone_number, data.masked_phone, data.carrier);
+                this.showToast(`手机号生成成功！获得 ${data.points_earned.toFixed(2)} 积分`, 'success');
+                this.cooldownDisplay.style.display = 'none';
+                if (this.cooldownTimer) {
+                    clearInterval(this.cooldownTimer);
+                    this.cooldownTimer = null;
+                }
+                this.loadClientStats();
+                this.loadQuotaInfo();
+                this.pointsBalance = data.points_balance;
+                this.tempQuota = data.temp_quota || 0;
+                this.updateUserSection();
+                if (data.quota_remaining <= 5) {
+                    this.showToast(`注意：当前时段剩余配额仅 ${data.quota_remaining} 次`, 'warning');
+                }
+            } else {
+                if (response.status === 429) {
+                    if (data.cooldown) {
+                        this.startCooldown(data.cooldown);
+                        this.showToast(`请求过于频繁，请等待${data.cooldown}秒后重试`, 'error');
+                    } else {
+                        this.showToast(data.error, 'error');
+                    }
+                } else {
+                    this.showToast(`生成失败: ${data.error}`, 'error');
+                }
+            }
+        } catch (error) {
+            this.showToast(`生成失败: ${error.message}`, 'error');
+        } finally {
+            if (!this.cooldownTimer) {
+                this.generateBtn.disabled = false;
+                this.generateBtn.innerHTML = '<i class="fas fa-bolt"></i> 生成虚拟手机号';
+            }
+            this.loadStats();
+        }
+    }
+
+    startCooldown(seconds) {
+        this.cooldownEndTime = Date.now() + seconds * 1000;
+        this.generateBtn.disabled = true;
+        this.cooldownDisplay.style.display = 'block';
+        this.updateCooldownDisplay();
+        this.cooldownTimer = setInterval(() => {
+            this.updateCooldownDisplay();
+        }, 1000);
+    }
+
+    updateCooldownDisplay() {
+        if (!this.cooldownEndTime) return;
+        const now = Date.now();
+        const remaining = Math.max(0, Math.ceil((this.cooldownEndTime - now) / 1000));
+        if (remaining > 0) {
+            const minutes = Math.floor(remaining / 60);
+            const seconds = remaining % 60;
+            this.generateBtn.innerHTML = `<i class="fas fa-clock"></i> 冷却中...`;
+            this.cooldownDisplay.textContent = `请等待 ${minutes}:${seconds.toString().padStart(2, '0')} 后再试`;
+        } else {
+            this.cooldownDisplay.style.display = 'none';
+            this.generateBtn.disabled = false;
+            this.generateBtn.innerHTML = '<i class="fas fa-bolt"></i> 生成虚拟手机号';
+            clearInterval(this.cooldownTimer);
+            this.cooldownTimer = null;
+        }
+    }
+
+    displayGeneratedNumber(phoneNumber, maskedPhone, carrier) {
+        if (!this.maskedPhone || !this.securityCode) return;
+        this.maskedPhone.textContent = maskedPhone;
+        this.currentPhoneNumber = phoneNumber;
+        this.currentSecurityCode = null;
+        this.hasGeneratedCode = false;
+        this.currentCarrier = carrier;
+        this.stopSecurityCodeTimer();
+        if (this.carrierName) this.carrierName.textContent = carrier || '未知';
+        this.securityCode.textContent = '点击钥匙图标生成';
+        this.securityCode.style.color = '#e74c3c';
+        if (this.securityCodeInput) this.securityCodeInput.value = '';
+        if (this.verifyContainer) this.verifyContainer.classList.add('hidden');
+        if (this.resultContainer) this.resultContainer.classList.remove('hidden');
+        if (this.securityCodeTimer) {
+            this.securityCodeTimer.style.display = 'none';
+            this.securityCodeTimer.textContent = '';
+        }
+        if (this.codeExpiryInfo) {
+            this.codeExpiryInfo.style.display = 'block';
+        }
+        if (this.copyMaskedBtn) {
+            this.copyMaskedBtn.innerHTML = '<i class="far fa-copy"></i>';
+            this.copyMaskedBtn.title = '复制完整号码';
+            this.copyMaskedBtn.disabled = false;
+            this.copyMaskedBtn.classList.remove('btn-copy-success');
+        }
+    }
+
+    async checkSecurityCodeExpiry() {
+        if (!this.currentPhoneNumber || !this.isLoggedIn) return;
+        try {
+            const response = await fetch(`${this.apiBase}/check-code-expiry`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ phone_number: this.currentPhoneNumber }),
+                credentials: 'include'
+            });
+            const data = await response.json();
+            if (data.success) {
+                if (data.is_valid && data.remaining_seconds > 0) {
+                    this.currentSecurityCode = data.security_code || null;
+                    this.startSecurityCodeTimer(data.remaining_seconds);
+                } else if (data.is_expired && data.can_regenerate) {
+                    this.securityCode.textContent = '点击钥匙图标生成';
+                    this.securityCode.style.color = '#e74c3c';
+                    if (this.generateCodeBtn) {
+                        this.generateCodeBtn.disabled = false;
+                        this.generateCodeBtn.innerHTML = '<i class="fas fa-key"></i>';
+                    }
+                }
+            }
+        } catch (error) {
+        }
+    }
+
+    async generateSecurityCode() {
+        if (!this.isLoggedIn) {
+            this.showToast('请先登录', 'error');
+            return;
+        }
+        if (!this.currentPhoneNumber) {
+            this.showToast('请先生成手机号', 'error');
+            return;
+        }
+        try {
+            this.generateCodeBtn.disabled = true;
+            this.generateCodeBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+            const response = await fetch(`${this.apiBase}/generate-code`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ phone_number: this.currentPhoneNumber }),
+                credentials: 'include'
+            });
+            const data = await response.json();
+            if (data.success) {
+                this.currentSecurityCode = data.security_code;
+                this.securityCode.textContent = data.security_code;
+                this.hasGeneratedCode = true;
+                this.securityCode.style.color = '#28a745';
+                const expiresAt = new Date(data.expires_at).getTime();
+                const now = Date.now();
+                const remainingSeconds = Math.floor((expiresAt - now) / 1000);
+                if (remainingSeconds > 0) {
+                    this.startSecurityCodeTimer(remainingSeconds);
+                } else {
+                    this.securityCode.textContent = '安全码已过期';
+                    this.securityCode.style.color = '#dc3545';
+                }
+                this.showToast('安全码生成成功！有效期180秒', 'success');
+                if (this.verifyContainer) {
+                    this.verifyContainer.classList.remove('hidden');
+                }
+                if (this.securityCodeInput) {
+                    this.securityCodeInput.focus();
+                }
+                if (this.codeExpiryInfo) {
+                    this.codeExpiryInfo.style.display = 'none';
+                }
+                if (this.generateCodeBtn) {
+                    this.generateCodeBtn.disabled = false;
+                    this.generateCodeBtn.innerHTML = '<i class="fas fa-key"></i>';
+                }
+            } else {
+                this.showToast(`生成安全码失败: ${data.error}`, 'error');
+                if (this.generateCodeBtn) {
+                    this.generateCodeBtn.disabled = false;
+                    this.generateCodeBtn.innerHTML = '<i class="fas fa-key"></i>';
+                }
+            }
+        } catch (error) {
+            this.showToast(`生成安全码失败: ${error.message}`, 'error');
+            if (this.generateCodeBtn) {
+                this.generateCodeBtn.disabled = false;
+                this.generateCodeBtn.innerHTML = '<i class="fas fa-key"></i>';
+            }
+        }
+    }
+
+    startSecurityCodeTimer(seconds) {
+        this.stopSecurityCodeTimer();
+        if (seconds <= 0) {
+            this.securityCode.textContent = '安全码已过期';
+            this.securityCode.style.color = '#dc3545';
+            this.currentSecurityCode = null;
+            this.hasGeneratedCode = false;
+            if (this.securityCodeTimer) {
+                this.securityCodeTimer.style.display = 'none';
+                this.securityCodeTimer.textContent = '';
+            }
+            if (this.codeExpiryInfo) {
+                this.codeExpiryInfo.style.display = 'block';
+            }
+            return;
+        }
+        this.updateSecurityCodeTimer(seconds);
+        this.securityCodeTimerInterval = setInterval(() => {
+            seconds--;
+            this.updateSecurityCodeTimer(seconds);
+            if (seconds <= 0) {
+                this.stopSecurityCodeTimer();
+                this.securityCode.textContent = '安全码已过期';
+                this.securityCode.style.color = '#dc3545';
+                this.currentSecurityCode = null;
+                this.hasGeneratedCode = false;
+                if (this.codeExpiryInfo) {
+                    this.codeExpiryInfo.style.display = 'block';
+                }
+                this.showToast('安全码已过期，请重新生成', 'warning');
+            }
+        }, 1000);
+    }
+
+    updateSecurityCodeTimer(seconds) {
+        if (!this.securityCodeTimer) return;
+        const minutes = Math.floor(seconds / 60);
+        const remainingSeconds = seconds % 60;
+        this.securityCodeTimer.textContent = `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+        this.securityCodeTimer.style.display = 'inline-block';
+        if (seconds <= 30) {
+            this.securityCodeTimer.style.color = '#dc3545';
+            this.securityCodeTimer.style.background = '#f8d7da';
+            this.securityCodeTimer.style.borderColor = '#f5c6cb';
+        } else if (seconds <= 60) {
+            this.securityCodeTimer.style.color = '#ffc107';
+            this.securityCodeTimer.style.background = '#fff3cd';
+            this.securityCodeTimer.style.borderColor = '#ffeaa7';
+        } else {
+            this.securityCodeTimer.style.color = '#28a745';
+            this.securityCodeTimer.style.background = '#d4edda';
+            this.securityCodeTimer.style.borderColor = '#c3e6cb';
+        }
+    }
+
+    stopSecurityCodeTimer() {
+        if (this.securityCodeTimerInterval) {
+            clearInterval(this.securityCodeTimerInterval);
+            this.securityCodeTimerInterval = null;
+        }
+    }
+
+    showVerifyPrompt() {
+        if (!this.isLoggedIn) {
+            this.showToast('请先登录', 'error');
+            return;
+        }
+        if (!this.currentPhoneNumber) {
+            this.showToast('请先生成手机号', 'error');
+            return;
+        }
+        if (!this.hasGeneratedCode) {
+            this.showToast('请先生成安全码', 'error');
+            return;
+        }
+        if (this.verifyContainer) {
+            this.verifyContainer.classList.remove('hidden');
+        }
+        if (this.securityCodeInput) {
+            this.securityCodeInput.focus();
+        }
+    }
+
+    initTencentCaptcha() {
+        if (!this.isLoggedIn) {
+            this.showToast('请先登录', 'error');
+            return;
+        }
+        if (!this.currentPhoneNumber) {
+            this.showToast('手机号不存在', 'error');
+            return;
+        }
+        if (!this.securityCodeInput) return;
+        const code = this.securityCodeInput.value.trim().toUpperCase();
+        if (!code || code.length !== 6) {
+            this.showToast('请输入6位安全码', 'error');
+            return;
+        }
+        if (typeof TencentCaptcha === 'undefined') {
+            this.showToast('验证服务加载失败，请刷新页面', 'error');
+            return;
+        }
+        const captcha = new TencentCaptcha(this.tcAppId, (res) => {
+            if (res.ret === 0) {
+                this.verifyAndCopy(code, res.ticket, res.randstr);
+            } else {
+                this.showToast('验证失败，请重试', 'error');
+                if (this.verifyBtn) {
+                    this.verifyBtn.disabled = false;
+                    this.verifyBtn.innerHTML = '<i class="fas fa-check"></i> 验证并复制完整号码';
+                }
+            }
+        });
+        captcha.show();
+        if (this.verifyBtn) {
+            this.verifyBtn.disabled = true;
+            this.verifyBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 验证中...';
+        }
+    }
+
+    async verifyAndCopy(code, ticket, randstr) {
+        try {
+            const response = await fetch(`${this.apiBase}/verify-copy`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    phone_number: this.currentPhoneNumber,
+                    security_code: code,
+                    captcha_ticket: ticket,
+                    captcha_randstr: randstr
+                }),
+                credentials: 'include'
+            });
+            const data = await response.json();
+            if (data.success) {
+                await this.copyFullNumber();
+                this.showToast('验证成功，已复制完整号码！', 'success');
+                if (this.securityCodeInput) this.securityCodeInput.value = '';
+                if (this.verifyContainer) this.verifyContainer.classList.add('hidden');
+                if (this.copyMaskedBtn) {
+                    this.copyMaskedBtn.disabled = true;
+                    this.copyMaskedBtn.innerHTML = '<i class="fas fa-check" style="color: #28a745;"></i>';
+                    this.copyMaskedBtn.title = '已使用';
+                    this.copyMaskedBtn.classList.add('btn-copy-success');
+                }
+                this.markSecurityCodeAsUsed();
+                this.loadClientStats();
+            } else {
+                this.showToast(`验证失败: ${data.error}`, 'error');
+            }
+        } catch (error) {
+            this.showToast(`验证失败: ${error.message}`, 'error');
+        } finally {
+            if (this.verifyBtn) {
+                this.verifyBtn.disabled = false;
+                this.verifyBtn.innerHTML = '<i class="fas fa-check"></i> 验证并复制完整号码';
+            }
+            this.loadStats();
+        }
+    }
+
+    markSecurityCodeAsUsed() {
+        if (this.securityCode && this.currentSecurityCode) {
+            this.securityCode.textContent = '已使用';
+            this.securityCode.style.color = '#6c757d';
+            this.securityCode.style.opacity = '0.7';
+            this.currentSecurityCode = null;
+            this.hasGeneratedCode = false;
+            this.stopSecurityCodeTimer();
+            if (this.securityCodeTimer) {
+                this.securityCodeTimer.style.display = 'none';
+            }
+            if (this.codeExpiryInfo) {
+                this.codeExpiryInfo.style.display = 'none';
+            }
+        }
+    }
+
+    async copyFullNumber() {
+        if (!this.currentPhoneNumber) {
+            this.showToast('没有可复制的内容', 'error');
+            return;
+        }
+        try {
+            await navigator.clipboard.writeText(this.currentPhoneNumber);
+        } catch (err) {
+            const textArea = document.createElement('textarea');
+            textArea.value = this.currentPhoneNumber;
+            document.body.appendChild(textArea);
+            textArea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textArea);
+        }
+    }
+
+    async loadStats() {
+        try {
+            const response = await fetch(`${this.apiBase}/stats`);
+            const data = await response.json();
+            if (data.success && this.totalCount && this.usedCount && this.availableCount) {
+                this.totalCount.textContent = data.stats.total;
+                this.usedCount.textContent = data.stats.used;
+                this.availableCount.textContent = data.stats.available;
+                if (this.isLoggedIn && data.stats.user_stats) {
+                    if (this.clientTotalCount) this.clientTotalCount.textContent = data.stats.user_stats.total || 0;
+                    if (this.clientUsedCount) this.clientUsedCount.textContent = data.stats.user_stats.used || 0;
+                    if (this.clientAvailableCount) this.clientAvailableCount.textContent = data.stats.user_stats.available || 0;
+                    this.pointsBalance = data.stats.user_stats.points || 0;
+                    this.tempQuota = data.stats.user_stats.temp_quota || 0;
+                    this.updateUserSection();
+                }
+            }
+        } catch (error) {
+        }
+    }
+
+    showToast(message, type = 'info') {
+        if (!this.toast) return;
+        this.toast.textContent = message;
+        this.toast.className = 'toast';
+        if (type === 'success') {
+            this.toast.style.background = '#28a745';
+        } else if (type === 'error') {
+            this.toast.style.background = '#dc3545';
+        } else if (type === 'warning') {
+            this.toast.style.background = '#ffc107';
+        } else {
+            this.toast.style.background = '#333';
+        }
+        this.toast.classList.add('show');
+        setTimeout(() => {
+            this.toast.classList.remove('show');
+        }, 3000);
+    }
+
+    cleanup() {
+        if (this.cooldownTimer) {
+            clearInterval(this.cooldownTimer);
+        }
+        if (this.quotaUpdateInterval) {
+            clearInterval(this.quotaUpdateInterval);
+        }
+        if (this.securityCodeTimerInterval) {
+            clearInterval(this.securityCodeTimerInterval);
+        }
+        if (this.maintenanceCheckInterval) {
+            clearInterval(this.maintenanceCheckInterval);
+        }
+        if (this.deleteCodeTimer) {
+            clearInterval(this.deleteCodeTimer);
+        }
+    }
+}
+
+window.addEventListener('unhandledrejection', (event) => {
+    event.preventDefault();
+});
+
+window.addEventListener('beforeunload', () => {
+    if (window.virtualPhoneGenerator) {
+        window.virtualPhoneGenerator.cleanup();
+    }
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+    try {
+        window.virtualPhoneGenerator = new VirtualPhoneGenerator();
+    } catch (error) {
+        alert('系统初始化失败，请刷新页面');
+    }
+});
