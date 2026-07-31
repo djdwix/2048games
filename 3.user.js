@@ -2,10 +2,11 @@
 // @name         页面安全验证计时器（增强版V5.6）
 // @namespace    http://tampermonkey.net/
 // @version      5.6
-// @description  安全验证计时器 - 智能风险检测与验证
+// @description  本地与网页延迟检测+日志功能+点击导出日志+多接口IP/定位+验证重启倒计时【支持后台运行+定位缓存+缓存超时销毁+智能风险检测】
 // @author       You
 // @match        *://*/*
 // @grant        GM_addStyle
+// @grant        GM_registerBackgroundScript
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_deleteValue
@@ -47,14 +48,296 @@
                 display: none;
                 cursor: pointer;
             }
-            .risk-indicator.low { color: #4cc9f0; border-color: #4cc9f0; }
-            .risk-indicator.medium { color: #ffd60a; border-color: #ffd60a; animation: pulse-warning 2s infinite; }
-            .risk-indicator.high { color: #f72585; border-color: #f72585; animation: pulse-danger 1s infinite; }
-            .risk-indicator.critical { color: #ff0000; border-color: #ff0000; animation: pulse-critical 0.5s infinite; background: rgba(255,0,0,0.1); }
-            @keyframes pulse-warning { 0%,100% { color: #ffd60a; } 50% { color: #ffea80; } }
-            @keyframes pulse-danger { 0%,100% { color: #f72585; } 50% { color: #ff6ba9; } }
-            @keyframes pulse-critical { 0% { box-shadow: 0 0 5px rgba(255,0,0,0.5); } 50% { box-shadow: 0 0 20px rgba(255,0,0,0.8); } 100% { box-shadow: 0 0 5px rgba(255,0,0,0.5); } }
-
+            .risk-indicator.low {
+                color: #4cc9f0;
+                border-color: #4cc9f0;
+            }
+            .risk-indicator.medium {
+                color: #ffd60a;
+                border-color: #ffd60a;
+                animation: pulse-warning 2s infinite;
+            }
+            .risk-indicator.high {
+                color: #f72585;
+                border-color: #f72585;
+                animation: pulse-danger 1s infinite;
+            }
+            .risk-indicator.critical {
+                color: #ff0000;
+                border-color: #ff0000;
+                animation: pulse-critical 0.5s infinite;
+                background: rgba(255, 0, 0, 0.1);
+            }
+            @keyframes pulse-critical {
+                0% { box-shadow: 0 0 5px rgba(255, 0, 0, 0.5); }
+                50% { box-shadow: 0 0 20px rgba(255, 0, 0, 0.8); }
+                100% { box-shadow: 0 0 5px rgba(255, 0, 0, 0.5); }
+            }
+            .risk-modal {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(10, 15, 30, 0.95);
+                backdrop-filter: blur(12px);
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                z-index: 10003;
+                padding: 0 15px;
+                opacity: 0;
+                visibility: hidden;
+                transition: opacity 0.4s ease, visibility 0.4s ease;
+            }
+            .risk-modal.active {
+                opacity: 1;
+                visibility: visible;
+            }
+            .risk-modal-box {
+                width: 100%;
+                max-width: 350px;
+                background: linear-gradient(135deg, #1a103d 0%, #0f172a 100%);
+                border: 1px solid rgba(76, 201, 240, 0.7);
+                border-radius: 16px;
+                padding: 25px 20px;
+                box-shadow: 0 0 30px rgba(76, 201, 240, 0.4), inset 0 0 20px rgba(76, 201, 240, 0.15);
+                transform: scale(0.9) translateY(15px);
+                transition: transform 0.4s ease, box-shadow 0.4s ease;
+            }
+            .risk-modal.active .risk-modal-box {
+                transform: scale(1) translateY(0);
+                box-shadow: 0 0 40px rgba(76, 201, 240, 0.5), inset 0 0 25px rgba(76, 201, 240, 0.2);
+            }
+            .risk-modal-header {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                margin-bottom: 20px;
+                gap: 12px;
+            }
+            .risk-modal-icon {
+                font-size: 24px;
+                color: #4cc9f0;
+                text-shadow: 0 0 8px rgba(76, 201, 240, 0.6);
+            }
+            .risk-modal-title {
+                font-size: 20px;
+                font-weight: bold;
+                color: #4cc9f0;
+                margin: 0;
+                text-shadow: 0 0 6px rgba(76, 201, 240, 0.5);
+                letter-spacing: 0.5px;
+            }
+            .risk-modal-desc {
+                font-size: 14px;
+                color: #e0e7ff;
+                text-align: center;
+                margin: 0 0 15px;
+                line-height: 1.5;
+                padding: 0 10px;
+                opacity: 0.9;
+            }
+            .risk-details {
+                background: rgba(30, 41, 59, 0.5);
+                border-radius: 8px;
+                padding: 12px;
+                margin: 15px 0;
+                border: 1px solid rgba(76, 201, 240, 0.3);
+            }
+            .risk-item {
+                display: flex;
+                justify-content: space-between;
+                padding: 5px 0;
+                border-bottom: 1px dashed rgba(76, 201, 240, 0.1);
+            }
+            .risk-item:last-child {
+                border-bottom: none;
+            }
+            .risk-label {
+                color: #94a3b8;
+                font-size: 12px;
+            }
+            .risk-value {
+                color: #e0f2fe;
+                font-weight: 500;
+                font-size: 12px;
+            }
+            .risk-value.low { color: #4cc9f0; }
+            .risk-value.medium { color: #ffd60a; }
+            .risk-value.high { color: #f72585; }
+            .risk-value.critical { color: #ff0000; }
+            .risk-btns {
+                display: flex;
+                gap: 12px;
+                margin-top: 20px;
+            }
+            .risk-btn {
+                flex: 1;
+                padding: 12px 0;
+                border: none;
+                border-radius: 8px;
+                font-size: 15px;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 0.3s ease;
+                color: #fff;
+                letter-spacing: 0.5px;
+            }
+            .risk-confirm-btn {
+                background: linear-gradient(135deg, #4361ee 0%, #3a0ca3 100%);
+                box-shadow: 0 0 10px rgba(67, 97, 238, 0.5);
+            }
+            .risk-confirm-btn:hover {
+                box-shadow: 0 0 15px rgba(67, 97, 238, 0.7);
+            }
+            .risk-ignore-btn {
+                background: linear-gradient(135deg, #ffd60a 0%, #ff9e00 100%);
+                box-shadow: 0 0 10px rgba(255, 214, 10, 0.5);
+            }
+            .risk-ignore-btn:hover {
+                box-shadow: 0 0 15px rgba(255, 214, 10, 0.7);
+            }
+            .slider-verify {
+                width: 100%;
+                height: 50px;
+                background: rgba(30, 41, 59, 0.8);
+                border-radius: 25px;
+                margin: 20px 0;
+                position: relative;
+                overflow: hidden;
+                border: 1px solid rgba(76, 201, 240, 0.3);
+            }
+            .slider-track {
+                position: absolute;
+                left: 0;
+                top: 0;
+                height: 100%;
+                width: 100%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: #94a3b8;
+                font-size: 14px;
+                user-select: none;
+            }
+            .slider-thumb {
+                position: absolute;
+                left: 5px;
+                top: 5px;
+                width: 40px;
+                height: 40px;
+                background: linear-gradient(135deg, #4361ee 0%, #4cc9f0 100%);
+                border-radius: 50%;
+                cursor: grab;
+                box-shadow: 0 0 10px rgba(76, 201, 240, 0.5);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: white;
+                font-size: 18px;
+                transition: background 0.3s ease;
+                z-index: 2;
+            }
+            .slider-thumb:active {
+                cursor: grabbing;
+                background: linear-gradient(135deg, #3a0ca3 0%, #4361ee 100%);
+            }
+            .slider-target {
+                position: absolute;
+                right: 10px;
+                top: 5px;
+                width: 40px;
+                height: 40px;
+                background: rgba(76, 201, 240, 0.2);
+                border: 2px dashed #4cc9f0;
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: #4cc9f0;
+                font-size: 16px;
+            }
+            .slider-success {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 0;
+                height: 100%;
+                background: rgba(76, 201, 240, 0.3);
+                transition: width 0.1s ease;
+            }
+            .slider-hint {
+                text-align: center;
+                color: #94a3b8;
+                font-size: 12px;
+                margin-top: 5px;
+                font-style: italic;
+            }
+            .click-verify {
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 10px;
+                margin: 20px 0;
+            }
+            .click-item {
+                aspect-ratio: 1;
+                background: rgba(30, 41, 59, 0.8);
+                border: 1px solid rgba(76, 201, 240, 0.3);
+                border-radius: 8px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                cursor: pointer;
+                transition: all 0.2s ease;
+                user-select: none;
+                font-size: 20px;
+            }
+            .click-item:hover {
+                background: rgba(76, 201, 240, 0.1);
+                border-color: #4cc9f0;
+            }
+            .click-item.selected {
+                background: rgba(76, 201, 240, 0.3);
+                border-color: #4cc9f0;
+                box-shadow: 0 0 10px rgba(76, 201, 240, 0.5);
+            }
+            .click-item.correct {
+                background: rgba(72, 187, 120, 0.3);
+                border-color: #48bb78;
+            }
+            .click-item.wrong {
+                background: rgba(245, 101, 101, 0.3);
+                border-color: #f56565;
+            }
+            .click-hint {
+                text-align: center;
+                color: #94a3b8;
+                font-size: 12px;
+                margin-top: 5px;
+                font-style: italic;
+            }
+            .adaptive-progress-info {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin: 10px 0 15px;
+                font-size: 12px;
+                color: #94a3b8;
+            }
+            .adaptive-progress-label {
+                display: flex;
+                align-items: center;
+                gap: 5px;
+            }
+            .adaptive-progress-speed {
+                color: #4cc9f0;
+                font-weight: 600;
+            }
+            .adaptive-progress-failure {
+                color: #f72585;
+                font-weight: 600;
+            }
             .safe-timer {
                 position: fixed;
                 top: 12px;
@@ -69,13 +352,54 @@
                 box-shadow: 0 2px 8px rgba(76, 201, 240, 0.2);
                 z-index: 9999;
                 user-select: none;
-                cursor: pointer;
                 transition: color 0.3s ease, box-shadow 0.3s ease;
+                cursor: pointer;
             }
-            .safe-timer:hover { box-shadow: 0 0 12px rgba(76, 201, 240, 0.4); }
-            .safe-timer.warning { color: #ffd60a; animation: pulse-warning 1s infinite; }
-            .safe-timer.danger { color: #f72585; animation: pulse-danger 0.8s infinite; }
-
+            .safe-timer:hover {
+                box-shadow: 0 0 12px rgba(76, 201, 240, 0.4);
+            }
+            .safe-timer.warning {
+                color: #ffd60a;
+                animation: pulse-warning 1s infinite;
+            }
+            .safe-timer.danger {
+                color: #f72585;
+                animation: pulse-danger 0.8s infinite;
+            }
+            @keyframes pulse-warning {
+                0% { color: #ffd60a; }
+                50% { color: #ffea80; }
+                100% { color: #ffd60a; }
+            }
+            @keyframes pulse-danger {
+                0% { color: #f72585; }
+                50% { color: #ff6ba9; }
+                100% { color: #f72585; }
+            }
+            .location-refresh-btn-standalone {
+                position: fixed;
+                top: 60px;
+                left: 12px;
+                background: rgba(15, 23, 42, 0.95);
+                border: 1px solid rgba(76, 201, 240, 0.5);
+                border-radius: 8px;
+                padding: 6px 12px;
+                font-size: 12px;
+                font-weight: 600;
+                color: #4cc9f0;
+                box-shadow: 0 2px 8px rgba(76, 201, 240, 0.2);
+                z-index: 9999;
+                user-select: none;
+                cursor: pointer;
+                transition: all 0.3s ease;
+            }
+            .location-refresh-btn-standalone:hover {
+                background: rgba(76, 201, 240, 0.1);
+                box-shadow: 0 0 12px rgba(76, 201, 240, 0.4);
+            }
+            .location-refresh-btn-standalone:active {
+                transform: scale(0.95);
+            }
             .net-status {
                 position: fixed;
                 top: 12px;
@@ -84,7 +408,7 @@
                 border: 1px solid rgba(76, 201, 240, 0.5);
                 border-radius: 8px;
                 padding: 8px 15px;
-                font-size: 14px;
+                font-size: 16px;
                 font-weight: 600;
                 box-shadow: 0 2px 8px rgba(76, 201, 240, 0.2);
                 z-index: 9999;
@@ -92,13 +416,22 @@
                 cursor: pointer;
                 transition: all 0.2s ease;
             }
-            .net-status.online { color: #4cc9f0; }
-            .net-status.offline { color: #f72585; }
-            .net-status:active { transform: scale(0.95); }
-
+            .net-status.online {
+                color: #4cc9f0;
+            }
+            .net-status.offline {
+                color: #f72585;
+            }
+            .net-status:active {
+                transform: scale(0.95);
+                box-shadow: 0 0 8px rgba(76, 201, 240, 0.1);
+            }
             .net-modal {
                 position: fixed;
-                top: 0; left: 0; width: 100%; height: 100%;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
                 background: rgba(10, 15, 30, 0.85);
                 backdrop-filter: blur(8px);
                 display: flex;
@@ -110,47 +443,108 @@
                 visibility: hidden;
                 transition: opacity 0.3s ease, visibility 0.3s ease;
             }
-            .net-modal.active { opacity: 1; visibility: visible; }
+            .net-modal.active {
+                opacity: 1;
+                visibility: visible;
+            }
             .net-modal-box {
                 width: 100%;
-                max-width: 320px;
+                max-width: 280px;
                 background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
                 border: 1px solid rgba(76, 201, 240, 0.5);
                 border-radius: 12px;
-                padding: 20px;
+                padding: 15px 10px;
                 box-shadow: 0 0 15px rgba(76, 201, 240, 0.3);
                 transform: scale(0.9) translateY(10px);
                 transition: transform 0.3s ease, box-shadow 0.3s ease;
             }
-            .net-modal.active .net-modal-box { transform: scale(1) translateY(0); box-shadow: 0 0 20px rgba(76, 201, 240, 0.4); }
+            .net-modal.active .net-modal-box {
+                transform: scale(1) translateY(0);
+                box-shadow: 0 0 20px rgba(76, 201, 240, 0.4);
+            }
             .net-modal-header {
                 display: flex;
-                justify-content: space-between;
                 align-items: center;
+                justify-content: space-between;
                 margin-bottom: 12px;
                 padding-bottom: 8px;
                 border-bottom: 1px solid rgba(76, 201, 240, 0.3);
             }
-            .net-modal-title { font-size: 18px; font-weight: bold; color: #4cc9f0; margin: 0; }
+            .net-modal-title {
+                font-size: 18px;
+                font-weight: bold;
+                color: #4cc9f0;
+                margin: 0;
+                display: flex;
+                align-items: center;
+                text-shadow: 0 0 5px rgba(76, 201, 240, 0.5);
+            }
+            .net-modal-title span {
+                margin-right: 6px;
+                font-size: 20px;
+            }
             .net-modal-close {
                 background: transparent;
                 border: 1px solid rgba(76, 201, 240, 0.5);
                 color: #4cc9f0;
                 font-size: 18px;
                 cursor: pointer;
-                padding: 0 8px;
+                padding: 0 6px;
                 border-radius: 4px;
+                transition: all 0.2s ease;
             }
-            .net-modal-close:hover { background: rgba(76, 201, 240, 0.1); }
-            .net-info-list { list-style: none; padding: 0; margin: 0; }
-            .net-info-item { padding: 6px 0; border-bottom: 1px dashed rgba(76, 201, 240, 0.15); font-size: 13px; }
-            .net-info-label { color: #94a3b8; display: block; font-size: 11px; }
-            .net-info-value { color: #e0f2fe; font-weight: 500; }
-            .net-info-value.dynamic { color: #4cc9f0; }
-
+            .net-modal-close:hover {
+                background: rgba(76, 201, 240, 0.1);
+                box-shadow: 0 0 6px rgba(76, 201, 240, 0.3);
+            }
+            .net-info-list {
+                list-style: none;
+                padding: 0;
+                margin: 0 0 12px;
+            }
+            .net-info-item {
+                padding: 8px 0;
+                border-bottom: 1px dashed rgba(76, 201, 240, 0.2);
+                font-size: 14px;
+            }
+            .net-info-label {
+                color: #94a3b8;
+                display: block;
+                margin-bottom: 2px;
+                font-size: 12px;
+            }
+            .net-info-value {
+                color: #e0f2fe;
+                font-weight: 500;
+            }
+            .net-info-value.dynamic {
+                color: #4cc9f0;
+                text-shadow: 0 0 3px rgba(76, 201, 240, 0.4);
+            }
+            .location-refresh-btn {
+                background: rgba(76, 201, 240, 0.2);
+                border: 1px solid rgba(76, 201, 240, 0.5);
+                color: #4cc9f0;
+                font-size: 12px;
+                cursor: pointer;
+                padding: 2px 6px;
+                border-radius: 4px;
+                margin-left: 8px;
+                transition: all 0.2s ease;
+            }
+            .location-refresh-btn:hover {
+                background: rgba(76, 201, 240, 0.3);
+                box-shadow: 0 0 6px rgba(76, 201, 240, 0.3);
+            }
+            .location-refresh-btn:active {
+                transform: scale(0.95);
+            }
             .verify-modal {
                 position: fixed;
-                top: 0; left: 0; width: 100%; height: 100%;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
                 background: rgba(10, 15, 30, 0.9);
                 backdrop-filter: blur(10px);
                 display: flex;
@@ -162,7 +556,10 @@
                 visibility: hidden;
                 transition: opacity 0.4s ease, visibility 0.4s ease;
             }
-            .verify-modal.active { opacity: 1; visibility: visible; }
+            .verify-modal.active {
+                opacity: 1;
+                visibility: visible;
+            }
             .modal-box {
                 width: 100%;
                 max-width: 380px;
@@ -174,11 +571,39 @@
                 transform: scale(0.9) translateY(15px);
                 transition: transform 0.4s ease, box-shadow 0.4s ease;
             }
-            .verify-modal.active .modal-box { transform: scale(1) translateY(0); box-shadow: 0 0 35px rgba(76, 201, 240, 0.4), inset 0 0 20px rgba(76, 201, 240, 0.15); }
-            .modal-header { display: flex; align-items: center; justify-content: center; margin-bottom: 20px; gap: 12px; }
-            .modal-icon { font-size: 28px; color: #4cc9f0; text-shadow: 0 0 8px rgba(76, 201, 240, 0.6); }
-            .modal-title { font-size: 22px; font-weight: bold; color: #4cc9f0; margin: 0; text-shadow: 0 0 6px rgba(76, 201, 240, 0.5); }
-            .modal-desc { font-size: 14px; color: #e0e7ff; text-align: center; margin: 0 0 20px; line-height: 1.6; opacity: 0.9; }
+            .verify-modal.active .modal-box {
+                transform: scale(1) translateY(0);
+                box-shadow: 0 0 35px rgba(76, 201, 240, 0.4), inset 0 0 20px rgba(76, 201, 240, 0.15);
+            }
+            .modal-header {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                margin-bottom: 20px;
+                gap: 12px;
+            }
+            .modal-icon {
+                font-size: 28px;
+                color: #4cc9f0;
+                text-shadow: 0 0 8px rgba(76, 201, 240, 0.6);
+            }
+            .modal-title {
+                font-size: 22px;
+                font-weight: bold;
+                color: #4cc9f0;
+                margin: 0;
+                text-shadow: 0 0 6px rgba(76, 201, 240, 0.5);
+                letter-spacing: 0.5px;
+            }
+            .modal-desc {
+                font-size: 15px;
+                color: #e0e7ff;
+                text-align: center;
+                margin: 0 0 25px;
+                line-height: 1.6;
+                padding: 0 10px;
+                opacity: 0.9;
+            }
             .verify-code {
                 width: 100%;
                 padding: 15px 0;
@@ -190,13 +615,31 @@
                 color: #4cc9f0;
                 text-align: center;
                 letter-spacing: 6px;
-                margin: 0 0 10px;
+                margin: 0 0 12px;
                 cursor: pointer;
+                transition: all 0.3s ease;
                 user-select: none;
                 box-shadow: 0 0 12px rgba(76, 201, 240, 0.2), inset 0 0 8px rgba(76, 201, 240, 0.4);
                 text-shadow: 0 0 5px rgba(76, 201, 240, 0.7);
+                position: relative;
+                overflow: hidden;
             }
-            .verify-code:active { transform: scale(0.98); }
+            .verify-code:active {
+                transform: scale(0.98);
+                background: linear-gradient(135deg, #2a5298 0%, #1e3c72 100%);
+                border-color: rgba(76, 201, 240, 0.4);
+                box-shadow: 0 0 8px rgba(76, 201, 240, 0.15), inset 0 0 6px rgba(76, 201, 240, 0.3);
+            }
+            .verify-code.uncopyable {
+                cursor: default;
+                background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+                border-color: rgba(76, 201, 240, 0.3);
+                pointer-events: none;
+                box-shadow: inset 0 0 6px rgba(76, 201, 240, 0.2);
+            }
+            .verify-input-wrap {
+                margin: 15px 0 5px;
+            }
             .verify-input {
                 width: 100%;
                 padding: 12px 0;
@@ -206,131 +649,83 @@
                 font-size: 16px;
                 text-align: center;
                 outline: none;
+                transition: all 0.3s ease;
                 color: #f8fafc;
+                box-shadow: inset 0 0 6px rgba(76, 201, 240, 0.1);
                 box-sizing: border-box;
             }
-            .verify-input:focus { border-color: #4cc9f0; box-shadow: 0 0 10px rgba(76, 201, 240, 0.4); }
+            .verify-input:focus {
+                border-color: #4cc9f0;
+                box-shadow: 0 0 10px rgba(76, 201, 240, 0.4), inset 0 0 8px rgba(76, 201, 240, 0.2);
+            }
             .verify-error {
                 display: none;
                 color: #f72585;
                 text-align: center;
                 font-size: 13px;
-                margin: 8px 0;
+                margin-top: -10px;
+                margin-bottom: 15px;
                 font-weight: 600;
+                text-shadow: 0 0 3px rgba(247, 37, 133, 0.4);
+            }
+            .copy-tip {
+                font-size: 13px;
+                color: #b5c8ff;
+                text-align: center;
+                margin: 0 0 25px;
+                font-style: italic;
+                opacity: 0.8;
+            }
+            .double-click-tip {
+                font-size: 12px;
+                color: #f72585;
+                text-align: center;
+                margin: 5px 0 0;
+                font-weight: 600;
+                text-shadow: 0 0 3px rgba(247, 37, 133, 0.4);
             }
             .modal-btns {
                 display: flex;
-                gap: 12px;
-                margin-top: 15px;
+                gap: 15px;
+                margin-top: 10px;
+                margin-bottom: 20px;
             }
             .modal-btn {
                 flex: 1;
-                padding: 12px 0;
+                padding: 13px 0;
                 border: none;
-                border-radius: 8px;
-                font-size: 15px;
+                border-radius: 10px;
+                font-size: 16px;
                 font-weight: 600;
                 cursor: pointer;
-                color: #fff;
                 transition: all 0.3s ease;
+                color: #fff;
+                letter-spacing: 0.5px;
             }
-            .modal-btn:active { transform: translateY(2px); }
-            .confirm-btn { background: linear-gradient(135deg, #4361ee 0%, #3a0ca3 100%); box-shadow: 0 0 12px rgba(67, 97, 238, 0.5); }
-            .confirm-btn:hover { box-shadow: 0 0 18px rgba(67, 97, 238, 0.7); }
-            .cancel-btn { background: linear-gradient(135deg, #f72585 0%, #7209b7 100%); box-shadow: 0 0 12px rgba(247, 37, 133, 0.5); }
-            .cancel-btn:hover { box-shadow: 0 0 18px rgba(247, 37, 133, 0.7); }
-
-            .slider-verify {
-                width: 100%;
-                height: 46px;
-                background: rgba(30, 41, 59, 0.8);
-                border-radius: 23px;
-                margin: 15px 0;
-                position: relative;
-                overflow: hidden;
-                border: 1px solid rgba(76, 201, 240, 0.3);
+            .modal-btn:active {
+                transform: translateY(2px);
+                box-shadow: 0 0 8px rgba(0,0,0,0.2);
             }
-            .slider-track {
-                position: absolute;
-                left: 0; top: 0;
-                width: 100%; height: 100%;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                color: #94a3b8;
-                font-size: 13px;
-                user-select: none;
+            .confirm-btn {
+                background: linear-gradient(135deg, #4361ee 0%, #3a0ca3 100%);
+                box-shadow: 0 0 12px rgba(67, 97, 238, 0.5);
             }
-            .slider-thumb {
-                position: absolute;
-                left: 4px; top: 4px;
-                width: 38px; height: 38px;
-                background: linear-gradient(135deg, #4361ee 0%, #4cc9f0 100%);
-                border-radius: 50%;
-                cursor: grab;
-                box-shadow: 0 0 10px rgba(76, 201, 240, 0.5);
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                color: white;
-                font-size: 16px;
-                z-index: 2;
-                transition: background 0.3s ease;
+            .confirm-btn:hover {
+                box-shadow: 0 0 18px rgba(67, 97, 238, 0.7);
             }
-            .slider-thumb:active { cursor: grabbing; background: linear-gradient(135deg, #3a0ca3 0%, #4361ee 100%); }
-            .slider-target {
-                position: absolute;
-                right: 8px; top: 4px;
-                width: 38px; height: 38px;
-                background: rgba(76, 201, 240, 0.15);
-                border: 2px dashed #4cc9f0;
-                border-radius: 50%;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                color: #4cc9f0;
-                font-size: 16px;
+            .cancel-btn {
+                background: linear-gradient(135deg, #f72585 0%, #7209b7 100%);
+                box-shadow: 0 0 12px rgba(247, 37, 133, 0.5);
             }
-            .slider-success {
-                position: absolute;
-                left: 0; top: 0;
-                width: 0; height: 100%;
-                background: rgba(76, 201, 240, 0.2);
-                transition: width 0.1s ease;
-                border-radius: 23px;
+            .cancel-btn:hover {
+                box-shadow: 0 0 18px rgba(247, 37, 133, 0.7);
             }
-            .slider-hint { text-align: center; color: #94a3b8; font-size: 12px; margin-top: 4px; }
-
-            .click-verify {
-                display: grid;
-                grid-template-columns: repeat(3, 1fr);
-                gap: 8px;
-                margin: 15px 0;
-            }
-            .click-item {
-                aspect-ratio: 1;
-                background: rgba(30, 41, 59, 0.8);
-                border: 1px solid rgba(76, 201, 240, 0.3);
-                border-radius: 8px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                cursor: pointer;
-                transition: all 0.2s ease;
-                user-select: none;
-                font-size: 24px;
-            }
-            .click-item:hover { background: rgba(76, 201, 240, 0.1); border-color: #4cc9f0; }
-            .click-item.selected { background: rgba(76, 201, 240, 0.3); border-color: #4cc9f0; box-shadow: 0 0 10px rgba(76, 201, 240, 0.5); }
-            .click-item.correct { background: rgba(72, 187, 120, 0.3); border-color: #48bb78; }
-            .click-item.wrong { background: rgba(245, 101, 101, 0.3); border-color: #f56565; }
-            .click-hint { text-align: center; color: #94a3b8; font-size: 13px; margin-top: 4px; }
-
             .copy-success {
                 position: fixed;
-                top: 50%; left: 50%;
+                top: 50%;
+                left: 50%;
                 transform: translate(-50%, -50%);
-                background: rgba(15, 23, 42, 0.95);
+                background: rgba(15, 23, 42, 0.9);
                 border: 1px solid rgba(76, 201, 240, 0.6);
                 color: #4cc9f0;
                 padding: 12px 24px;
@@ -344,16 +739,133 @@
             @keyframes fadeInOut {
                 0% { opacity: 0; transform: translate(-50%, -50%) scale(0.9); }
                 20% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-                80% { opacity: 1; }
+                80% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
                 100% { opacity: 0; transform: translate(-50%, -50%) scale(0.9); }
             }
-            .update-link-wrap { text-align: center; padding-top: 12px; border-top: 1px dashed rgba(76, 201, 240, 0.2); margin-top: 10px; }
-            .update-link { font-size: 13px; color: #4cc9f0; text-decoration: none; cursor: pointer; }
-            .update-link:hover { text-decoration: underline; }
-
+            .update-link-wrap {
+                text-align: center;
+                padding-top: 10px;
+                border-top: 1px dashed rgba(76, 201, 240, 0.3);
+            }
+            .update-link {
+                font-size: 13px;
+                color: #4cc9f0;
+                text-decoration: none;
+                cursor: pointer;
+                text-shadow: 0 0 3px rgba(76, 201, 240, 0.5);
+            }
+            .update-link:hover, .update-link:active {
+                text-decoration: underline;
+                color: #7dd3fc;
+                text-shadow: 0 0 5px rgba(76, 201, 240, 0.7);
+            }
+            .progress-verify-modal {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(10, 15, 30, 0.9);
+                backdrop-filter: blur(10px);
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                z-index: 10000;
+                padding: 0 15px;
+                opacity: 0;
+                visibility: hidden;
+                transition: opacity 0.4s ease, visibility 0.4s ease;
+            }
+            .progress-verify-modal.active {
+                opacity: 1;
+                visibility: visible;
+            }
+            .progress-modal-box {
+                width: 100%;
+                max-width: 380px;
+                background: linear-gradient(135deg, #1a103d 0%, #0f172a 100%);
+                border: 1px solid rgba(76, 201, 240, 0.6);
+                border-radius: 16px;
+                padding: 30px 20px;
+                box-shadow: 0 0 25px rgba(76, 201, 240, 0.3), inset 0 0 15px rgba(76, 201, 240, 0.1);
+                transform: scale(0.9) translateY(15px);
+                transition: transform 0.4s ease, box-shadow 0.4s ease;
+            }
+            .progress-verify-modal.active .progress-modal-box {
+                transform: scale(1) translateY(0);
+                box-shadow: 0 0 35px rgba(76, 201, 240, 0.4), inset 0 0 20px rgba(76, 201, 240, 0.15);
+            }
+            .progress-title {
+                font-size: 22px;
+                font-weight: bold;
+                color: #4cc9f0;
+                margin: 0 0 15px;
+                text-align: center;
+                text-shadow: 0 0 6px rgba(76, 201, 240, 0.5);
+                letter-spacing: 0.5px;
+            }
+            .progress-desc {
+                font-size: 15px;
+                color: #e0e7ff;
+                text-align: center;
+                margin: 0 0 25px;
+                line-height: 1.6;
+                padding: 0 10px;
+                opacity: 0.9;
+            }
+            .progress-bar-container {
+                width: 100%;
+                height: 20px;
+                background: rgba(30, 41, 59, 0.8);
+                border-radius: 10px;
+                overflow: hidden;
+                margin: 0 0 30px;
+                box-shadow: inset 0 0 8px rgba(0, 0, 0, 0.3);
+            }
+            .progress-bar {
+                height: 100%;
+                background: linear-gradient(90deg, #4361ee 0%, #4cc9f0 50%, #4361ee 100%);
+                border-radius: 10px;
+                width: 0%;
+                transition: width 0.3s ease;
+                box-shadow: 0 0 10px rgba(76, 201, 240, 0.5);
+            }
+            .progress-status {
+                font-size: 14px;
+                color: #94a3b8;
+                text-align: center;
+                margin: 0 0 5px;
+            }
+            .progress-error {
+                display: none;
+                color: #f72585;
+                text-align: center;
+                font-size: 13px;
+                margin-top: 15px;
+                font-weight: 600;
+                text-shadow: 0 0 3px rgba(247, 37, 133, 0.4);
+            }
+            .progress-retry-btn {
+                background: linear-gradient(135deg, #f72585 0%, #7209b7 100%);
+                border: none;
+                border-radius: 8px;
+                padding: 10px 20px;
+                color: white;
+                font-size: 14px;
+                font-weight: 600;
+                cursor: pointer;
+                margin-top: 15px;
+                transition: all 0.3s ease;
+            }
+            .progress-retry-btn:hover {
+                box-shadow: 0 0 12px rgba(247, 37, 133, 0.5);
+            }
             .admin-modal {
                 position: fixed;
-                top: 0; left: 0; width: 100%; height: 100%;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
                 background: rgba(10, 15, 30, 0.95);
                 backdrop-filter: blur(12px);
                 display: flex;
@@ -365,7 +877,10 @@
                 visibility: hidden;
                 transition: opacity 0.4s ease, visibility 0.4s ease;
             }
-            .admin-modal.active { opacity: 1; visibility: visible; }
+            .admin-modal.active {
+                opacity: 1;
+                visibility: visible;
+            }
             .admin-modal-box {
                 width: 100%;
                 max-width: 320px;
@@ -373,14 +888,46 @@
                 border: 1px solid rgba(76, 201, 240, 0.7);
                 border-radius: 16px;
                 padding: 25px 20px;
-                box-shadow: 0 0 30px rgba(76, 201, 240, 0.4);
+                box-shadow: 0 0 30px rgba(76, 201, 240, 0.4), inset 0 0 20px rgba(76, 201, 240, 0.15);
                 transform: scale(0.9) translateY(15px);
                 transition: transform 0.4s ease, box-shadow 0.4s ease;
             }
-            .admin-modal.active .admin-modal-box { transform: scale(1) translateY(0); }
-            .admin-modal-header { display: flex; align-items: center; justify-content: center; margin-bottom: 15px; gap: 10px; }
-            .admin-modal-title { font-size: 20px; font-weight: bold; color: #4cc9f0; margin: 0; }
-            .admin-modal-desc { font-size: 14px; color: #e0e7ff; text-align: center; margin: 0 0 15px; opacity: 0.9; }
+            .admin-modal.active .admin-modal-box {
+                transform: scale(1) translateY(0);
+                box-shadow: 0 0 40px rgba(76, 201, 240, 0.5), inset 0 0 25px rgba(76, 201, 240, 0.2);
+            }
+            .admin-modal-header {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                margin-bottom: 20px;
+                gap: 12px;
+            }
+            .admin-modal-icon {
+                font-size: 24px;
+                color: #4cc9f0;
+                text-shadow: 0 0 8px rgba(76, 201, 240, 0.6);
+            }
+            .admin-modal-title {
+                font-size: 20px;
+                font-weight: bold;
+                color: #4cc9f0;
+                margin: 0;
+                text-shadow: 0 0 6px rgba(76, 201, 240, 0.5);
+                letter-spacing: 0.5px;
+            }
+            .admin-modal-desc {
+                font-size: 14px;
+                color: #e0e7ff;
+                text-align: center;
+                margin: 0 0 20px;
+                line-height: 1.5;
+                padding: 0 10px;
+                opacity: 0.9;
+            }
+            .admin-input-wrap {
+                margin: 15px 0 5px;
+            }
             .admin-input {
                 width: 100%;
                 padding: 12px 0;
@@ -390,37 +937,98 @@
                 font-size: 16px;
                 text-align: center;
                 outline: none;
+                transition: all 0.3s ease;
                 color: #f8fafc;
-                box-sizing: border-box;
+                box-shadow: inset 0 0 8px rgba(76, 201, 240, 0.1);
                 letter-spacing: 2px;
+                box-sizing: border-box;
             }
-            .admin-input:focus { border-color: #4cc9f0; box-shadow: 0 0 12px rgba(76, 201, 240, 0.5); }
-            .admin-error { display: none; color: #f72585; text-align: center; font-size: 13px; margin: 8px 0; font-weight: 600; }
-            .admin-btns { display: flex; gap: 12px; margin-top: 12px; }
+            .admin-input:focus {
+                border-color: #4cc9f0;
+                box-shadow: 0 0 12px rgba(76, 201, 240, 0.5), inset 0 0 10px rgba(76, 201, 240, 0.2);
+            }
+            .admin-error {
+                display: none;
+                color: #f72585;
+                text-align: center;
+                font-size: 13px;
+                margin-top: 10px;
+                margin-bottom: 15px;
+                font-weight: 600;
+                text-shadow: 0 0 3px rgba(247, 37, 133, 0.4);
+            }
+            .admin-btns {
+                display: flex;
+                gap: 12px;
+                margin-top: 15px;
+            }
             .admin-btn {
                 flex: 1;
-                padding: 11px 0;
+                padding: 12px 0;
                 border: none;
                 border-radius: 8px;
                 font-size: 15px;
                 font-weight: 600;
                 cursor: pointer;
-                color: #fff;
                 transition: all 0.3s ease;
+                color: #fff;
+                letter-spacing: 0.5px;
             }
-            .admin-confirm-btn { background: linear-gradient(135deg, #4361ee 0%, #3a0ca3 100%); box-shadow: 0 0 10px rgba(67, 97, 238, 0.5); }
-            .admin-confirm-btn:hover { box-shadow: 0 0 15px rgba(67, 97, 238, 0.7); }
-            .admin-cancel-btn { background: linear-gradient(135deg, #f72585 0%, #7209b7 100%); box-shadow: 0 0 10px rgba(247, 37, 133, 0.5); }
-            .admin-cancel-btn:hover { box-shadow: 0 0 15px rgba(247, 37, 133, 0.7); }
+            .admin-confirm-btn {
+                background: linear-gradient(135deg, #4361ee 0%, #3a0ca3 100%);
+                box-shadow: 0 0 10px rgba(67, 97, 238, 0.5);
+            }
+            .admin-confirm-btn:hover {
+                box-shadow: 0 0 15px rgba(67, 97, 238, 0.7);
+            }
+            .admin-cancel-btn {
+                background: linear-gradient(135deg, #f72585 0%, #7209b7 100%);
+                box-shadow: 0 0 10px rgba(247, 37, 133, 0.5);
+            }
+            .admin-cancel-btn:hover {
+                box-shadow: 0 0 15px rgba(247, 37, 133, 0.7);
+            }
         `);
 
         const STORAGE_KEY = 'safeTimerEndTime';
         const LOG_STORAGE_KEY = 'safeTimerLogs';
         const SESSION_KEY = 'safeTimerSession';
+        const RISK_HISTORY_KEY = 'safeTimerRiskHistory';
         const ADMIN_PASSWORD = '190212';
+        const LOG_MAX_SIZE = 200 * 1024;
         const TOTAL_TIME = 15 * 60;
         const UPDATE_URL = 'https://github.com/djdwix/2048games/blob/main/3.user.js';
+        const STRENGTHEN_COUNT = 2;
+        const FAST_VERIFY_THRESHOLD = 3000;
+        const LOCAL_DELAY_INTERVAL = 5000;
+        const DELAY_TEST_TIMEOUT = 5000;
+        const BACKGROUND_CHECK_INTERVAL = 5000;
         const DESTROY_AFTER_END = 8 * 60;
+        const PROGRESS_FAILURE_PROBABILITY = 0.25;
+        const MATH_PROBLEM_PROBABILITY = 0.45;
+        const IP_API_LIST = [
+            { url: 'https://api.ipify.org?format=json', parser: (json) => json.ip },
+            { url: 'https://ipinfo.io/json', parser: (json) => json.ip },
+            { url: 'https://api.myip.com', parser: (json) => json.ip },
+            { url: 'https://api64.ipify.org?format=json', parser: (json) => json.ip },
+            { url: 'https://ipapi.co/json/', parser: (json) => json.ip }
+        ];
+        const GEO_API_CONFIG = {
+            reverseGeocodeList: [
+                (lat, lon) => `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&zoom=10&addressdetails=1`,
+                (lat, lon) => `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=zh`,
+                (lat, lon) => `https://geocode.maps.co/reverse?lat=${lat}&lon=${lon}&format=json`,
+                (lat, lon) => `https://api.opentopodata.org/v1/aster30m?locations=${lat},${lon}`,
+                (lat, lon) => `https://geocoding-api.open-meteo.com/v1/reverse?latitude=${lat}&longitude=${lon}&language=zh`
+            ],
+            ipLocationList: [
+                (ip) => `https://ipinfo.io/${ip}/json`,
+                (ip) => `https://ip-api.com/json/${ip}?fields=status,message,country,regionName,city`,
+                (ip) => `https://api.ipapi.com/${ip}?access_key=demo`,
+                (ip) => `https://ipapi.co/${ip}/json/`,
+                (ip) => `https://api.iplocation.net/?ip=${ip}`
+            ]
+        };
 
         const RISK_LEVELS = {
             LOW: { threshold: 30, color: '#4cc9f0', name: '低风险' },
@@ -433,92 +1041,157 @@
             SIMPLE_CODE: 'simple_code',
             MATH_PROBLEM: 'math_problem',
             SLIDER: 'slider',
-            CLICK: 'click'
+            CLICK: 'click',
+            PROGRESS: 'progress'
         };
 
+        let backgroundRunner = null;
+        let networkMonitor = null;
         let currentVerificationCode = '';
         let riskIndicator = null;
         let currentRiskScore = 0;
+        let riskHistory = [];
         let currentVerifyType = VERIFY_TYPES.SIMPLE_CODE;
-        let networkMonitor = null;
         let timerInterval = null;
-        let isTimerRunning = false;
-        let isVerified = false;
+        let isTimerActive = false;
 
-        function log(content) {
+        function generateDeviceFingerprint() {
+            const components = [];
+            const ua = navigator.userAgent;
+            components.push(ua);
+            components.push(`${screen.width}x${screen.height}x${screen.colorDepth}`);
+            components.push(new Date().getTimezoneOffset());
+            components.push(navigator.language);
+            components.push(navigator.cookieEnabled ? '1' : '0');
+            if (navigator.plugins) {
+                components.push(navigator.plugins.length);
+            }
             try {
-                const timeStr = new Date().toLocaleString('zh-CN', {
-                    year: 'numeric', month: '2-digit', day: '2-digit',
-                    hour: '2-digit', minute: '2-digit', second: '2-digit'
-                }).replace(/\//g, '-');
-                const logItem = {
-                    time: timeStr,
-                    content: content,
-                    domain: window.location.hostname
-                };
-                let logs = JSON.parse(localStorage.getItem(LOG_STORAGE_KEY) || '[]');
-                logs.push(logItem);
-                if (logs.length > 200) logs = logs.slice(-200);
-                localStorage.setItem(LOG_STORAGE_KEY, JSON.stringify(logs));
-                console.log(`[安全计时器][${timeStr}] ${content}`);
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                const txt = '安全计时器';
+                ctx.textBaseline = 'top';
+                ctx.font = "14px 'Arial'";
+                ctx.textBaseline = 'alphabetic';
+                ctx.fillStyle = '#f60';
+                ctx.fillRect(125,1,62,20);
+                ctx.fillStyle = '#069';
+                ctx.fillText(txt, 2, 15);
+                ctx.fillStyle = 'rgba(102, 204, 0, 0.7)';
+                ctx.fillText(txt, 4, 17);
+                const canvasData = canvas.toDataURL();
+                components.push(canvasData.substring(canvasData.length - 20));
+            } catch(e) {
+                components.push('canvas_err');
+            }
+            let hash = 0;
+            const str = components.join('|');
+            for (let i = 0; i < str.length; i++) {
+                const char = str.charCodeAt(i);
+                hash = ((hash << 5) - hash) + char;
+                hash = hash & hash;
+            }
+            return Math.abs(hash).toString(16);
+        }
+
+        function loadRiskHistory() {
+            try {
+                const stored = localStorage.getItem(RISK_HISTORY_KEY);
+                if (stored) {
+                    riskHistory = JSON.parse(stored);
+                    if (riskHistory.length > 100) {
+                        riskHistory = riskHistory.slice(-100);
+                    }
+                }
             } catch (e) {
-                console.log('日志记录失败:', e);
+                riskHistory = [];
             }
         }
 
-        function generateDeviceFingerprint() {
+        function saveRiskHistory() {
             try {
-                const components = [
-                    navigator.userAgent,
-                    `${screen.width}x${screen.height}x${screen.colorDepth}`,
-                    new Date().getTimezoneOffset(),
-                    navigator.language,
-                    navigator.cookieEnabled ? '1' : '0'
-                ];
-                if (navigator.plugins) components.push(navigator.plugins.length);
-                let hash = 0;
-                const str = components.join('|');
-                for (let i = 0; i < str.length; i++) {
-                    const char = str.charCodeAt(i);
-                    hash = ((hash << 5) - hash) + char;
-                    hash = hash & hash;
-                }
-                return Math.abs(hash).toString(16);
+                localStorage.setItem(RISK_HISTORY_KEY, JSON.stringify(riskHistory));
             } catch (e) {
-                return 'unknown';
+                console.error('保存风险历史失败:', e);
             }
         }
 
         function calculateRiskScore() {
             let score = 0;
-            const fingerprint = generateDeviceFingerprint();
-            const stored = localStorage.getItem('safeTimerRiskData');
-            if (stored) {
-                try {
-                    const data = JSON.parse(stored);
-                    if (data.fingerprint && data.fingerprint !== fingerprint) {
-                        score += 25;
-                    }
-                } catch (e) {}
+            const factors = [];
+            if (riskHistory.length > 0) {
+                const recentAccesses = riskHistory.filter(h => 
+                    Date.now() - h.timestamp < 5 * 60 * 1000
+                ).length;
+                if (recentAccesses > 10) {
+                    score += 30;
+                    factors.push({ name: '高频访问', value: `${recentAccesses}次/5分钟`, score: 30 });
+                } else if (recentAccesses > 5) {
+                    score += 15;
+                    factors.push({ name: '中频访问', value: `${recentAccesses}次/5分钟`, score: 15 });
+                }
             }
-            localStorage.setItem('safeTimerRiskData', JSON.stringify({
-                fingerprint: fingerprint,
-                timestamp: Date.now()
-            }));
-
-            if (screen.width < 320 || screen.height < 480) {
+            const networkInfo = networkMonitor ? {
+                ip: networkMonitor.userIP,
+                location: networkMonitor.locationInfo,
+                area: networkMonitor.currentArea
+            } : null;
+            if (networkInfo && networkInfo.ip !== '查找中...' && networkInfo.ip !== '查找失败') {
+                const suspiciousIPs = ['1.1.1.1', '8.8.8.8'];
+                if (suspiciousIPs.includes(networkInfo.ip)) {
+                    score += 40;
+                    factors.push({ name: '可疑IP', value: networkInfo.ip, score: 40 });
+                }
+            }
+            if (networkMonitor && networkMonitor.localDelay !== '检测中...') {
+                const delay = parseInt(networkMonitor.localDelay);
+                if (!isNaN(delay)) {
+                    if (delay > 1000) {
+                        score += 20;
+                        factors.push({ name: '高延迟', value: `${delay}ms`, score: 20 });
+                    } else if (delay > 500) {
+                        score += 10;
+                        factors.push({ name: '中延迟', value: `${delay}ms`, score: 10 });
+                    }
+                }
+            }
+            const browser = networkMonitor ? networkMonitor.getBrowserInfo() : '未知';
+            if (browser === '未知' || browser === 'Via' || browser === 'X浏览器') {
                 score += 15;
+                factors.push({ name: '非常用浏览器', value: browser, score: 15 });
+            }
+            if (screen.width < 320 || screen.height < 480) {
+                score += 25;
+                factors.push({ name: '异常屏幕尺寸', value: `${screen.width}x${screen.height}`, score: 25 });
             }
             const hour = new Date().getHours();
             if (hour < 6 || hour > 23) {
                 score += 10;
+                factors.push({ name: '非工作时间访问', value: `${hour}时`, score: 10 });
             }
-            return Math.min(100, Math.max(0, score));
+            const deviceFingerprint = generateDeviceFingerprint();
+            const lastFingerprint = riskHistory.length > 0 ? riskHistory[riskHistory.length - 1].deviceFingerprint : null;
+            if (lastFingerprint && lastFingerprint !== deviceFingerprint) {
+                score += 35;
+                factors.push({ name: '设备指纹变化', value: '设备变更', score: 35 });
+            }
+            score = Math.min(100, Math.max(0, score));
+            const riskRecord = {
+                timestamp: Date.now(),
+                score: score,
+                factors: factors,
+                deviceFingerprint: deviceFingerprint,
+                ip: networkInfo ? networkInfo.ip : '未知',
+                location: networkInfo ? networkInfo.location : '未知'
+            };
+            riskHistory.push(riskRecord);
+            saveRiskHistory();
+            return { score, factors };
         }
 
         function determineVerifyType(riskScore) {
             if (riskScore < RISK_LEVELS.LOW.threshold) {
-                return Math.random() < 0.6 ? VERIFY_TYPES.SIMPLE_CODE : VERIFY_TYPES.MATH_PROBLEM;
+                return Math.random() < 0.5 ? VERIFY_TYPES.SIMPLE_CODE : VERIFY_TYPES.MATH_PROBLEM;
             } else if (riskScore < RISK_LEVELS.MEDIUM.threshold) {
                 return VERIFY_TYPES.MATH_PROBLEM;
             } else if (riskScore < RISK_LEVELS.HIGH.threshold) {
@@ -528,176 +1201,311 @@
             }
         }
 
+        function determineProgressParams(riskScore, networkDelay) {
+            const baseDuration = 4000;
+            const baseFailureProb = 0.25;
+            let duration = baseDuration;
+            let failureProbability = baseFailureProb;
+            let speedLabel = '正常';
+            if (riskScore > RISK_LEVELS.HIGH.threshold) {
+                duration *= 1.8;
+                failureProbability *= 1.5;
+                speedLabel = '极慢';
+            } else if (riskScore > RISK_LEVELS.MEDIUM.threshold) {
+                duration *= 1.4;
+                failureProbability *= 1.2;
+                speedLabel = '较慢';
+            } else if (riskScore < RISK_LEVELS.LOW.threshold) {
+                duration *= 0.7;
+                failureProbability *= 0.8;
+                speedLabel = '快速';
+            }
+            if (!isNaN(networkDelay)) {
+                if (networkDelay > 1000) {
+                    duration *= 1.3;
+                    failureProbability *= 0.9;
+                } else if (networkDelay < 100) {
+                    duration *= 0.9;
+                }
+            }
+            duration = Math.max(2000, Math.min(10000, duration));
+            failureProbability = Math.max(0.1, Math.min(0.8, failureProbability));
+            return {
+                duration: Math.round(duration),
+                failureProbability: Math.round(failureProbability * 100) / 100,
+                speedLabel: speedLabel
+            };
+        }
+
         function createRiskIndicator() {
-            const existing = document.querySelector('.risk-indicator');
-            if (existing) existing.remove();
+            const existingIndicator = document.querySelector('.risk-indicator');
+            if (existingIndicator) existingIndicator.remove();
             riskIndicator = document.createElement('div');
             riskIndicator.className = 'risk-indicator';
             riskIndicator.style.display = 'none';
             document.body.appendChild(riskIndicator);
-            riskIndicator.addEventListener('click', showRiskInfo);
+            riskIndicator.addEventListener('click', showRiskDetailsModal);
         }
 
-        function updateRiskIndicator(riskScore) {
+        function updateRiskIndicator(riskScore, factors) {
             if (!riskIndicator) return;
-            let levelClass, levelName;
-            if (riskScore < RISK_LEVELS.LOW.threshold) { levelClass = 'low'; levelName = '低风险'; }
-            else if (riskScore < RISK_LEVELS.MEDIUM.threshold) { levelClass = 'medium'; levelName = '中风险'; }
-            else if (riskScore < RISK_LEVELS.HIGH.threshold) { levelClass = 'high'; levelName = '高风险'; }
-            else { levelClass = 'critical'; levelName = '严重风险'; }
+            let levelClass = '';
+            let levelName = '';
+            if (riskScore < RISK_LEVELS.LOW.threshold) {
+                levelClass = 'low';
+                levelName = '低风险';
+            } else if (riskScore < RISK_LEVELS.MEDIUM.threshold) {
+                levelClass = 'medium';
+                levelName = '中风险';
+            } else if (riskScore < RISK_LEVELS.HIGH.threshold) {
+                levelClass = 'high';
+                levelName = '高风险';
+            } else {
+                levelClass = 'critical';
+                levelName = '严重风险';
+            }
             riskIndicator.className = `risk-indicator ${levelClass}`;
-            riskIndicator.textContent = `风险: ${levelName} (${riskScore}分)`;
+            riskIndicator.textContent = `风险等级: ${levelName} (${riskScore}分)`;
+            riskIndicator.title = `点击查看详细信息\n风险因素: ${factors.map(f => f.name).join(', ')}`;
             riskIndicator.style.display = 'block';
+            log(`风险检测完成: ${levelName} (${riskScore}分), 因素: ${factors.map(f => f.name).join(', ')}`);
         }
 
-        function showRiskInfo() {
-            const level = currentRiskScore < 30 ? '低' : currentRiskScore < 60 ? '中' : currentRiskScore < 85 ? '高' : '严重';
-            alert(`当前风险等级: ${level} (${currentRiskScore}分)\n验证类型: ${getVerifyTypeName(currentVerifyType)}`);
+        function showRiskDetailsModal() {
+            const existingModal = document.querySelector('.risk-modal');
+            if (existingModal) existingModal.remove();
+            const modal = document.createElement('div');
+            modal.className = 'risk-modal';
+            let factorsHtml = '';
+            const riskResult = calculateRiskScore();
+            riskResult.factors.forEach(factor => {
+                let levelClass = '';
+                if (factor.score >= 30) levelClass = 'critical';
+                else if (factor.score >= 20) levelClass = 'high';
+                else if (factor.score >= 10) levelClass = 'medium';
+                else levelClass = 'low';
+                factorsHtml += `
+                    <div class="risk-item">
+                        <span class="risk-label">${factor.name}</span>
+                        <span class="risk-value ${levelClass}">${factor.value} (+${factor.score}分)</span>
+                    </div>
+                `;
+            });
+            modal.innerHTML = `
+                <div class="risk-modal-box">
+                    <div class="risk-modal-header">
+                        <div class="risk-modal-icon">⚠️</div>
+                        <h2 class="risk-modal-title">风险分析报告</h2>
+                    </div>
+                    <p class="risk-modal-desc">系统检测到以下风险因素，当前验证已根据风险等级调整</p>
+                    <div class="risk-details">
+                        <div class="risk-item">
+                            <span class="risk-label">总体风险分数</span>
+                            <span class="risk-value ${currentRiskScore >= 85 ? 'critical' : currentRiskScore >= 60 ? 'high' : currentRiskScore >= 30 ? 'medium' : 'low'}">
+                                ${currentRiskScore}分
+                            </span>
+                        </div>
+                        <div class="risk-item">
+                            <span class="risk-label">当前验证类型</span>
+                            <span class="risk-value">${getVerifyTypeName(currentVerifyType)}</span>
+                        </div>
+                        ${factorsHtml}
+                    </div>
+                    <div class="risk-btns">
+                        <button class="risk-btn risk-confirm-btn" id="risk-confirm">确定</button>
+                        <button class="risk-btn risk-ignore-btn" id="risk-ignore">忽略风险</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+            setTimeout(() => {
+                modal.classList.add('active');
+            }, 10);
+            modal.querySelector('#risk-confirm').addEventListener('click', () => {
+                modal.classList.remove('active');
+                setTimeout(() => {
+                    if (modal.parentNode) modal.parentNode.removeChild(modal);
+                }, 400);
+            });
+            modal.querySelector('#risk-ignore').addEventListener('click', () => {
+                currentRiskScore = Math.max(0, currentRiskScore - 20);
+                const riskResult2 = calculateRiskScore();
+                updateRiskIndicator(currentRiskScore, riskResult2.factors);
+                modal.classList.remove('active');
+                setTimeout(() => {
+                    if (modal.parentNode) modal.parentNode.removeChild(modal);
+                }, 400);
+                log('用户选择忽略风险，风险分数降低20分');
+            });
         }
 
         function getVerifyTypeName(type) {
             const names = {
-                [VERIFY_TYPES.SIMPLE_CODE]: '验证码',
-                [VERIFY_TYPES.MATH_PROBLEM]: '数学题',
-                [VERIFY_TYPES.SLIDER]: '滑块',
-                [VERIFY_TYPES.CLICK]: '点选'
+                [VERIFY_TYPES.SIMPLE_CODE]: '简单验证码',
+                [VERIFY_TYPES.MATH_PROBLEM]: '数学计算题',
+                [VERIFY_TYPES.SLIDER]: '滑块验证',
+                [VERIFY_TYPES.CLICK]: '点选验证',
+                [VERIFY_TYPES.PROGRESS]: '进度条验证'
             };
-            return names[type] || '未知';
+            return names[type] || '未知验证';
         }
 
         function generateVerificationCode() {
-            if (currentVerifyType === VERIFY_TYPES.MATH_PROBLEM) {
-                const operators = ['+', '-', '*'];
-                const num1 = Math.floor(Math.random() * 20) + 1;
-                const num2 = Math.floor(Math.random() * 20) + 1;
-                const op = operators[Math.floor(Math.random() * operators.length)];
-                let result;
-                switch (op) {
-                    case '+': result = num1 + num2; break;
-                    case '-': result = num1 - num2; break;
-                    case '*': result = num1 * num2; break;
-                }
+            switch (currentVerifyType) {
+                case VERIFY_TYPES.MATH_PROBLEM:
+                    return generateMathProblem();
+                case VERIFY_TYPES.SIMPLE_CODE:
+                    return generateSimpleCode();
+                case VERIFY_TYPES.SLIDER:
+                    return { type: VERIFY_TYPES.SLIDER, display: 'slider' };
+                case VERIFY_TYPES.CLICK:
+                    return { type: VERIFY_TYPES.CLICK, display: 'click' };
+                default:
+                    return generateSimpleCode();
+            }
+        }
+
+        function generateSimpleCode() {
+            const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+            let code = '';
+            const length = currentRiskScore > RISK_LEVELS.MEDIUM.threshold ? 8 : 6;
+            for (let i = 0; i < length; i++) {
+                code += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            currentVerificationCode = code;
+            return { type: VERIFY_TYPES.SIMPLE_CODE, display: code };
+        }
+
+        function generateMathProblem() {
+            const operators = ['+', '-', '*', '/'];
+            const numCount = 3 + Math.floor(Math.random() * 2);
+            let expression = '';
+            let numbers = [];
+            for (let i = 0; i < numCount; i++) {
+                numbers.push(Math.floor(Math.random() * 20) + 1);
+            }
+            for (let i = 0; i < numCount - 1; i++) {
+                expression += numbers[i];
+                expression += operators[Math.floor(Math.random() * operators.length)];
+            }
+            expression += numbers[numCount - 1];
+            try {
+                const result = Math.round(eval(expression));
                 currentVerificationCode = result.toString();
-                return { type: VERIFY_TYPES.MATH_PROBLEM, display: `${num1} ${op} ${num2} = ?` };
-            } else {
-                const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-                let code = '';
-                const len = currentRiskScore > 60 ? 8 : 6;
-                for (let i = 0; i < len; i++) {
-                    code += chars.charAt(Math.floor(Math.random() * chars.length));
-                }
-                currentVerificationCode = code;
-                return { type: VERIFY_TYPES.SIMPLE_CODE, display: code };
+                return { type: VERIFY_TYPES.MATH_PROBLEM, display: expression + ' = ?' };
+            } catch (e) {
+                return generateMathProblem();
             }
         }
 
         function createSliderVerify() {
-            const container = document.createElement('div');
-            container.innerHTML = `
-                <div class="slider-verify">
-                    <div class="slider-track">滑动到右侧完成验证</div>
-                    <div class="slider-success"></div>
-                    <div class="slider-thumb">→</div>
-                    <div class="slider-target">✓</div>
-                </div>
-                <div class="slider-hint">拖动滑块到右侧 ✓ 位置</div>
+            const sliderContainer = document.createElement('div');
+            sliderContainer.className = 'slider-verify';
+            sliderContainer.innerHTML = `
+                <div class="slider-track">请滑动滑块到右侧完成验证</div>
+                <div class="slider-success"></div>
+                <div class="slider-thumb">→</div>
+                <div class="slider-target">✓</div>
             `;
-            const slider = container.querySelector('.slider-verify');
-            const thumb = slider.querySelector('.slider-thumb');
-            const target = slider.querySelector('.slider-target');
-            const successBar = slider.querySelector('.slider-success');
-            const track = slider.querySelector('.slider-track');
-
+            const thumb = sliderContainer.querySelector('.slider-thumb');
+            const target = sliderContainer.querySelector('.slider-target');
+            const successBar = sliderContainer.querySelector('.slider-success');
+            const track = sliderContainer.querySelector('.slider-track');
+            const containerWidth = sliderContainer.offsetWidth || 300;
+            const thumbWidth = 40;
+            const targetWidth = 40;
+            const maxX = containerWidth - thumbWidth - 10;
+            const targetX = containerWidth - targetWidth - 5;
             let isDragging = false;
             let startX = 0;
-            let thumbX = 4;
-            const containerWidth = slider.offsetWidth || 300;
-            const maxX = containerWidth - 42 - 4;
-            const targetX = containerWidth - 42 - 8;
-
-            thumb.style.left = thumbX + 'px';
-
-            function onStart(e) {
+            let thumbX = 5;
+            thumb.style.left = `${thumbX}px`;
+            
+            const onMouseDown = (e) => {
                 isDragging = true;
-                const clientX = e.type === 'touchstart' ? e.touches[0].clientX : e.clientX;
-                startX = clientX - thumbX;
+                startX = e.clientX || e.touches[0].clientX;
+                thumb.style.cursor = 'grabbing';
                 e.preventDefault();
-            }
-
-            function onMove(e) {
+            };
+            const onMouseMove = (e) => {
                 if (!isDragging) return;
-                const clientX = e.type === 'touchmove' ? e.touches[0].clientX : e.clientX;
-                let newX = clientX - startX;
-                newX = Math.max(4, Math.min(maxX, newX));
-                thumb.style.left = newX + 'px';
-                successBar.style.width = newX + 'px';
-
-                if (newX >= targetX - 15) {
+                const clientX = e.clientX || (e.touches && e.touches[0].clientX);
+                if (!clientX) return;
+                const deltaX = clientX - startX;
+                let newX = thumbX + deltaX;
+                newX = Math.max(5, Math.min(maxX, newX));
+                thumb.style.left = `${newX}px`;
+                successBar.style.width = `${newX}px`;
+                if (newX >= targetX - 20) {
                     thumb.style.background = 'linear-gradient(135deg, #48bb78 0%, #38a169 100%)';
-                    track.textContent = '✓ 验证成功';
+                    track.textContent = '验证成功 ✓';
                     track.style.color = '#48bb78';
                 } else {
                     thumb.style.background = 'linear-gradient(135deg, #4361ee 0%, #4cc9f0 100%)';
-                    track.textContent = '滑动到右侧完成验证';
+                    track.textContent = '请滑动滑块到右侧完成验证';
                     track.style.color = '#94a3b8';
                 }
-                e.preventDefault();
-            }
-
-            function onEnd() {
+            };
+            const onMouseUp = () => {
                 if (!isDragging) return;
                 isDragging = false;
+                thumb.style.cursor = 'grab';
                 const finalX = parseInt(thumb.style.left);
-                if (finalX >= targetX - 15) {
+                if (finalX >= targetX - 20) {
                     currentVerificationCode = 'SLIDER_SUCCESS';
-                    const confirmBtn = document.querySelector('#confirm-verify');
-                    if (confirmBtn) setTimeout(() => confirmBtn.click(), 300);
+                    setTimeout(() => {
+                        const confirmBtn = document.querySelector('#confirm-verify');
+                        if (confirmBtn) confirmBtn.click();
+                    }, 500);
                 } else {
                     thumb.style.transition = 'left 0.3s ease';
-                    thumb.style.left = '4px';
-                    successBar.style.width = '0px';
+                    thumb.style.left = `${thumbX}px`;
+                    successBar.style.width = `${thumbX}px`;
                     thumb.style.background = 'linear-gradient(135deg, #4361ee 0%, #4cc9f0 100%)';
-                    track.textContent = '滑动到右侧完成验证';
+                    track.textContent = '请滑动滑块到右侧完成验证';
                     track.style.color = '#94a3b8';
-                    setTimeout(() => { thumb.style.transition = ''; }, 300);
+                    setTimeout(() => {
+                        thumb.style.transition = '';
+                    }, 300);
                 }
-            }
-
-            thumb.addEventListener('mousedown', onStart);
-            thumb.addEventListener('touchstart', onStart);
-            document.addEventListener('mousemove', onMove);
-            document.addEventListener('touchmove', onMove, { passive: false });
-            document.addEventListener('mouseup', onEnd);
-            document.addEventListener('touchend', onEnd);
-
-            return container;
+            };
+            thumb.addEventListener('mousedown', onMouseDown);
+            thumb.addEventListener('touchstart', onMouseDown);
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('touchmove', (e) => {
+                onMouseMove(e);
+                e.preventDefault();
+            }, { passive: false });
+            document.addEventListener('mouseup', onMouseUp);
+            document.addEventListener('touchend', onMouseUp);
+            return sliderContainer;
         }
 
         function createClickVerify() {
-            const container = document.createElement('div');
-            const grid = document.createElement('div');
-            grid.className = 'click-verify';
-
-            const total = 9;
+            const clickContainer = document.createElement('div');
+            clickContainer.className = 'click-verify';
+            const totalItems = 9;
             const correctCount = 3;
             const correctPositions = [];
             while (correctPositions.length < correctCount) {
-                const pos = Math.floor(Math.random() * total);
-                if (!correctPositions.includes(pos)) correctPositions.push(pos);
+                const pos = Math.floor(Math.random() * totalItems);
+                if (!correctPositions.includes(pos)) {
+                    correctPositions.push(pos);
+                }
             }
-
             const prompts = ['汽车', '房子', '树', '猫', '狗', '花', '太阳', '星星', '月亮'];
-            const targetPrompt = prompts[Math.floor(Math.random() * prompts.length)];
+            const correctPrompt = prompts[Math.floor(Math.random() * prompts.length)];
+            const promptText = `请点击所有的"${correctPrompt}"`;
             const icons = ['🚗', '🏠', '🌳', '🐱', '🐶', '🌸', '☀️', '⭐', '🌙'];
-
-            for (let i = 0; i < total; i++) {
+            const iconMap = { '汽车': '🚗', '房子': '🏠', '树': '🌳', '猫': '🐱', '狗': '🐶', '花': '🌸', '太阳': '☀️', '星星': '⭐', '月亮': '🌙' };
+            
+            for (let i = 0; i < totalItems; i++) {
+                const isCorrect = correctPositions.includes(i);
+                const icon = isCorrect ? iconMap[correctPrompt] || '❓' : icons[i];
                 const item = document.createElement('div');
                 item.className = 'click-item';
-                const isCorrect = correctPositions.includes(i);
-                const iconMap = { '汽车': '🚗', '房子': '🏠', '树': '🌳', '猫': '🐱', '狗': '🐶', '花': '🌸', '太阳': '☀️', '星星': '⭐', '月亮': '🌙' };
-                item.textContent = isCorrect ? iconMap[targetPrompt] || '❓' : icons[i];
+                item.textContent = icon;
                 item.dataset.correct = isCorrect ? 'true' : 'false';
-
                 item.addEventListener('click', function() {
                     if (this.classList.contains('selected')) {
                         this.classList.remove('selected');
@@ -708,291 +1516,160 @@
                         if (this.dataset.correct === 'true') this.classList.add('correct');
                         else this.classList.add('wrong');
                     }
-                    const selected = grid.querySelectorAll('.click-item.selected');
-                    const correctSelected = Array.from(selected).filter(el => el.dataset.correct === 'true').length;
-                    const wrongSelected = selected.length - correctSelected;
+                    const selectedItems = clickContainer.querySelectorAll('.click-item.selected');
+                    const correctSelected = Array.from(selectedItems).filter(item => 
+                        item.dataset.correct === 'true'
+                    ).length;
+                    const wrongSelected = selectedItems.length - correctSelected;
                     if (correctSelected === correctCount && wrongSelected === 0) {
                         currentVerificationCode = 'CLICK_SUCCESS';
-                        const confirmBtn = document.querySelector('#confirm-verify');
-                        if (confirmBtn) setTimeout(() => confirmBtn.click(), 300);
+                        setTimeout(() => {
+                            const confirmBtn = document.querySelector('#confirm-verify');
+                            if (confirmBtn) confirmBtn.click();
+                        }, 500);
                     }
                 });
-                grid.appendChild(item);
+                clickContainer.appendChild(item);
             }
-
             const hint = document.createElement('div');
             hint.className = 'click-hint';
-            hint.textContent = `请点击所有"${targetPrompt}"`;
-
-            container.appendChild(grid);
-            container.appendChild(hint);
-            return container;
+            hint.textContent = promptText;
+            const wrapper = document.createElement('div');
+            wrapper.appendChild(clickContainer);
+            wrapper.appendChild(hint);
+            return wrapper;
         }
 
-        function showCopySuccess() {
-            const tip = document.createElement('div');
-            tip.className = 'copy-success';
-            tip.textContent = '✅ 验证码已复制';
-            document.body.appendChild(tip);
-            setTimeout(() => { if (tip.parentNode) tip.parentNode.removeChild(tip); }, 1500);
-        }
+        function log(content, isBackground = false) {
+            try {
+                const timeStr = new Date().toLocaleString('zh-CN', {
+                    year: 'numeric', month: '2-digit', day: '2-digit',
+                    hour: '2-digit', minute: '2-digit', second: '2-digit'
+                }).replace(/\//g, '-');
+                const logPrefix = isBackground ? '[安全计时器-后台]' : '[安全计时器]';
+                const logItem = { 
+                    time: timeStr, 
+                    content: content, 
+                    source: isBackground ? '后台' : '前台',
+                    domain: window.location.hostname,
+                    riskScore: currentRiskScore,
+                    verifyType: currentVerifyType
+                };
 
-        function showAdminModal(code) {
-            const existing = document.querySelector('.admin-modal');
-            if (existing) existing.remove();
+                let logs = JSON.parse(localStorage.getItem(LOG_STORAGE_KEY) || '[]');
+                logs.push(logItem);
 
-            const modal = document.createElement('div');
-            modal.className = 'admin-modal';
-            modal.innerHTML = `
-                <div class="admin-modal-box">
-                    <div class="admin-modal-header">
-                        <span style="font-size:24px;">🔑</span>
-                        <h2 class="admin-modal-title">管理员验证</h2>
-                    </div>
-                    <p class="admin-modal-desc">输入管理员密码复制验证码</p>
-                    <input type="password" class="admin-input" id="admin-password" placeholder="6位密码" maxlength="6" inputmode="numeric">
-                    <div class="admin-error" id="admin-error">密码错误</div>
-                    <div class="admin-btns">
-                        <button class="admin-btn admin-confirm-btn" id="admin-confirm">确认</button>
-                        <button class="admin-btn admin-cancel-btn" id="admin-cancel">取消</button>
-                    </div>
-                </div>
-            `;
-            document.body.appendChild(modal);
-            setTimeout(() => modal.classList.add('active'), 10);
-
-            const input = modal.querySelector('#admin-password');
-            const error = modal.querySelector('#admin-error');
-            const confirm = modal.querySelector('#admin-confirm');
-            const cancel = modal.querySelector('#admin-cancel');
-
-            function handleConfirm() {
-                if (input.value.trim() === ADMIN_PASSWORD) {
-                    navigator.clipboard.writeText(code).then(() => {
-                        showCopySuccess();
-                        modal.classList.remove('active');
-                        setTimeout(() => { if (modal.parentNode) modal.parentNode.removeChild(modal); }, 400);
-                        log('验证码已复制');
-                    }).catch(() => {
-                        error.textContent = '复制失败，请手动复制';
-                        error.style.display = 'block';
-                    });
-                } else {
-                    error.style.display = 'block';
-                    input.value = '';
-                    log('管理员密码错误');
-                }
-            }
-
-            confirm.addEventListener('click', handleConfirm);
-            cancel.addEventListener('click', () => {
-                modal.classList.remove('active');
-                setTimeout(() => { if (modal.parentNode) modal.parentNode.removeChild(modal); }, 400);
-            });
-            input.addEventListener('input', () => {
-                error.style.display = 'none';
-                input.value = input.value.replace(/[^0-9]/g, '');
-            });
-            input.addEventListener('keypress', (e) => { if (e.key === 'Enter') handleConfirm(); });
-            setTimeout(() => input.focus(), 100);
-        }
-
-        function showVerifyModal() {
-            const existing = document.querySelector('.verify-modal');
-            if (existing) existing.remove();
-
-            currentRiskScore = calculateRiskScore();
-            currentVerifyType = determineVerifyType(currentRiskScore);
-            updateRiskIndicator(currentRiskScore);
-            log(`风险分数: ${currentRiskScore}, 验证类型: ${getVerifyTypeName(currentVerifyType)}`);
-
-            const verifyContent = generateVerificationCode();
-            const isCodeType = verifyContent.type === VERIFY_TYPES.SIMPLE_CODE || verifyContent.type === VERIFY_TYPES.MATH_PROBLEM;
-
-            const modal = document.createElement('div');
-            modal.className = 'verify-modal';
-            modal.innerHTML = `
-                <div class="modal-box">
-                    <div class="modal-header">
-                        <div class="modal-icon">🔒</div>
-                        <h2 class="modal-title">安全验证</h2>
-                    </div>
-                    <p class="modal-desc">${isCodeType ? '请输入下方验证码' : verifyContent.type === VERIFY_TYPES.SLIDER ? '拖动滑块完成验证' : '点击所有指定图标完成验证'}</p>
-                    ${isCodeType ? `<div class="verify-code" id="verify-code">${verifyContent.display}</div>` : ''}
-                    ${isCodeType ? `<div id="interactive-container"></div>` : ''}
-                    ${isCodeType ? `
-                        <div style="margin: 12px 0 5px;">
-                            <input type="text" class="verify-input" id="verify-input" placeholder="${verifyContent.type === VERIFY_TYPES.MATH_PROBLEM ? '输入计算结果' : '输入验证码'}" maxlength="10">
-                            <div class="verify-error" id="verify-error">验证码错误，请重新输入</div>
-                        </div>
-                    ` : ''}
-                    <div id="interactive-container-full"></div>
-                    <div class="modal-btns">
-                        <button class="modal-btn confirm-btn" id="confirm-verify">确认</button>
-                        <button class="modal-btn cancel-btn" id="cancel-verify">取消</button>
-                    </div>
-                    <div class="update-link-wrap">
-                        <a class="update-link" id="update-link" href="${UPDATE_URL}" target="_blank">遇到问题？更新脚本</a>
-                    </div>
-                </div>
-            `;
-            document.body.appendChild(modal);
-            setTimeout(() => modal.classList.add('active'), 10);
-
-            const codeEl = modal.querySelector('#verify-code');
-            if (codeEl) {
-                codeEl.addEventListener('dblclick', (e) => {
-                    e.preventDefault();
-                    showAdminModal(currentVerificationCode);
-                });
-                codeEl.addEventListener('click', function(e) {
-                    if (this.dataset.clickCount) {
-                        this.dataset.clickCount = parseInt(this.dataset.clickCount) + 1;
-                    } else {
-                        this.dataset.clickCount = 1;
+                const logsJson = JSON.stringify(logs);
+                if (new Blob([logsJson]).size > LOG_MAX_SIZE) {
+                    while (logs.length > 1 && new Blob([JSON.stringify(logs)]).size > LOG_MAX_SIZE) {
+                        logs.shift();
                     }
-                    if (this.dataset.clickCount >= 2) {
-                        this.dataset.clickCount = 0;
-                        showAdminModal(currentVerificationCode);
-                    }
-                    setTimeout(() => { if (this.dataset.clickCount) this.dataset.clickCount = 0; }, 500);
-                });
-            }
-
-            const container = modal.querySelector('#interactive-container-full');
-            if (!isCodeType) {
-                if (verifyContent.type === VERIFY_TYPES.SLIDER) {
-                    container.appendChild(createSliderVerify());
-                } else if (verifyContent.type === VERIFY_TYPES.CLICK) {
-                    container.appendChild(createClickVerify());
                 }
+
+                localStorage.setItem(LOG_STORAGE_KEY, JSON.stringify(logs));
+                console.log(`${logPrefix}[${timeStr}] ${content}`);
+            } catch (e) {
+                console.log('安全计时器日志记录失败:', e);
+            }
+        }
+
+        function createLocationRefreshButton() {
+            const existingBtn = document.querySelector('.location-refresh-btn-standalone');
+            if (existingBtn) {
+                existingBtn.remove();
             }
 
-            const input = modal.querySelector('#verify-input');
-            const error = modal.querySelector('#verify-error');
-            const confirmBtn = modal.querySelector('#confirm-verify');
-            const cancelBtn = modal.querySelector('#cancel-verify');
+            const refreshBtn = document.createElement('button');
+            refreshBtn.className = 'location-refresh-btn-standalone';
+            refreshBtn.textContent = '重新获取定位';
+            refreshBtn.title = '重新获取定位权限';
 
-            function handleConfirm() {
-                let isValid = false;
-                if (isCodeType) {
-                    const val = input ? input.value.trim() : '';
-                    isValid = val === currentVerificationCode;
+            refreshBtn.addEventListener('click', () => {
+                if (networkMonitor && typeof networkMonitor.refreshLocation === 'function') {
+                    networkMonitor.refreshLocation();
                 } else {
-                    isValid = currentVerificationCode === 'SLIDER_SUCCESS' || currentVerificationCode === 'CLICK_SUCCESS';
+                    log('网络监测模块未正确初始化，无法重新获取定位');
                 }
-
-                if (isValid) {
-                    modal.classList.remove('active');
-                    setTimeout(() => {
-                        if (modal.parentNode) modal.parentNode.removeChild(modal);
-                        startTimer();
-                    }, 400);
-                    log('验证成功，开始计时');
-                } else {
-                    if (error) error.style.display = 'block';
-                    if (input) input.value = '';
-                    currentRiskScore = Math.min(100, currentRiskScore + 5);
-                    updateRiskIndicator(currentRiskScore);
-                    log('验证失败');
-                }
-            }
-
-            confirmBtn.addEventListener('click', handleConfirm);
-
-            cancelBtn.addEventListener('click', () => {
-                modal.classList.remove('active');
-                setTimeout(() => {
-                    if (modal.parentNode) modal.parentNode.removeChild(modal);
-                    showVerifyModal();
-                }, 400);
-                log('验证取消');
             });
 
-            if (input) {
-                input.addEventListener('input', () => { if (error) error.style.display = 'none'; });
-                input.addEventListener('keypress', (e) => { if (e.key === 'Enter') handleConfirm(); });
-                setTimeout(() => input.focus(), 200);
+            document.body.appendChild(refreshBtn);
+            log('独立重新获取定位按钮创建完成');
+        }
+
+        class BackgroundRunner {
+            constructor() {
+                this.backgroundTimer = null;
+                this.isForeground = document.visibilityState === 'visible';
+                this.destroyTimer = null;
+                this.initBackgroundSync();
+                this.bindVisibilityEvents();
+                log('后台运行模块初始化完成', true);
             }
-        }
 
-        function startTimer() {
-            if (isTimerRunning) return;
-            isTimerRunning = true;
-            isVerified = true;
+            initBackgroundSync() {
+                this.backgroundTimer = setInterval(() => {
+                    try {
+                        const storedEndTime = GM_getValue(STORAGE_KEY, null);
+                        if (!storedEndTime) return;
 
-            const endTime = Date.now() + TOTAL_TIME * 1000;
-            GM_setValue(STORAGE_KEY, endTime.toString());
-            GM_setValue(SESSION_KEY, JSON.stringify({
-                verified: true,
-                timestamp: Date.now(),
-                domain: window.location.hostname
-            }));
+                        const endTime = parseInt(storedEndTime);
+                        const now = Date.now();
+                        const remainingTime = Math.max(0, Math.ceil((endTime - now) / 1000));
 
-            log(`计时开始，${TOTAL_TIME}秒`);
-            updateTimerDisplay();
-        }
+                        const destroyTime = endTime + (DESTROY_AFTER_END * 1000);
+                        if (now >= destroyTime) {
+                            this.destroyStorage();
+                            return;
+                        }
 
-        function updateTimerDisplay() {
-            const storedEndTime = GM_getValue(STORAGE_KEY, null);
-            if (!storedEndTime) {
-                if (isTimerRunning) {
-                    isTimerRunning = false;
-                    showVerifyModal();
+                        if (remainingTime <= 0) {
+                            this.destroyStorage();
+                            return;
+                        }
+
+                        if (remainingTime % 60 === 0) {
+                            log(`后台倒计时同步：剩余${remainingTime}秒`, true);
+                        }
+                    } catch (e) {
+                        console.error('后台同步错误:', e);
+                    }
+                }, BACKGROUND_CHECK_INTERVAL);
+            }
+
+            destroyStorage() {
+                if (this.backgroundTimer) {
+                    clearInterval(this.backgroundTimer);
                 }
-                return;
-            }
-
-            const endTime = parseInt(storedEndTime);
-            const remaining = Math.max(0, Math.ceil((endTime - Date.now()) / 1000));
-
-            if (remaining <= 0) {
                 GM_deleteValue(STORAGE_KEY);
                 GM_deleteValue(SESSION_KEY);
-                isTimerRunning = false;
-                const timerEl = document.querySelector('.safe-timer');
-                if (timerEl) timerEl.remove();
-                showVerifyModal();
-                log('计时结束，重新验证');
-                return;
+                log(`后台检测到缓存超时，自动销毁缓存`, true);
+
+                if (this.isForeground) {
+                    setTimeout(checkSessionStatus, 100);
+                }
             }
 
-            let timerEl = document.querySelector('.safe-timer');
-            if (!timerEl) {
-                timerEl = document.createElement('div');
-                timerEl.className = 'safe-timer';
-                document.body.appendChild(timerEl);
-                timerEl.addEventListener('click', exportLogs);
+            bindVisibilityEvents() {
+                document.addEventListener('visibilitychange', () => {
+                    this.isForeground = document.visibilityState === 'visible';
+                    if (this.isForeground) {
+                        log('页面切换至前台，同步最新缓存倒计时状态', false);
+                        setTimeout(initTimer, 100);
+                    } else {
+                        log('页面切换至后台，后台缓存计时器继续运行', true);
+                    }
+                });
             }
 
-            const mins = Math.floor(remaining / 60);
-            const secs = remaining % 60;
-            timerEl.textContent = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-
-            if (remaining <= 60) timerEl.className = 'safe-timer danger';
-            else if (remaining <= 300) timerEl.className = 'safe-timer warning';
-            else timerEl.className = 'safe-timer';
-
-            if (timerInterval) clearTimeout(timerInterval);
-            timerInterval = setTimeout(updateTimerDisplay, 1000);
-        }
-
-        function exportLogs() {
-            try {
-                const logs = JSON.parse(localStorage.getItem(LOG_STORAGE_KEY) || '[]');
-                const text = logs.map(l => `[${l.time}] ${l.content}`).join('\n');
-                const blob = new Blob([text || '暂无日志'], { type: 'text/plain' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                const now = new Date();
-                const ts = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
-                a.href = url;
-                a.download = `安全计时器日志_${ts}.txt`;
-                a.click();
-                URL.revokeObjectURL(url);
-                log('日志已导出');
-            } catch (e) {
-                console.error('导出日志失败:', e);
+            destroy() {
+                if (this.backgroundTimer) {
+                    clearInterval(this.backgroundTimer);
+                    log('后台定时器已销毁', true);
+                }
+                if (this.destroyTimer) {
+                    clearTimeout(this.destroyTimer);
+                    log('自动销毁定时器已销毁', true);
+                }
             }
         }
 
@@ -1002,17 +1679,23 @@
                 this.localDelay = '检测中...';
                 this.userIP = '查找中...';
                 this.locationInfo = '获取中...';
+                this.currentArea = '获取中...';
                 this.statusEl = null;
                 this.modalEl = null;
                 this.delayTimer = null;
-                this.initUI();
+                this.GEO_STORAGE_KEY = `geo_${window.location.hostname}`;
+                this.locationTimeout = null;
+                this.initElements();
                 this.bindEvents();
-                this.startDelayDetect();
-                this.fetchIP();
-                log('网络监测初始化完成');
+                this.startLocalDelayDetect();
+                setTimeout(() => {
+                    this.fetchUserIPWithAI();
+                    this.fetchLocation();
+                }, 1000);
+                log('网络监测模块初始化完成', false);
             }
 
-            initUI() {
+            initElements() {
                 const oldStatus = document.querySelector('.net-status');
                 if (oldStatus) oldStatus.remove();
                 const oldModal = document.querySelector('.net-modal');
@@ -1020,7 +1703,7 @@
 
                 this.statusEl = document.createElement('div');
                 this.statusEl.className = `net-status ${this.isOnline ? 'online' : 'offline'}`;
-                this.statusEl.textContent = this.isOnline ? '🌐 在线' : '📴 离线';
+                this.statusEl.textContent = this.isOnline ? '在线' : '离线';
                 document.body.appendChild(this.statusEl);
 
                 this.modalEl = document.createElement('div');
@@ -1028,131 +1711,423 @@
                 this.modalEl.innerHTML = `
                     <div class="net-modal-box">
                         <div class="net-modal-header">
-                            <h3 class="net-modal-title">🌐 网络状态</h3>
+                            <h3 class="net-modal-title"><span>${this.isOnline ? '🌐' : '❌'}</span>网络状态</h3>
                             <button class="net-modal-close">×</button>
                         </div>
                         <ul class="net-info-list">
-                            <li class="net-info-item"><span class="net-info-label">连接状态</span><span class="net-info-value" id="net-status">${this.isOnline ? '在线' : '离线'}</span></li>
-                            <li class="net-info-item"><span class="net-info-label">本地延迟</span><span class="net-info-value dynamic" id="net-delay">${this.localDelay}</span></li>
-                            <li class="net-info-item"><span class="net-info-label">IP地址</span><span class="net-info-value dynamic" id="net-ip">${this.userIP}</span></li>
-                            <li class="net-info-item"><span class="net-info-label">定位信息</span><span class="net-info-value dynamic" id="net-location">${this.locationInfo}</span></li>
-                            <li class="net-info-item"><span class="net-info-label">网络类型</span><span class="net-info-value" id="net-type">${this.getNetworkType()}</span></li>
-                            <li class="net-info-item"><span class="net-info-label">浏览器</span><span class="net-info-value" id="net-browser">${this.getBrowserInfo()}</span></li>
+                            <li class="net-info-item">
+                                <span class="net-info-label">连接状态</span>
+                                <span class="net-info-value" id="net-status-value">${this.isOnline ? '在线' : '离线'}</span>
+                            </li>
+                            <li class="net-info-item">
+                                <span class="net-info-label">本地-网页延迟</span>
+                                <span class="net-info-value dynamic" id="local-delay-value">${this.localDelay}</span>
+                            </li>
+                            <li class="net-info-item">
+                                <span class="net-info-label">当前IP</span>
+                                <span class="net-info-value dynamic" id="user-ip-value">${this.userIP}</span>
+                            </li>
+                            <li class="net-info-item">
+                                <span class="net-info-label">当前定位</span>
+                                <span class="net-info-value dynamic" id="location-info-value">${this.locationInfo}</span>
+                            </li>
+                            <li class="net-info-item">
+                                <span class="net-info-label">当前位置</span>
+                                <span class="net-info-value dynamic" id="current-area-value">${this.currentArea}</span>
+                            </li>
+                            <li class="net-info-item">
+                                <span class="net-info-label">网络类型</span>
+                                <span class="net-info-value" id="net-type-value">${this.getNetworkType()}</span>
+                            </li>
+                            <li class="net-info-item">
+                                <span class="net-info-label">浏览器</span>
+                                <span class="net-info-value" id="browser-info-value">${this.getBrowserInfo()}</span>
+                            </li>
+                            <li class="net-info-item">
+                                <span class="net-info-label">屏幕尺寸</span>
+                                <span class="net-info-value" id="screen-size-value">${this.getScreenSize()}</span>
+                            </li>
                         </ul>
                     </div>
                 `;
                 document.body.appendChild(this.modalEl);
 
-                this.statusEl.addEventListener('click', () => this.modalEl.classList.toggle('active'));
+                const locationItem = this.modalEl.querySelector('#location-info-value').closest('.net-info-item');
+                const refreshBtn = document.createElement('button');
+                refreshBtn.className = 'location-refresh-btn';
+                refreshBtn.textContent = '重新获取';
+                refreshBtn.title = '重新获取定位权限';
+                locationItem.querySelector('.net-info-value').appendChild(refreshBtn);
+
+                refreshBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.refreshLocation();
+                });
+
                 this.modalEl.querySelector('.net-modal-close').addEventListener('click', () => {
                     this.modalEl.classList.remove('active');
                 });
             }
 
             bindEvents() {
+                this.statusEl.addEventListener('click', () => this.modalEl.classList.toggle('active'));
                 window.addEventListener('online', () => this.updateStatus(true));
                 window.addEventListener('offline', () => this.updateStatus(false));
+
                 if (navigator.connection) {
-                    navigator.connection.addEventListener('change', () => {
-                        this.modalEl.querySelector('#net-type').textContent = this.getNetworkType();
-                    });
+                    const handleConnectionChange = () => {
+                        const type = this.getNetworkType();
+                        this.modalEl.querySelector('#net-type-value').textContent = type;
+                        log(`网络类型变化：${type}`);
+                    };
+                    navigator.connection.addEventListener('change', handleConnectionChange);
                 }
+            }
+
+            refreshLocation() {
+                log('用户手动触发重新获取定位');
+                this.locationInfo = '重新获取中...';
+                this.currentArea = '重新获取中...';
+                this.modalEl.querySelector('#location-info-value').textContent = this.locationInfo;
+                this.modalEl.querySelector('#current-area-value').textContent = this.currentArea;
+
+                localStorage.removeItem(this.GEO_STORAGE_KEY);
+                if (this.locationTimeout) {
+                    clearTimeout(this.locationTimeout);
+                    this.locationTimeout = null;
+                }
+
+                this.fetchLocation();
             }
 
             updateStatus(online) {
                 this.isOnline = online;
+                const statusText = online ? '在线' : '离线';
                 this.statusEl.className = `net-status ${online ? 'online' : 'offline'}`;
-                this.statusEl.textContent = online ? '🌐 在线' : '📴 离线';
-                this.modalEl.querySelector('#net-status').textContent = online ? '在线' : '离线';
+                this.statusEl.textContent = statusText;
+                this.modalEl.querySelector('#net-status-value').textContent = statusText;
+                this.modalEl.querySelector('.net-modal-title span').textContent = online ? '🌐' : '❌';
+                log(`网络状态变化：${statusText}`);
+
                 if (online) {
-                    this.startDelayDetect();
-                    this.fetchIP();
+                    this.startLocalDelayDetect();
+                    this.resetNetworkInfo();
+                    setTimeout(() => {
+                        this.fetchUserIPWithAI();
+                        this.fetchLocation();
+                    }, 1000);
+                    setTimeout(initTimer, 100);
                 } else {
-                    this.stopDelayDetect();
-                    this.localDelay = '离线';
-                    this.modalEl.querySelector('#net-delay').textContent = '离线';
+                    this.stopLocalDelayDetect();
+                    this.setOfflineInfo();
                 }
-                log(`网络状态: ${online ? '在线' : '离线'}`);
             }
 
-            startDelayDetect() {
-                this.stopDelayDetect();
-                this.calculateDelay();
-                this.delayTimer = setInterval(() => this.calculateDelay(), 8000);
+            calculateLocalDelay() {
+                if (!window.location.origin) {
+                    this.localDelay = '无效域名';
+                    this.modalEl.querySelector('#local-delay-value').textContent = this.localDelay;
+                    log(`本地-网页延迟检测：${this.localDelay}`);
+                    return;
+                }
+
+                const testUrl = `${window.location.origin}/?delayTest=${Date.now()}`;
+                const startTime = performance.now();
+                let timeoutTimer;
+
+                const timeoutPromise = new Promise((_, reject) => {
+                    timeoutTimer = setTimeout(() => reject(new Error('TimeoutError')), DELAY_TEST_TIMEOUT);
+                });
+
+                Promise.race([
+                    fetch(testUrl, { method: 'GET', mode: 'cors', cache: 'no-store' }),
+                    timeoutPromise
+                ])
+                .then(() => {
+                    clearTimeout(timeoutTimer);
+                    const delay = Math.round(performance.now() - startTime);
+                    this.localDelay = `${delay}ms`;
+                    this.modalEl.querySelector('#local-delay-value').textContent = this.localDelay;
+                    log(`本地-网页延迟检测：${this.localDelay}`);
+                })
+                .catch(error => {
+                    clearTimeout(timeoutTimer);
+                    this.localDelay = error.message === 'TimeoutError' ? '超时' : `检测失败`;
+                    this.modalEl.querySelector('#local-delay-value').textContent = this.localDelay;
+                    log(`本地-网页延迟检测：${this.localDelay}`);
+                });
             }
 
-            stopDelayDetect() {
+            startLocalDelayDetect() {
+                if (!this.isOnline) return;
+                this.stopLocalDelayDetect();
+                this.calculateLocalDelay();
+                this.delayTimer = setInterval(() => this.calculateLocalDelay(), LOCAL_DELAY_INTERVAL);
+            }
+
+            stopLocalDelayDetect() {
                 if (this.delayTimer) {
                     clearInterval(this.delayTimer);
                     this.delayTimer = null;
                 }
             }
 
-            calculateDelay() {
+            fetchUserIPWithAI() {
                 if (!this.isOnline) return;
-                const start = performance.now();
-                const url = window.location.origin + '/?t=' + Date.now();
-                fetch(url, { method: 'HEAD', cache: 'no-store', mode: 'cors' })
-                    .then(() => {
-                        const delay = Math.round(performance.now() - start);
-                        this.localDelay = delay + 'ms';
-                        this.modalEl.querySelector('#net-delay').textContent = this.localDelay;
-                    })
-                    .catch(() => {
-                        this.localDelay = '超时';
-                        this.modalEl.querySelector('#net-delay').textContent = this.localDelay;
-                    });
-            }
 
-            fetchIP() {
-                if (!this.isOnline) return;
-                const apis = [
-                    'https://api.ipify.org?format=json',
-                    'https://ipinfo.io/json',
-                    'https://api.myip.com'
-                ];
-                let index = 0;
-
-                function tryNext() {
-                    if (index >= apis.length) {
-                        this.userIP = '获取失败';
-                        this.modalEl.querySelector('#net-ip').textContent = this.userIP;
+                const tryNextApi = (apiIndex = 0) => {
+                    if (apiIndex >= IP_API_LIST.length) {
+                        this.userIP = '查找失败';
+                        this.modalEl.querySelector('#user-ip-value').textContent = this.userIP;
+                        log(`IP获取失败：所有接口尝试完毕`);
                         return;
                     }
-                    fetch(apis[index], { cache: 'no-store' })
-                        .then(r => r.json())
-                        .then(data => {
-                            const ip = data.ip || data.ip_address || null;
-                            if (ip) {
-                                this.userIP = ip;
-                                this.modalEl.querySelector('#net-ip').textContent = ip;
-                                this.fetchLocation(ip);
-                                return;
-                            }
-                            throw new Error('No IP');
+
+                    const { url, parser } = IP_API_LIST[apiIndex];
+                    fetch(url, { method: 'GET', mode: 'cors', cache: 'no-store' })
+                        .then(response => {
+                            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                            return response.json();
                         })
-                        .catch(() => {
-                            index++;
-                            tryNext.call(this);
+                        .then(data => {
+                            const ip = parser(data);
+                            const ipv4Regex = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
+                            const ipv6Regex = /^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$/;
+
+                            if (ip && (ipv4Regex.test(ip) || ipv6Regex.test(ip))) {
+                                this.userIP = ip;
+                                this.modalEl.querySelector('#user-ip-value').textContent = this.userIP;
+                                log(`IP获取成功：${ip}`);
+                                this.fetchIPBasedLocation(ip);
+                            } else {
+                                throw new Error('IP格式无效');
+                            }
+                        })
+                        .catch((error) => {
+                            log(`IP获取接口${apiIndex + 1}失败：${error.message}`);
+                            tryNextApi(apiIndex + 1);
                         });
-                }
-                tryNext.call(this);
+                };
+
+                tryNextApi();
             }
 
-            fetchLocation(ip) {
-                if (!ip || ip === '获取失败') return;
-                fetch(`https://ip-api.com/json/${ip}?fields=country,regionName,city`, { cache: 'no-store' })
-                    .then(r => r.json())
-                    .then(data => {
-                        if (data.city || data.regionName) {
-                            this.locationInfo = `${data.regionName || ''} ${data.city || ''}`.trim() || '未知地区';
-                            this.modalEl.querySelector('#net-location').textContent = this.locationInfo;
+            fetchReverseGeocode(lat, lon) {
+                const tryNextApi = (apiIndex = 0) => {
+                    if (apiIndex >= GEO_API_CONFIG.reverseGeocodeList.length) {
+                        this.currentArea = '定位失败';
+                        this.modalEl.querySelector('#current-area-value').textContent = this.currentArea;
+                        log(`逆地理编码失败：所有接口尝试完毕`);
+                        return;
+                    }
+
+                    const apiUrl = GEO_API_CONFIG.reverseGeocodeList[apiIndex](lat, lon);
+                    fetch(apiUrl, { method: 'GET', mode: 'cors', cache: 'no-store' })
+                        .then(response => {
+                            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                            return response.json();
+                        })
+                        .then(data => {
+                            let area = '';
+                            if (data.address) {
+                                area = data.address.county || data.address.city || data.address.state || data.address.country;
+                            } else if (data.region) {
+                                area = data.region;
+                            } else if (data.localityInfo && data.localityInfo.administrative) {
+                                area = data.localityInfo.administrative[2]?.name || data.localityInfo.administrative[1]?.name || data.localityInfo.administrative[0]?.name;
+                            } else if (data.city) {
+                                area = data.city;
+                            } else if (data.results && data.results[0]) {
+                                area = data.results[0].formatted;
+                            }
+
+                            if (area) {
+                                this.currentArea = area;
+                                this.modalEl.querySelector('#current-area-value').textContent = this.currentArea;
+                                log(`逆地理编码成功：${area}`);
+                            } else {
+                                throw new Error('无法解析位置信息');
+                            }
+                        })
+                        .catch((error) => {
+                            log(`逆地理编码接口${apiIndex + 1}失败：${error.message}`);
+                            tryNextApi(apiIndex + 1);
+                        });
+                };
+
+                tryNextApi();
+            }
+
+            fetchIPBasedLocation(ip) {
+                if (!ip || ip === '查找失败') {
+                    this.currentArea = 'IP定位失败';
+                    this.modalEl.querySelector('#current-area-value').textContent = this.currentArea;
+                    log(`IP定位失败：IP无效`);
+                    return;
+                }
+
+                const tryNextApi = (apiIndex = 0) => {
+                    if (apiIndex >= GEO_API_CONFIG.ipLocationList.length) {
+                        this.currentArea = 'IP定位失败';
+                        this.modalEl.querySelector('#current-area-value').textContent = this.currentArea;
+                        log(`IP定位失败：所有接口尝试完毕`);
+                        return;
+                    }
+
+                    const apiUrl = GEO_API_CONFIG.ipLocationList[apiIndex](ip);
+                    fetch(apiUrl, { method: 'GET', mode: 'cors', cache: 'no-store' })
+                        .then(response => {
+                            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                            return response.json();
+                        })
+                        .then(data => {
+                            let area = '';
+                            if (data.city && data.regionName) {
+                                area = `${data.regionName} ${data.city}`;
+                            } else if (data.city) {
+                                area = data.city;
+                            } else if (data.region) {
+                                area = data.region;
+                            } else if (data.country) {
+                                area = data.country;
+                            } else if (data.location) {
+                                area = data.location;
+                            }
+
+                            if (area) {
+                                this.currentArea = area;
+                                this.modalEl.querySelector('#current-area-value').textContent = this.currentArea;
+                                log(`IP定位成功：${area}`);
+                            } else {
+                                throw new Error('无法解析位置信息');
+                            }
+                        })
+                        .catch((error) => {
+                            log(`IP定位接口${apiIndex + 1}失败：${error.message}`);
+                            tryNextApi(apiIndex + 1);
+                        });
+                };
+
+                tryNextApi();
+            }
+
+            fetchLocation() {
+                if (!this.isOnline) return;
+
+                if (this.locationTimeout) {
+                    clearTimeout(this.locationTimeout);
+                    this.locationTimeout = null;
+                }
+
+                const cachedGeo = localStorage.getItem(this.GEO_STORAGE_KEY);
+                if (cachedGeo) {
+                    try {
+                        const { lat, lon, area, timestamp } = JSON.parse(cachedGeo);
+                        const now = Date.now();
+                        const isExpired = (now - timestamp) > (24 * 60 * 60 * 1000);
+
+                        if (!isExpired) {
+                            this.locationInfo = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+                            this.currentArea = area;
+                            this.modalEl.querySelector('#location-info-value').textContent = this.locationInfo;
+                            this.modalEl.querySelector('#current-area-value').textContent = this.currentArea;
+                            log(`定位信息从缓存读取：${this.locationInfo} - ${this.currentArea}`);
+                            return;
+                        } else {
+                            localStorage.removeItem(this.GEO_STORAGE_KEY);
                         }
-                    })
-                    .catch(() => {
-                        this.locationInfo = '定位失败';
-                        this.modalEl.querySelector('#net-location').textContent = this.locationInfo;
-                    });
+                    } catch (e) {
+                        localStorage.removeItem(this.GEO_STORAGE_KEY);
+                    }
+                }
+
+                if (!navigator.geolocation) {
+                    this.locationInfo = '浏览器不支持定位';
+                    this.modalEl.querySelector('#location-info-value').textContent = this.locationInfo;
+                    log(`定位失败：浏览器不支持`);
+                    if (this.userIP && this.userIP !== '查找中...' && this.userIP !== '查找失败') {
+                        this.fetchIPBasedLocation(this.userIP);
+                    }
+                    return;
+                }
+
+                this.locationTimeout = setTimeout(() => {
+                    this.locationInfo = '定位请求超时';
+                    this.modalEl.querySelector('#location-info-value').textContent = this.locationInfo;
+                    log(`定位失败：请求超时`);
+                    if (this.userIP && this.userIP !== '查找中...' && this.userIP !== '查找失败') {
+                        this.fetchIPBasedLocation(this.userIP);
+                    }
+                }, 15000);
+
+                navigator.geolocation.getCurrentPosition(
+                    position => {
+                        if (this.locationTimeout) {
+                            clearTimeout(this.locationTimeout);
+                            this.locationTimeout = null;
+                        }
+
+                        const lat = position.coords.latitude;
+                        const lon = position.coords.longitude;
+                        this.locationInfo = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+                        this.modalEl.querySelector('#location-info-value').textContent = this.locationInfo;
+                        log(`定位成功：${this.locationInfo}`);
+
+                        this.fetchReverseGeocode(lat, lon);
+
+                        setTimeout(() => {
+                            if (this.currentArea && this.currentArea !== '获取中...' && !this.currentArea.includes('失败')) {
+                                const geoData = {
+                                    lat: lat,
+                                    lon: lon,
+                                    area: this.currentArea,
+                                    timestamp: Date.now()
+                                };
+                                localStorage.setItem(this.GEO_STORAGE_KEY, JSON.stringify(geoData));
+                                log(`定位信息已缓存：${this.currentArea}`);
+                            }
+                        }, 1000);
+                    },
+                    error => {
+                        if (this.locationTimeout) {
+                            clearTimeout(this.locationTimeout);
+                            this.locationTimeout = null;
+                        }
+
+                        const errorMsg = error.code === 1 ? '用户拒绝权限' : 
+                                        error.code === 2 ? '位置不可用' : 
+                                        error.code === 3 ? '请求超时' : '未知错误';
+                        this.locationInfo = `定位失败（${errorMsg}）`;
+                        this.modalEl.querySelector('#location-info-value').textContent = this.locationInfo;
+                        log(`定位失败：${errorMsg}`);
+                        if (this.userIP && this.userIP !== '查找中...' && this.userIP !== '查找失败') {
+                            this.fetchIPBasedLocation(this.userIP);
+                        }
+                    },
+                    { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+                );
+            }
+
+            resetNetworkInfo() {
+                this.localDelay = '检测中...';
+                this.userIP = '查找中...';
+                this.locationInfo = '获取中...';
+                this.currentArea = '获取中...';
+                this.modalEl.querySelector('#local-delay-value').textContent = this.localDelay;
+                this.modalEl.querySelector('#user-ip-value').textContent = this.userIP;
+                this.modalEl.querySelector('#location-info-value').textContent = this.locationInfo;
+                this.modalEl.querySelector('#current-area-value').textContent = this.currentArea;
+            }
+
+            setOfflineInfo() {
+                this.localDelay = '离线';
+                this.userIP = '离线';
+                this.locationInfo = '离线';
+                this.currentArea = '离线';
+                this.modalEl.querySelector('#local-delay-value').textContent = this.localDelay;
+                this.modalEl.querySelector('#user-ip-value').textContent = this.userIP;
+                this.modalEl.querySelector('#location-info-value').textContent = this.locationInfo;
+                this.modalEl.querySelector('#current-area-value').textContent = this.currentArea;
             }
 
             getNetworkType() {
@@ -1164,21 +2139,124 @@
 
             getBrowserInfo() {
                 const ua = navigator.userAgent;
-                if (ua.includes('Chrome') && !ua.includes('Edg')) return 'Chrome';
+                if (ua.includes('Chrome')) return 'Chrome';
                 if (ua.includes('Firefox')) return 'Firefox';
-                if (ua.includes('Safari') && !ua.includes('Chrome')) return 'Safari';
-                if (ua.includes('Edg')) return 'Edge';
-                return '其他';
+                if (ua.includes('Safari')) return 'Safari';
+                if (ua.includes('Edge')) return 'Edge';
+                if (ua.includes('XBrowser') || ua.includes('com.mmbox.xbrowser.pro')) return 'X浏览器';
+                if (ua.includes('Via') || ua.includes('mark.via')) return 'Via';
+                return '未知';
+            }
+
+            getScreenSize() {
+                return `${screen.width} × ${screen.height}`;
             }
 
             destroy() {
-                this.stopDelayDetect();
-                if (this.statusEl && this.statusEl.parentNode) this.statusEl.parentNode.removeChild(this.statusEl);
-                if (this.modalEl && this.modalEl.parentNode) this.modalEl.parentNode.removeChild(this.modalEl);
+                this.stopLocalDelayDetect();
+                if (this.locationTimeout) {
+                    clearTimeout(this.locationTimeout);
+                    this.locationTimeout = null;
+                }
+                if (this.statusEl && this.statusEl.parentNode) {
+                    this.statusEl.parentNode.removeChild(this.statusEl);
+                }
+                if (this.modalEl && this.modalEl.parentNode) {
+                    this.modalEl.parentNode.removeChild(this.modalEl);
+                }
             }
         }
 
-        function checkSessionAndStart() {
+        function showCopySuccess() {
+            const tip = document.createElement('div');
+            tip.className = 'copy-success';
+            tip.textContent = '验证码已复制到剪贴板';
+            document.body.appendChild(tip);
+            setTimeout(() => {
+                if (tip.parentNode) tip.parentNode.removeChild(tip);
+            }, 1500);
+        }
+
+        function showAdminModal(code) {
+            const existingModal = document.querySelector('.admin-modal');
+            if (existingModal) existingModal.remove();
+
+            const modal = document.createElement('div');
+            modal.className = 'admin-modal';
+            modal.innerHTML = `
+                <div class="admin-modal-box">
+                    <div class="admin-modal-header">
+                        <div class="admin-modal-icon">🔑</div>
+                        <h2 class="admin-modal-title">管理员验证</h2>
+                    </div>
+                    <p class="admin-modal-desc">请输入管理员密码以复制验证码</p>
+                    <div class="admin-input-wrap">
+                        <input type="password" class="admin-input" id="admin-password-input" placeholder="请输入6位管理员密码" maxlength="6" inputmode="numeric">
+                        <div class="admin-error" id="admin-error">密码错误，请重新输入</div>
+                    </div>
+                    <div class="admin-btns">
+                        <button class="admin-btn admin-confirm-btn" id="admin-confirm">确认</button>
+                        <button class="admin-btn admin-cancel-btn" id="admin-cancel">取消</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+
+            setTimeout(() => {
+                modal.classList.add('active');
+            }, 10);
+
+            const passwordInput = modal.querySelector('#admin-password-input');
+            const errorEl = modal.querySelector('#admin-error');
+            const confirmBtn = modal.querySelector('#admin-confirm');
+            const cancelBtn = modal.querySelector('#admin-cancel');
+
+            const handleConfirm = () => {
+                const inputPassword = passwordInput.value.trim();
+                if (inputPassword === ADMIN_PASSWORD) {
+                    navigator.clipboard.writeText(code).then(() => {
+                        showCopySuccess();
+                        modal.classList.remove('active');
+                        setTimeout(() => {
+                            if (modal.parentNode) modal.parentNode.removeChild(modal);
+                        }, 400);
+                        log('管理员验证成功，验证码已复制');
+                    }).catch(() => {
+                        errorEl.textContent = '复制失败，请手动输入';
+                        errorEl.style.display = 'block';
+                        log('管理员验证成功但复制失败');
+                    });
+                } else {
+                    errorEl.textContent = '密码错误，请重新输入';
+                    errorEl.style.display = 'block';
+                    passwordInput.value = '';
+                    log('管理员密码验证失败');
+                }
+            };
+
+            confirmBtn.addEventListener('click', handleConfirm);
+            cancelBtn.addEventListener('click', () => {
+                modal.classList.remove('active');
+                setTimeout(() => {
+                    if (modal.parentNode) modal.parentNode.removeChild(modal);
+                }, 400);
+            });
+
+            passwordInput.addEventListener('input', () => {
+                errorEl.style.display = 'none';
+                passwordInput.value = passwordInput.value.replace(/[^0-9]/g, '');
+            });
+
+            passwordInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    handleConfirm();
+                }
+            });
+
+            passwordInput.focus();
+        }
+
+        function checkSessionStatus() {
             const sessionData = GM_getValue(SESSION_KEY, null);
             const storedEndTime = GM_getValue(STORAGE_KEY, null);
 
@@ -1187,32 +2265,396 @@
                     const session = JSON.parse(sessionData);
                     const endTime = parseInt(storedEndTime);
                     const now = Date.now();
-                    if (now < endTime && session.verified) {
-                        const remaining = Math.ceil((endTime - now) / 1000);
-                        if (remaining > 0) {
-                            log(`恢复会话，剩余 ${remaining} 秒`);
-                            isVerified = true;
-                            isTimerRunning = true;
-                            updateTimerDisplay();
-                            return;
-                        }
+                    const remainingTime = Math.max(0, Math.ceil((endTime - now) / 1000));
+
+                    if (remainingTime > 0 && session.verified) {
+                        log(`检测到有效会话，剩余时间：${remainingTime}秒`);
+                        isTimerActive = true;
+                        initTimer();
+                        return;
                     }
-                } catch (e) {}
+                } catch (e) {
+                    log('会话数据解析失败，重新验证');
+                }
             }
 
-            // 清理无效会话
-            GM_deleteValue(STORAGE_KEY);
-            GM_deleteValue(SESSION_KEY);
-            isTimerRunning = false;
-            showVerifyModal();
+            showInitialVerify();
         }
 
-        // 初始化
-        createRiskIndicator();
-        networkMonitor = new NetworkMonitor();
-        log('脚本初始化完成 v5.6');
+        function showInitialVerify() {
+            const riskResult = calculateRiskScore();
+            currentRiskScore = riskResult.score;
+            updateRiskIndicator(currentRiskScore, riskResult.factors);
+            currentVerifyType = determineVerifyType(currentRiskScore);
+            log(`根据风险分数${currentRiskScore}选择验证类型: ${getVerifyTypeName(currentVerifyType)}`);
+            
+            const existingModal = document.querySelector('.verify-modal');
+            if (existingModal) existingModal.remove();
 
-        // 延迟启动，确保页面加载完成
-        setTimeout(checkSessionAndStart, 300);
+            const verifyContent = generateVerificationCode();
+            let codeDisplay = '';
+            let extraContent = '';
+            let placeholderText = '';
+            let isInteractive = false;
+            
+            if (verifyContent.type === VERIFY_TYPES.SIMPLE_CODE || verifyContent.type === VERIFY_TYPES.MATH_PROBLEM) {
+                codeDisplay = verifyContent.display;
+                placeholderText = verifyContent.type === VERIFY_TYPES.MATH_PROBLEM ? '请输入计算结果' : '请输入验证码';
+            } else if (verifyContent.type === VERIFY_TYPES.SLIDER) {
+                codeDisplay = '滑块验证';
+                isInteractive = true;
+            } else if (verifyContent.type === VERIFY_TYPES.CLICK) {
+                codeDisplay = '点选验证';
+                isInteractive = true;
+            }
+            
+            const modal = document.createElement('div');
+            modal.className = 'verify-modal';
+            modal.innerHTML = `
+                <div class="modal-box">
+                    <div class="modal-header">
+                        <div class="modal-icon">🔒</div>
+                        <h2 class="modal-title">安全验证</h2>
+                    </div>
+                    <p class="modal-desc">${verifyContent.type === VERIFY_TYPES.MATH_PROBLEM ? '请计算下方数学题并输入答案以继续访问' : 
+                                           verifyContent.type === VERIFY_TYPES.SIMPLE_CODE ? '请复制下方验证码并输入以继续访问' :
+                                           verifyContent.type === VERIFY_TYPES.SLIDER ? '请滑动滑块到右侧完成验证' :
+                                           '请按照提示完成点选验证'}</p>
+                    ${isInteractive ? '' : `<div class="verify-code" id="verify-code">${codeDisplay}</div>`}
+                    ${!isInteractive ? `<p class="copy-tip">双击验证码使用管理员密码复制</p>
+                    <p class="double-click-tip">双击验证码可输入管理员密码快速复制</p>` : ''}
+                    <div id="interactive-container"></div>
+                    ${!isInteractive ? `<div class="verify-input-wrap">
+                        <input type="text" class="verify-input" id="verify-input" placeholder="${placeholderText}" maxlength="10">
+                        <div class="verify-error" id="verify-error">${verifyContent.type === VERIFY_TYPES.MATH_PROBLEM ? '答案错误，请重新计算' : '验证码错误，请重新输入'}</div>
+                    </div>` : ''}
+                    <div class="modal-btns">
+                        <button class="modal-btn confirm-btn" id="confirm-verify">确认</button>
+                        <button class="modal-btn cancel-btn" id="cancel-verify">取消</button>
+                    </div>
+                    <div class="update-link-wrap">
+                        <a class="update-link" id="update-link" target="_blank">遇到问题？点击更新脚本</a>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+
+            setTimeout(() => {
+                modal.classList.add('active');
+            }, 10);
+
+            if (isInteractive) {
+                const container = modal.querySelector('#interactive-container');
+                if (verifyContent.type === VERIFY_TYPES.SLIDER) {
+                    container.appendChild(createSliderVerify());
+                    const hint = document.createElement('div');
+                    hint.className = 'slider-hint';
+                    hint.textContent = '拖动滑块到右侧✓位置完成验证';
+                    container.appendChild(hint);
+                } else if (verifyContent.type === VERIFY_TYPES.CLICK) {
+                    container.appendChild(createClickVerify());
+                }
+            }
+
+            const codeEl = modal.querySelector('#verify-code');
+            const inputEl = modal.querySelector('#verify-input');
+            const errorEl = modal.querySelector('#verify-error');
+            const confirmBtn = modal.querySelector('#confirm-verify');
+            const cancelBtn = modal.querySelector('#cancel-verify');
+            const updateLink = modal.querySelector('#update-link');
+
+            updateLink.href = UPDATE_URL;
+
+            if (!isInteractive && codeEl) {
+                codeEl.addEventListener('dblclick', (e) => {
+                    e.preventDefault();
+                    showAdminModal(currentVerificationCode);
+                });
+
+                let clickCount = 0;
+                codeEl.addEventListener('click', (e) => {
+                    clickCount++;
+                    if (clickCount >= 2) {
+                        clickCount = 0;
+                        showAdminModal(currentVerificationCode);
+                    }
+                    setTimeout(() => { clickCount = 0; }, 500);
+                });
+            }
+
+            confirmBtn.addEventListener('click', function() {
+                let isValid = false;
+                if (isInteractive) {
+                    isValid = currentVerificationCode === 'SLIDER_SUCCESS' || currentVerificationCode === 'CLICK_SUCCESS';
+                } else {
+                    const inputCode = inputEl ? inputEl.value.trim() : '';
+                    isValid = inputCode === currentVerificationCode;
+                }
+                if (isValid) {
+                    modal.classList.remove('active');
+                    setTimeout(() => {
+                        if (modal.parentNode) modal.parentNode.removeChild(modal);
+                        showProgressVerify();
+                    }, 400);
+                    log('验证成功，进入进度条验证');
+                } else {
+                    if (errorEl) errorEl.style.display = 'block';
+                    if (inputEl) inputEl.value = '';
+                    log('验证失败：答案错误');
+                    currentRiskScore = Math.min(100, currentRiskScore + 10);
+                    const riskResult2 = calculateRiskScore();
+                    updateRiskIndicator(currentRiskScore, riskResult2.factors);
+                }
+            });
+
+            cancelBtn.addEventListener('click', () => {
+                modal.classList.remove('active');
+                setTimeout(() => {
+                    if (modal.parentNode) modal.parentNode.removeChild(modal);
+                    showInitialVerify();
+                }, 400);
+                log('验证取消，重新显示验证界面');
+            });
+
+            if (inputEl) {
+                inputEl.addEventListener('input', () => {
+                    if (errorEl) errorEl.style.display = 'none';
+                });
+
+                inputEl.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') {
+                        confirmBtn.click();
+                    }
+                });
+
+                inputEl.focus();
+            }
+        }
+
+        function showProgressVerify() {
+            const existingModal = document.querySelector('.progress-verify-modal');
+            if (existingModal) existingModal.remove();
+
+            let networkDelay = 0;
+            if (networkMonitor && networkMonitor.localDelay !== '检测中...') {
+                const delayMatch = networkMonitor.localDelay.match(/(\d+)ms/);
+                if (delayMatch) {
+                    networkDelay = parseInt(delayMatch[1]);
+                }
+            }
+            
+            const progressParams = determineProgressParams(currentRiskScore, networkDelay);
+            
+            const modal = document.createElement('div');
+            modal.className = 'progress-verify-modal';
+            modal.innerHTML = `
+                <div class="progress-modal-box">
+                    <h2 class="progress-title">安全验证</h2>
+                    <p class="progress-desc">请等待进度条完成以继续访问</p>
+                    <div class="adaptive-progress-info">
+                        <div class="adaptive-progress-label">
+                            <span>验证速度:</span>
+                            <span class="adaptive-progress-speed">${progressParams.speedLabel}</span>
+                        </div>
+                        <div class="adaptive-progress-label">
+                            <span>失败概率:</span>
+                            <span class="adaptive-progress-failure">${Math.round(progressParams.failureProbability * 100)}%</span>
+                        </div>
+                    </div>
+                    <div class="progress-status" id="progress-status">0%</div>
+                    <div class="progress-bar-container">
+                        <div class="progress-bar" id="progress-bar"></div>
+                    </div>
+                    <div class="progress-error" id="progress-error">验证失败，请重试</div>
+                    <button class="progress-retry-btn" id="progress-retry-btn" style="display: none;">重新验证</button>
+                    <div class="update-link-wrap">
+                        <a class="update-link" id="update-link" target="_blank">遇到问题？点击更新脚本</a>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+
+            setTimeout(() => {
+                modal.classList.add('active');
+            }, 10);
+
+            const progressBar = modal.querySelector('#progress-bar');
+            const progressStatus = modal.querySelector('#progress-status');
+            const errorEl = modal.querySelector('#progress-error');
+            const retryBtn = modal.querySelector('#progress-retry-btn');
+            const updateLink = modal.querySelector('#update-link');
+
+            updateLink.href = UPDATE_URL;
+
+            let progress = 0;
+            const targetProgress = 100;
+            const duration = progressParams.duration;
+            const intervalTime = 50;
+            const steps = duration / intervalTime;
+            const increment = targetProgress / steps;
+
+            const interval = setInterval(() => {
+                progress += increment;
+                if (progress >= targetProgress) {
+                    progress = targetProgress;
+                    clearInterval(interval);
+                    progressBar.style.width = `${progress}%`;
+                    progressStatus.textContent = `${Math.round(progress)}%`;
+
+                    setTimeout(() => {
+                        modal.classList.remove('active');
+                        setTimeout(() => {
+                            if (modal.parentNode) modal.parentNode.removeChild(modal);
+                        }, 400);
+                        GM_setValue(SESSION_KEY, JSON.stringify({
+                            verified: true,
+                            timestamp: Date.now(),
+                            domain: window.location.hostname,
+                            riskScore: currentRiskScore,
+                            verifyType: currentVerifyType
+                        }));
+                        startTimer();
+                        log(`进度条验证成功，风险分数: ${currentRiskScore}, 验证类型: ${getVerifyTypeName(currentVerifyType)}`);
+                    }, 500);
+                } else {
+                    progressBar.style.width = `${progress}%`;
+                    progressStatus.textContent = `${Math.round(progress)}%`;
+                }
+            }, intervalTime);
+
+            const shouldFail = Math.random() < progressParams.failureProbability;
+            if (shouldFail) {
+                const failTime = 1000 + Math.random() * (duration - 2000);
+                setTimeout(() => {
+                    clearInterval(interval);
+                    progressBar.style.width = `${progress}%`;
+                    errorEl.style.display = 'block';
+                    retryBtn.style.display = 'block';
+                    log(`进度条验证失败，风险分数: ${currentRiskScore}`);
+
+                    retryBtn.addEventListener('click', function() {
+                        modal.classList.remove('active');
+                        setTimeout(() => {
+                            if (modal.parentNode) modal.parentNode.removeChild(modal);
+                            showProgressVerify();
+                        }, 400);
+                    });
+                }, failTime);
+            }
+        }
+
+        function startTimer() {
+            isTimerActive = true;
+            const endTime = Date.now() + TOTAL_TIME * 1000;
+            GM_setValue(STORAGE_KEY, endTime.toString());
+            log(`计时开始，结束时间：${new Date(endTime).toLocaleString()}`);
+            initTimer();
+        }
+
+        function initTimer() {
+            const storedEndTime = GM_getValue(STORAGE_KEY, null);
+            if (!storedEndTime) {
+                checkSessionStatus();
+                return;
+            }
+
+            const endTime = parseInt(storedEndTime);
+            const now = Date.now();
+            const remainingTime = Math.max(0, Math.ceil((endTime - now) / 1000));
+
+            if (remainingTime <= 0) {
+                GM_deleteValue(STORAGE_KEY);
+                GM_deleteValue(SESSION_KEY);
+                isTimerActive = false;
+                checkSessionStatus();
+                return;
+            }
+
+            updateTimerDisplay(remainingTime);
+            log(`初始化倒计时，剩余时间：${remainingTime}秒`);
+        }
+
+        function updateTimerDisplay(remainingSeconds) {
+            let timerEl = document.querySelector('.safe-timer');
+            if (!timerEl) {
+                timerEl = document.createElement('div');
+                timerEl.className = 'safe-timer';
+                document.body.appendChild(timerEl);
+
+                timerEl.addEventListener('click', () => {
+                    const logs = JSON.parse(localStorage.getItem(LOG_STORAGE_KEY) || '[]');
+                    const logText = logs.map(log => `[${log.time}] ${log.content}`).join('\n');
+                    const blob = new Blob([logText || '暂无日志'], { type: 'text/plain' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    const now = new Date();
+                    const timestamp = now.getFullYear().toString() +
+                                    (now.getMonth() + 1).toString().padStart(2, '0') +
+                                    now.getDate().toString().padStart(2, '0') +
+                                    now.getHours().toString().padStart(2, '0') +
+                                    now.getMinutes().toString().padStart(2, '0') +
+                                    now.getSeconds().toString().padStart(2, '0');
+                    a.href = url;
+                    a.download = `安全计时器日志_${timestamp}.txt`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    log('日志已导出');
+                });
+            }
+
+            const minutes = Math.floor(remainingSeconds / 60);
+            const seconds = remainingSeconds % 60;
+            timerEl.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+
+            if (remainingSeconds <= 60) {
+                timerEl.className = 'safe-timer danger';
+            } else if (remainingSeconds <= 300) {
+                timerEl.className = 'safe-timer warning';
+            } else {
+                timerEl.className = 'safe-timer';
+            }
+
+            if (timerInterval) {
+                clearTimeout(timerInterval);
+            }
+
+            if (remainingSeconds > 0 && isTimerActive) {
+                timerInterval = setTimeout(() => {
+                    const storedEndTime = GM_getValue(STORAGE_KEY, null);
+                    if (!storedEndTime) {
+                        checkSessionStatus();
+                        return;
+                    }
+
+                    const endTime = parseInt(storedEndTime);
+                    const now = Date.now();
+                    const newRemaining = Math.max(0, Math.ceil((endTime - now) / 1000));
+                    if (newRemaining <= 0) {
+                        GM_deleteValue(STORAGE_KEY);
+                        GM_deleteValue(SESSION_KEY);
+                        isTimerActive = false;
+                        const timerEl2 = document.querySelector('.safe-timer');
+                        if (timerEl2) timerEl2.remove();
+                        checkSessionStatus();
+                    } else {
+                        updateTimerDisplay(newRemaining);
+                    }
+                }, 1000);
+            } else {
+                isTimerActive = false;
+            }
+        }
+
+        loadRiskHistory();
+        createRiskIndicator();
+        
+        log('安全计时器脚本开始初始化（版本：5.6 - 智能风险检测版）');
+
+        backgroundRunner = new BackgroundRunner();
+        networkMonitor = new NetworkMonitor();
+        createLocationRefreshButton();
+        setTimeout(checkSessionStatus, 500);
+
+        log('安全计时器脚本初始化完成（版本：5.6 - 智能风险检测版）');
     }
 })();
