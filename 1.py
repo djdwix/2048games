@@ -461,7 +461,6 @@ def send_welcome_package(username):
                 'type': code_type,
                 'code': code,
                 'codes': [code],
-                'used': False,
                 'created_at': int(time.time() * 1000),
                 'expires_at': int(time.time() * 1000) + 28800000,
                 'title': f'欢迎卡密-{label}',
@@ -512,7 +511,6 @@ def send_welcome_package(username):
                 'type': code_type,
                 'code': codes_list[0] if codes_list else '',
                 'codes': codes_list,
-                'used': False,
                 'created_at': int(time.time() * 1000),
                 'expires_at': int(time.time() * 1000) + 28800000,
                 'title': f'欢迎卡密-{label} x{count}',
@@ -550,7 +548,6 @@ def send_welcome_package(username):
             'type': code_type,
             'code': code,
             'codes': [code],
-            'used': False,
             'created_at': int(time.time() * 1000),
             'expires_at': int(time.time() * 1000) + 28800000,
             'title': f'欢迎卡密-{label}',
@@ -1602,8 +1599,7 @@ def grant_coupon():
         'id': mail_id,
         'username': username,
         'type': 'coupon',
-        'coupon_data': user_coupons[coupon_id],
-        'used': False,
+        'coupon_id': coupon_id,
         'created_at': int(time.time() * 1000),
         'expires_at': int(time.time() * 1000) + 28800000,
         'title': f'优惠券-{type_labels.get(coupon_type, coupon_type)}',
@@ -1799,8 +1795,7 @@ def batch_grant_coupons():
             'id': mail_id,
             'username': username,
             'type': 'coupon',
-            'coupon_data': user_coupons[coupon_id],
-            'used': False,
+            'coupon_id': coupon_id,
             'created_at': int(time.time() * 1000),
             'expires_at': int(time.time() * 1000) + 28800000,
             'title': f'优惠券-{type_labels.get(coupon_type, coupon_type)}',
@@ -1836,7 +1831,7 @@ def revoke_coupon():
         return
 
     for mail_id, mail in mail_attachments.items():
-        if mail.get('type') == 'coupon' and mail.get('coupon_data', {}).get('id') == coupon_id:
+        if mail.get('type') == 'coupon' and mail.get('coupon_id') == coupon_id:
             del mail_attachments[mail_id]
             break
 
@@ -1880,7 +1875,7 @@ def cleanup_expired_coupons():
 
     for cid in to_remove:
         for mail_id, mail in mail_attachments.items():
-            if mail.get('type') == 'coupon' and mail.get('coupon_data', {}).get('id') == cid:
+            if mail.get('type') == 'coupon' and mail.get('coupon_id') == cid:
                 del mail_attachments[mail_id]
                 break
         del user_coupons[cid]
@@ -1888,6 +1883,34 @@ def cleanup_expired_coupons():
     save_user_coupons()
     save_mail_attachments()
     print(f"已清理 {len(to_remove)} 张优惠券")
+
+def claim_coupon_from_mail(username, mail_id):
+    if mail_id not in mail_attachments:
+        return False, "邮件不存在"
+
+    mail = mail_attachments[mail_id]
+    if mail.get('username') != username:
+        return False, "无权操作"
+
+    if mail.get('claimed', False):
+        return False, "已领取"
+
+    if mail.get('type') != 'coupon':
+        return False, "不是优惠券邮件"
+
+    coupon_id = mail.get('coupon_id')
+    if not coupon_id or coupon_id not in user_coupons:
+        return False, "优惠券不存在"
+
+    coupon = user_coupons[coupon_id]
+    if coupon.get('used', False):
+        return False, "优惠券已使用"
+
+    mail['claimed'] = True
+    mail['claimed_at'] = int(time.time() * 1000)
+    save_mail_attachments()
+
+    return True, f"成功领取优惠券: {coupon.get('description', '')}"
 
 def cdk_management_menu():
     while True:
@@ -2031,10 +2054,11 @@ def mail_management_menu():
         print("     邮件附件管理")
         print("="*60)
         print("1. 查看用户邮件")
-        print("2. 清理已领取邮件")
-        print("3. 清理过期邮件")
-        print("4. 查看邮件统计")
-        print("5. 强制删除邮件")
+        print("2. 领取邮件附件")
+        print("3. 清理已领取邮件")
+        print("4. 清理过期邮件")
+        print("5. 查看邮件统计")
+        print("6. 强制删除邮件")
         print("0. 返回主菜单")
         print("-"*60)
         choice = input("请选择操作: ").strip()
@@ -2043,12 +2067,14 @@ def mail_management_menu():
         elif choice == '1':
             show_user_mails()
         elif choice == '2':
-            cleanup_claimed_mails()
+            claim_mail_attachment()
         elif choice == '3':
-            cleanup_expired_mails()
+            cleanup_claimed_mails()
         elif choice == '4':
-            show_mail_stats()
+            cleanup_expired_mails()
         elif choice == '5':
+            show_mail_stats()
+        elif choice == '6':
             force_delete_mail()
         else:
             print("无效选项")
@@ -2068,8 +2094,114 @@ def show_user_mails():
         status = "已领取" if mail.get('claimed', False) else "未领取"
         title = mail.get('title', '')
         created = datetime.fromtimestamp(mail.get('created_at', 0)/1000).strftime('%Y-%m-%d %H:%M')
-        print(f"  {aid[:20]}... [{status}] {title}")
+        mail_type = mail.get('type', 'unknown')
+        print(f"  [{mail_type}] {aid[:20]}... [{status}] {title}")
         print(f"    创建: {created}")
+        if mail.get('type') == 'coupon':
+            coupon_id = mail.get('coupon_id', '')
+            if coupon_id in user_coupons:
+                coupon = user_coupons[coupon_id]
+                print(f"    优惠券: {coupon.get('description', '')}")
+
+def claim_mail_attachment():
+    username = input("请输入用户名: ").strip()
+    user = find_user(username)
+    if not user:
+        return
+
+    mail_id = input("请输入邮件ID: ").strip()
+    if mail_id not in mail_attachments:
+        print("邮件不存在")
+        return
+
+    mail = mail_attachments[mail_id]
+    if mail.get('username') != username:
+        print("无权操作")
+        return
+
+    if mail.get('claimed', False):
+        print("已领取")
+        return
+
+    mail_type = mail.get('type', '')
+
+    if mail_type == 'coupon':
+        success, msg = claim_coupon_from_mail(username, mail_id)
+        if success:
+            print(f"领取成功! {msg}")
+        else:
+            print(f"领取失败: {msg}")
+        return
+
+    if mail_type in ['point', 'premium_point', 'reset', 'boost', 'special_point', 'makeup', 'gamblers', 'cancellation']:
+        code = mail.get('code', '')
+        codes = mail.get('codes', [])
+        if not code and not codes:
+            print("卡密不存在")
+            return
+
+        code_storage_map = {
+            'point': (point_codes, save_point_codes),
+            'premium_point': (premium_point_codes, save_premium_point_codes),
+            'reset': (reset_codes, save_reset_codes),
+            'boost': (boost_codes, save_boost_codes),
+            'special_point': (special_point_codes, save_special_point_codes),
+            'makeup': (makeup_codes, save_makeup_codes),
+            'gamblers': (gamblers_codes, save_gamblers_codes),
+            'cancellation': (cancellation_codes, save_cancellation_codes)
+        }
+
+        if mail_type not in code_storage_map:
+            print("不支持的卡密类型")
+            return
+
+        storage, save_func = code_storage_map[mail_type]
+
+        if mail.get('is_batch', False):
+            added = 0
+            for c in codes:
+                if c and c not in storage:
+                    storage[c] = {
+                        'code': c,
+                        'username': username,
+                        'used': False,
+                        'recycled': False,
+                        'createdAt': mail.get('created_at', int(time.time() * 1000)),
+                        'type': mail_type,
+                        'adminGranted': True,
+                        'source': mail.get('source', 'mail')
+                    }
+                    added += 1
+            if added > 0:
+                save_func()
+                mail['claimed'] = True
+                mail['claimed_at'] = int(time.time() * 1000)
+                save_mail_attachments()
+                print(f"成功领取 {added} 张卡密")
+            else:
+                print("卡密已存在或无效")
+        else:
+            if code and code not in storage:
+                storage[code] = {
+                    'code': code,
+                    'username': username,
+                    'used': False,
+                    'recycled': False,
+                    'createdAt': mail.get('created_at', int(time.time() * 1000)),
+                    'type': mail_type,
+                    'adminGranted': True,
+                    'source': mail.get('source', 'mail')
+                }
+                save_func()
+                mail['claimed'] = True
+                mail['claimed_at'] = int(time.time() * 1000)
+                save_mail_attachments()
+                print(f"成功领取卡密: {code}")
+            else:
+                print("卡密已存在或无效")
+        return
+
+    print(f"不支持的邮件类型: {mail_type}")
 
 def cleanup_claimed_mails():
     to_remove = [aid for aid, mail in mail_attachments.items() if mail.get('claimed', False)]
@@ -2104,19 +2236,19 @@ def show_mail_stats():
     total = len(mail_attachments)
     claimed = sum(1 for m in mail_attachments.values() if m.get('claimed', False))
     unclaimed = total - claimed
-    source_stats = {}
+    type_stats = {}
     for m in mail_attachments.values():
-        source = m.get('source', 'unknown')
-        source_stats[source] = source_stats.get(source, 0) + 1
+        m_type = m.get('type', 'unknown')
+        type_stats[m_type] = type_stats.get(m_type, 0) + 1
     print("\n" + "="*50)
     print("邮件统计")
     print("-"*50)
     print(f"总数: {total}")
     print(f"已领取: {claimed}")
     print(f"未领取: {unclaimed}")
-    print("\n按来源:")
-    for source, count in sorted(source_stats.items()):
-        print(f"  {source}: {count}")
+    print("\n按类型:")
+    for m_type, count in sorted(type_stats.items()):
+        print(f"  {m_type}: {count}")
     print("="*50)
 
 def force_delete_mail():
@@ -2373,7 +2505,6 @@ def generate_code_for_user():
         'type': type_name,
         'code': code,
         'codes': [code],
-        'used': False,
         'created_at': int(time.time() * 1000),
         'expires_at': int(time.time() * 1000) + 28800000,
         'title': f'管理员赠送-{label}',
@@ -2445,7 +2576,6 @@ def batch_generate_codes():
             'type': code_type,
             'code': codes_list[0] if codes_list else '',
             'codes': codes_list,
-            'used': False,
             'created_at': int(time.time() * 1000),
             'expires_at': int(time.time() * 1000) + 28800000,
             'title': f'管理员批量赠送-{label} x{count}',
