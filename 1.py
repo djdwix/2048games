@@ -86,6 +86,9 @@ MAIL_ATTACHMENTS_FILE = os.path.join(DATA_DIR, 'mail_attachments.enc')
 PL_EXCHANGE_FILE = os.path.join(DATA_DIR, 'pl_exchange.enc')
 PL_TRANSFERS_FILE = os.path.join(DATA_DIR, 'pl_transfers.enc')
 USER_CDK_RECORDS_FILE = os.path.join(DATA_DIR, 'user_cdk_records.enc')
+PHONE_RECORDS_FILE = os.path.join(DATA_DIR, 'phone_records.enc')
+AUTH_CODES_FILE = os.path.join(DATA_DIR, 'auth_codes.enc')
+USER_PAY_PASSWORDS_FILE = os.path.join(DATA_DIR, 'user_pay_passwords.enc')
 
 users = load_data(USERS_FILE, {})
 user_pl = load_data(USER_PL_FILE, {})
@@ -111,6 +114,9 @@ mail_attachments = load_data(MAIL_ATTACHMENTS_FILE, {})
 pl_exchange_records = load_data(PL_EXCHANGE_FILE, {})
 pl_transfers = load_data(PL_TRANSFERS_FILE, {})
 user_cdk_records = load_data(USER_CDK_RECORDS_FILE, {})
+phone_records = load_data(PHONE_RECORDS_FILE, {})
+auth_codes = load_data(AUTH_CODES_FILE, {})
+user_pay_passwords = load_data(USER_PAY_PASSWORDS_FILE, {})
 
 def save_users(): save_data(USERS_FILE, users)
 def save_user_pl(): save_data(USER_PL_FILE, user_pl)
@@ -136,6 +142,9 @@ def save_mail_attachments(): save_data(MAIL_ATTACHMENTS_FILE, mail_attachments)
 def save_pl_exchange_records(): save_data(PL_EXCHANGE_FILE, pl_exchange_records)
 def save_pl_transfers(): save_data(PL_TRANSFERS_FILE, pl_transfers)
 def save_user_cdk_records(): save_data(USER_CDK_RECORDS_FILE, user_cdk_records)
+def save_phone_records(): save_data(PHONE_RECORDS_FILE, phone_records)
+def save_auth_codes(): save_data(AUTH_CODES_FILE, auth_codes)
+def save_user_pay_passwords(): save_data(USER_PAY_PASSWORDS_FILE, user_pay_passwords)
 
 def get_user_pl_balance(username):
     return user_pl.get(username, {}).get('balance', 0)
@@ -182,6 +191,7 @@ def refresh_data():
     global special_point_codes, makeup_codes, gamblers_codes, cancellation_codes
     global user_coupons, orders, system_points, pl_rate_data, fund_data, fund_history
     global cdk_packages, mail_attachments, pl_exchange_records, pl_transfers, user_cdk_records
+    global phone_records, auth_codes, user_pay_passwords
 
     users = load_data(USERS_FILE, {})
     user_pl = load_data(USER_PL_FILE, {})
@@ -207,6 +217,9 @@ def refresh_data():
     pl_exchange_records = load_data(PL_EXCHANGE_FILE, {})
     pl_transfers = load_data(PL_TRANSFERS_FILE, {})
     user_cdk_records = load_data(USER_CDK_RECORDS_FILE, {})
+    phone_records = load_data(PHONE_RECORDS_FILE, {})
+    auth_codes = load_data(AUTH_CODES_FILE, {})
+    user_pay_passwords = load_data(USER_PAY_PASSWORDS_FILE, {})
     print("所有数据已刷新")
 
 def validate_username(username):
@@ -239,6 +252,60 @@ def validate_qq(qq_number):
     if qq_number and not re.match(r'^\d{5,15}$', qq_number):
         return False, "QQ号格式不正确，请输入5-15位数字"
     return True, ""
+
+used_phone_numbers = set()
+
+def load_used_phone_numbers():
+    for user_records in phone_records.values():
+        for record in user_records:
+            if record.get('phoneNumber') and record.get('used', False):
+                used_phone_numbers.add(record['phoneNumber'])
+
+load_used_phone_numbers()
+
+def generate_phone_number():
+    prefixes = ['130', '131', '132', '133', '134', '135', '136', '137', '138', '139',
+                '150', '151', '152', '153', '155', '156', '157', '158', '159',
+                '180', '181', '182', '183', '184', '185', '186', '187', '188', '189']
+    max_attempts = 100
+
+    for _ in range(max_attempts):
+        random_prefix = random.choice(prefixes)
+        suffix = str(random.randint(0, 99999999)).zfill(8)
+        phone_number = random_prefix + suffix
+
+        if phone_number not in used_phone_numbers:
+            used_phone_numbers.add(phone_number)
+            return phone_number
+
+    timestamp = str(int(time.time() * 1000))[-8:]
+    random_suffix = str(random.randint(0, 9999)).zfill(4)
+    fallback_phone = f'139{timestamp}{random_suffix}'
+    if fallback_phone not in used_phone_numbers:
+        used_phone_numbers.add(fallback_phone)
+        return fallback_phone
+
+    return f'155{str(int(time.time() * 1000))[-8:]}'
+
+def generate_auth_code(phone_number):
+    hash_input = f"{phone_number}{time.time()}{random.random()}"
+    raw_code = hashlib.md5(hash_input.encode()).hexdigest()[:8].upper()
+    return raw_code
+
+def enforce_phone_record_limit():
+    for username in list(phone_records.keys()):
+        records = phone_records[username]
+        if len(records) > 6:
+            records_sorted = sorted(records, key=lambda x: x.get('timestamp', ''))
+            records_to_remove = records_sorted[:-6]
+            for old_record in records_to_remove:
+                if old_record.get('boundAuthCode') and old_record['boundAuthCode'] in auth_codes:
+                    del auth_codes[old_record['boundAuthCode']]
+                if not old_record.get('used') and old_record.get('phoneNumber') in used_phone_numbers:
+                    used_phone_numbers.remove(old_record['phoneNumber'])
+            phone_records[username] = records_sorted[-6:]
+            save_phone_records()
+            save_auth_codes()
 
 def register_user_menu():
     print("\n" + "="*60)
@@ -2860,6 +2927,843 @@ def export_users_csv():
             ])
     print(f"已导出到 {filename}")
 
+def simulate_attendance_menu():
+    print("\n" + "="*60)
+    print("     模拟签到")
+    print("="*60)
+    print("功能: 自动生成手机号 -> 获取授权码 -> 验证授权码 -> 回填手机号领取积分")
+    print("循环直到达到14积分上限或授权码用完")
+    print("-"*60)
+
+    username = input("请输入用户名: ").strip()
+    user = find_user(username)
+    if not user:
+        return
+
+    if not check_identity_verified(username):
+        print("用户未认证，请先完成身份认证")
+        return
+
+    if is_login_restricted(username):
+        print("用户已被限制登录")
+        return
+
+    if is_generate_phone_restricted(username):
+        print("用户已被限制生成手机号")
+        return
+
+    reset_daily_points_if_needed(username)
+
+    user_data = users.get(username, {})
+    daily_earned = user_data.get('dailyEarnedPoints', 0)
+    max_points = 14
+
+    if daily_earned >= max_points:
+        print(f"今日已获得 {daily_earned:.2f} 积分，已达到上限 {max_points} 分")
+        return
+
+    print(f"\n当前已获得: {daily_earned:.2f} / {max_points} 分")
+    print("开始模拟签到...")
+    print("-"*40)
+
+    total_earned = 0
+    cycle_count = 0
+    max_cycles = 20
+
+    while daily_earned < max_points and cycle_count < max_cycles:
+        cycle_count += 1
+
+        phone_number = generate_phone_number()
+        auth_code = generate_auth_code(phone_number)
+        hidden_phone = phone_number[:3] + '*****' + phone_number[-4:]
+
+        if username not in phone_records:
+            phone_records[username] = []
+
+        auth_codes[auth_code] = {
+            'code': auth_code,
+            'phoneNumber': phone_number,
+            'used': False,
+            'createdAt': int(time.time() * 1000),
+            'username': username,
+            'verified': False,
+            'reward_claimed': False
+        }
+
+        phone_records[username].append({
+            'phoneNumber': phone_number,
+            'hiddenPhone': hidden_phone,
+            'authCode': auth_code,
+            'boundAuthCode': auth_code,
+            'used': False,
+            'timestamp': datetime.now().isoformat(),
+            'username': username
+        })
+
+        save_phone_records()
+        save_auth_codes()
+        enforce_phone_record_limit()
+
+        code_data = auth_codes[auth_code]
+        code_data['verified'] = True
+        save_auth_codes()
+
+        points_earned = round(random.uniform(0.1, 0.5), 2)
+
+        if daily_earned + points_earned > max_points:
+            points_earned = round(max_points - daily_earned, 2)
+
+        if points_earned <= 0:
+            break
+
+        user_data['dailyEarnedPoints'] = round(user_data.get('dailyEarnedPoints', 0) + points_earned, 2)
+        if 'totalPoints' not in user_data:
+            user_data['totalPoints'] = 0
+        user_data['totalPoints'] = round(user_data['totalPoints'] + points_earned, 2)
+        save_users()
+
+        code_data['used'] = True
+        code_data['reward_claimed'] = True
+        save_auth_codes()
+
+        for record in phone_records.get(username, []):
+            if record.get('authCode') == auth_code:
+                record['used'] = True
+                save_phone_records()
+                break
+
+        daily_earned = user_data['dailyEarnedPoints']
+        total_earned += points_earned
+
+        print(f"  [{cycle_count}] {hidden_phone} -> 获得 {points_earned:.2f} 积分 (累计: {daily_earned:.2f}/{max_points})")
+
+    print("-"*40)
+    if daily_earned >= max_points:
+        print(f"✅ 模拟签到完成! 已达到 {max_points} 积分上限")
+    else:
+        print(f"⏹️ 模拟签到停止 (已进行 {cycle_count} 轮)")
+
+    print(f"  本轮共获得: {total_earned:.2f} 积分")
+    print(f"  当前总积分: {user_data.get('totalPoints', 0):.2f}")
+
+def check_identity_verified(username):
+    verification = identity_verifications.get(username)
+    if verification and verification.get('verified', False):
+        return True
+    return False
+
+def is_login_restricted(username):
+    restrictions = get_user_restrictions(username)
+    return restrictions.get('login', False)
+
+def is_generate_phone_restricted(username):
+    restrictions = get_user_restrictions(username)
+    return restrictions.get('generate_phone', False)
+
+def get_user_restrictions(username):
+    if username not in restricted_users:
+        return {'login': False, 'mall': False, 'generate_phone': False}
+    return restricted_users[username].get('restrictions', {'login': False, 'mall': False, 'generate_phone': False})
+
+def reset_daily_points_if_needed(username):
+    today = datetime.now().strftime('%Y-%m-%d')
+    user_data = users.get(username)
+    if not user_data:
+        return False
+    last_login_date = user_data.get('lastLoginDate', '')
+    last_earned_date = user_data.get('lastEarnedDate', '')
+
+    if last_login_date != today:
+        if user_data.get('dailyEarnedPoints', 0) > 0:
+            user_data['dailyEarnedPoints'] = 0
+        if user_data.get('dailyBonusAwarded', False):
+            user_data['dailyBonusAwarded'] = False
+            user_data['dailyBonusCode'] = None
+        user_data['lastLoginDate'] = today
+        save_users()
+        return True
+
+    if last_earned_date != today:
+        user_data['dailyEarnedPoints'] = 0
+        user_data['lastEarnedDate'] = today
+        if user_data.get('dailyBonusAwarded', False):
+            user_data['dailyBonusAwarded'] = False
+            user_data['dailyBonusCode'] = None
+        save_users()
+        return True
+
+    return False
+
+def order_audit_menu():
+    while True:
+        print("\n" + "="*60)
+        print("     订单审查与异常处理")
+        print("="*60)
+        print("1. 查询订单")
+        print("2. 强制回收已发货卡密")
+        print("3. 积分罚款")
+        print("4. PL罚款")
+        print("5. 取消订单")
+        print("6. 强制退款")
+        print("7. 订单状态变更")
+        print("8. 批量订单处理")
+        print("0. 返回主菜单")
+        print("-"*60)
+
+        choice = input("请选择操作: ").strip()
+
+        if choice == '0':
+            break
+        elif choice == '1':
+            search_order()
+        elif choice == '2':
+            force_reclaim_codes()
+        elif choice == '3':
+            points_fine()
+        elif choice == '4':
+            pl_fine()
+        elif choice == '5':
+            cancel_order()
+        elif choice == '6':
+            force_refund()
+        elif choice == '7':
+            change_order_status()
+        elif choice == '8':
+            batch_order_processing()
+        else:
+            print("无效选项")
+
+def search_order():
+    print("\n" + "="*60)
+    print("     查询订单")
+    print("="*60)
+
+    username = input("请输入用户名: ").strip()
+    if username not in users:
+        print(f"用户 '{username}' 不存在")
+        return
+
+    keyword = input("请输入订单号/防伪码/商品编号: ").strip()
+    if not keyword:
+        print("请输入有效的查询关键词")
+        return
+
+    found_orders = []
+
+    for order_id, order in orders.items():
+        if order.get('username') != username:
+            continue
+
+        order_number = order.get('product_number', '')
+        anti_fake_code = order.get('anti_fake_code', '')
+
+        if keyword == order_id or keyword == order_number or keyword == anti_fake_code:
+            found_orders.append((order_id, order))
+
+    if not found_orders:
+        print(f"\n未找到用户 '{username}' 的匹配订单")
+        print(f"查询关键词: {keyword}")
+        return
+
+    print("\n" + "="*70)
+    print(f"找到 {len(found_orders)} 个匹配订单")
+    print("="*70)
+
+    for idx, (order_id, order) in enumerate(found_orders, 1):
+        display_order_detail(order_id, order, idx)
+
+def display_order_detail(order_id, order, idx=None):
+    if idx:
+        print(f"\n--- 订单 #{idx} ---")
+    else:
+        print("\n--- 订单详情 ---")
+
+    order_number = order.get('product_number', 'N/A')
+    anti_fake_code = order.get('anti_fake_code', 'N/A')
+    product_name = order.get('product_name', 'N/A')
+    product_price = order.get('product_price', 0)
+    original_price = order.get('original_price', product_price)
+    final_price = order.get('final_price', product_price)
+    status = order.get('status', 'unknown')
+
+    created_at = order.get('created_at', 0)
+    paid_at = order.get('paid_at', 0)
+
+    created_str = datetime.fromtimestamp(created_at/1000).strftime('%Y-%m-%d %H:%M:%S') if created_at else 'N/A'
+    paid_str = datetime.fromtimestamp(paid_at/1000).strftime('%Y-%m-%d %H:%M:%S') if paid_at else 'N/A'
+
+    used_coupon_ids = order.get('used_coupon_ids', [])
+    used_coupon_str = ', '.join(used_coupon_ids) if used_coupon_ids else '无'
+
+    status_map = {
+        'pending': '待支付',
+        'paid': '已支付',
+        'cancelled': '已取消',
+        'expired': '已过期',
+        'refunded': '已退款',
+        'frozen': '已冻结'
+    }
+    status_display = status_map.get(status, status)
+
+    print(f"  订单号: {order_id}")
+    print(f"  商品编号: {order_number}")
+    print(f"  商品名称: {product_name}")
+    print(f"  应付金额: {original_price:.2f}")
+    print(f"  实付金额: {final_price:.2f}")
+    print(f"  支付时间: {paid_str}")
+    print(f"  创建时间: {created_str}")
+    print(f"  防伪码: {anti_fake_code}")
+    print(f"  使用优惠券: {used_coupon_str}")
+    print(f"  订单状态: {status_display}")
+
+    if order.get('delivered', False):
+        print(f"  发货状态: 已发货")
+        delivered_codes = order.get('delivered_codes', [])
+        if delivered_codes:
+            if len(delivered_codes) == 1:
+                print(f"  发货卡密: {delivered_codes[0]}")
+            else:
+                print(f"  发货卡密: {len(delivered_codes)} 张")
+    else:
+        print(f"  发货状态: 未发货")
+
+    payment_method = order.get('payment_method', 'N/A')
+    print(f"  支付方式: {payment_method}")
+
+    if order.get('is_daifu', False):
+        print(f"  代付状态: 是")
+        daifu_payer = order.get('payer', '')
+        daifu_status = order.get('daifu_status', '')
+        if daifu_payer:
+            print(f"  代付人: {daifu_payer}")
+        if daifu_status:
+            print(f"  代付状态: {daifu_status}")
+
+    if order.get('quantity', 1) > 1:
+        print(f"  数量: {order.get('quantity', 1)}")
+
+    print("="*70)
+
+def force_reclaim_codes():
+    print("\n" + "="*60)
+    print("     强制回收已发货卡密")
+    print("="*60)
+    print("功能: 强制回收订单已发货的卡密，并标记为已回收")
+    print("注意: 此操作不可逆，请谨慎使用")
+    print("-"*40)
+
+    username = input("请输入用户名: ").strip()
+    if username not in users:
+        print(f"用户 '{username}' 不存在")
+        return
+
+    keyword = input("请输入订单号/防伪码: ").strip()
+    if not keyword:
+        print("请输入有效的查询关键词")
+        return
+
+    found_orders = []
+    for order_id, order in orders.items():
+        if order.get('username') != username:
+            continue
+        anti_fake_code = order.get('anti_fake_code', '')
+        if keyword == order_id or keyword == anti_fake_code:
+            found_orders.append((order_id, order))
+
+    if not found_orders:
+        print(f"\n未找到用户 '{username}' 的匹配订单")
+        return
+
+    print(f"\n找到 {len(found_orders)} 个匹配订单")
+    for idx, (order_id, order) in enumerate(found_orders, 1):
+        display_order_detail(order_id, order, idx)
+
+    confirm = input(f"\n确认对选中的订单执行强制回收? (y/n): ").strip().lower()
+    if confirm != 'y':
+        print("取消操作")
+        return
+
+    reclaimed_count = 0
+    for order_id, order in found_orders:
+        if not order.get('delivered', False):
+            print(f"订单 {order_id} 未发货，跳过")
+            continue
+
+        delivered_codes = order.get('delivered_codes', [])
+        if not delivered_codes:
+            print(f"订单 {order_id} 没有发货卡密，跳过")
+            continue
+
+        product_type = order.get('product_type', '')
+        code_type_map = {
+            'point': (point_codes, save_point_codes),
+            'premium_point': (premium_point_codes, save_premium_point_codes),
+            'reset': (reset_codes, save_reset_codes),
+            'boost': (boost_codes, save_boost_codes),
+            'special_point': (special_point_codes, save_special_point_codes),
+            'makeup': (makeup_codes, save_makeup_codes),
+            'gamblers': (gamblers_codes, save_gamblers_codes),
+            'cancellation': (cancellation_codes, save_cancellation_codes)
+        }
+
+        if product_type not in code_type_map:
+            print(f"订单 {order_id} 商品类型 {product_type} 不支持回收")
+            continue
+
+        codes, save_func = code_type_map[product_type]
+        reclaimed_for_order = 0
+
+        for code in delivered_codes:
+            if code in codes:
+                if not codes[code].get('used', False):
+                    codes[code]['recycled'] = True
+                    reclaimed_for_order += 1
+
+        if reclaimed_for_order > 0:
+            save_func()
+            order['reclaimed'] = True
+            order['reclaimed_at'] = int(time.time() * 1000)
+            order['status'] = 'frozen'
+            save_orders()
+            reclaimed_count += reclaimed_for_order
+            print(f"订单 {order_id}: 成功回收 {reclaimed_for_order} 张卡密")
+
+    print(f"\n✅ 共回收 {reclaimed_count} 张卡密")
+
+def points_fine():
+    print("\n" + "="*60)
+    print("     积分罚款")
+    print("="*60)
+    print("功能: 对用户进行积分罚款，积分从用户总积分扣除")
+    print("-"*40)
+
+    username = input("请输入用户名: ").strip()
+    user = find_user(username)
+    if not user:
+        return
+
+    try:
+        amount = float(input("请输入罚款积分数量: "))
+        if amount <= 0:
+            print("罚款数量必须大于0")
+            return
+    except ValueError:
+        print("请输入有效的数字")
+        return
+
+    current_points = user.get('totalPoints', 0)
+    if current_points < amount:
+        print(f"用户积分不足，当前只有 {current_points:.2f} 积分")
+        confirm = input("是否允许积分为负? (y/n): ").strip().lower()
+        if confirm != 'y':
+            return
+        user['totalPoints'] = round(current_points - amount, 2)
+    else:
+        user['totalPoints'] = round(current_points - amount, 2)
+
+    reason = input("请输入罚款原因 (可选): ").strip()
+    if not reason:
+        reason = "管理员罚款"
+
+    save_users()
+
+    fine_record_id = f"fine_{int(time.time()*1000)}_{random.randint(1000,9999)}"
+    if 'fine_records' not in user:
+        user['fine_records'] = []
+    user['fine_records'].append({
+        'id': fine_record_id,
+        'type': 'points',
+        'amount': amount,
+        'reason': reason,
+        'created_at': int(time.time() * 1000)
+    })
+    save_users()
+
+    print(f"\n✅ 罚款成功!")
+    print(f"  用户: {username}")
+    print(f"  罚款积分: {amount:.2f}")
+    print(f"  剩余积分: {user['totalPoints']:.2f}")
+    print(f"  原因: {reason}")
+
+def pl_fine():
+    print("\n" + "="*60)
+    print("     PL罚款")
+    print("="*60)
+    print("功能: 对用户进行PL罚款，PL从用户PL余额扣除")
+    print("-"*40)
+
+    username = input("请输入用户名: ").strip()
+    user = find_user(username)
+    if not user:
+        return
+
+    try:
+        amount = float(input("请输入罚款PL数量: "))
+        if amount <= 0:
+            print("罚款数量必须大于0")
+            return
+    except ValueError:
+        print("请输入有效的数字")
+        return
+
+    current_pl = get_user_pl_balance(username)
+    if current_pl < amount:
+        print(f"用户PL不足，当前只有 {current_pl:.4f} PL")
+        confirm = input("是否允许PL为负? (y/n): ").strip().lower()
+        if confirm != 'y':
+            return
+        update_user_pl_balance(username, -amount)
+    else:
+        update_user_pl_balance(username, -amount)
+
+    reason = input("请输入罚款原因 (可选): ").strip()
+    if not reason:
+        reason = "管理员PL罚款"
+
+    save_user_pl()
+
+    if 'fine_records' not in user:
+        user['fine_records'] = []
+    user['fine_records'].append({
+        'id': f"fine_{int(time.time()*1000)}_{random.randint(1000,9999)}",
+        'type': 'pl',
+        'amount': amount,
+        'reason': reason,
+        'created_at': int(time.time() * 1000)
+    })
+    save_users()
+
+    print(f"\n✅ 罚款成功!")
+    print(f"  用户: {username}")
+    print(f"  罚款PL: {amount:.4f}")
+    print(f"  剩余PL: {get_user_pl_balance(username):.4f}")
+    print(f"  原因: {reason}")
+
+def cancel_order():
+    print("\n" + "="*60)
+    print("     取消订单")
+    print("="*60)
+    print("功能: 取消未支付的订单")
+    print("-"*40)
+
+    username = input("请输入用户名: ").strip()
+    if username not in users:
+        print(f"用户 '{username}' 不存在")
+        return
+
+    keyword = input("请输入订单号/防伪码: ").strip()
+    if not keyword:
+        print("请输入有效的查询关键词")
+        return
+
+    found_orders = []
+    for order_id, order in orders.items():
+        if order.get('username') != username:
+            continue
+        anti_fake_code = order.get('anti_fake_code', '')
+        if keyword == order_id or keyword == anti_fake_code:
+            found_orders.append((order_id, order))
+
+    if not found_orders:
+        print(f"\n未找到用户 '{username}' 的匹配订单")
+        return
+
+    print(f"\n找到 {len(found_orders)} 个匹配订单")
+    for idx, (order_id, order) in enumerate(found_orders, 1):
+        display_order_detail(order_id, order, idx)
+
+    confirm = input(f"\n确认取消选中的订单? (y/n): ").strip().lower()
+    if confirm != 'y':
+        print("取消操作")
+        return
+
+    for order_id, order in found_orders:
+        if order.get('status') == 'paid':
+            print(f"订单 {order_id} 已支付，无法取消")
+            continue
+        if order.get('status') == 'cancelled':
+            print(f"订单 {order_id} 已取消")
+            continue
+
+        order['status'] = 'cancelled'
+        order['cancelled_at'] = int(time.time() * 1000)
+        order['cancelled_by'] = 'admin'
+
+    save_orders()
+    print(f"\n✅ 成功取消 {len(found_orders)} 个订单")
+
+def force_refund():
+    print("\n" + "="*60)
+    print("     强制退款")
+    print("="*60)
+    print("功能: 对已支付的订单进行强制退款，退还积分或PL")
+    print("注意: 此操作不可逆，请谨慎使用")
+    print("-"*40)
+
+    username = input("请输入用户名: ").strip()
+    if username not in users:
+        print(f"用户 '{username}' 不存在")
+        return
+
+    keyword = input("请输入订单号/防伪码: ").strip()
+    if not keyword:
+        print("请输入有效的查询关键词")
+        return
+
+    found_orders = []
+    for order_id, order in orders.items():
+        if order.get('username') != username:
+            continue
+        anti_fake_code = order.get('anti_fake_code', '')
+        if keyword == order_id or keyword == anti_fake_code:
+            found_orders.append((order_id, order))
+
+    if not found_orders:
+        print(f"\n未找到用户 '{username}' 的匹配订单")
+        return
+
+    print(f"\n找到 {len(found_orders)} 个匹配订单")
+    for idx, (order_id, order) in enumerate(found_orders, 1):
+        display_order_detail(order_id, order, idx)
+
+    confirm = input(f"\n确认对选中的订单执行强制退款? (y/n): ").strip().lower()
+    if confirm != 'y':
+        print("取消操作")
+        return
+
+    for order_id, order in found_orders:
+        if order.get('status') != 'paid':
+            print(f"订单 {order_id} 未支付，无法退款")
+            continue
+
+        if order.get('refunded', False):
+            print(f"订单 {order_id} 已退款")
+            continue
+
+        refund_amount = order.get('final_price', order.get('product_price', 0))
+        payment_method = order.get('payment_method', 'points')
+
+        if payment_method == 'points':
+            user = users.get(username)
+            if user:
+                user['totalPoints'] = round(user.get('totalPoints', 0) + refund_amount, 2)
+                save_users()
+        elif payment_method == 'pl':
+            update_user_pl_balance(username, refund_amount)
+            save_user_pl()
+
+        order['refunded'] = True
+        order['refunded_at'] = int(time.time() * 1000)
+        order['status'] = 'refunded'
+        order['refund_amount'] = refund_amount
+
+        if order.get('delivered', False):
+            delivered_codes = order.get('delivered_codes', [])
+            product_type = order.get('product_type', '')
+            code_type_map = {
+                'point': (point_codes, save_point_codes),
+                'premium_point': (premium_point_codes, save_premium_point_codes),
+                'reset': (reset_codes, save_reset_codes),
+                'boost': (boost_codes, save_boost_codes),
+                'special_point': (special_point_codes, save_special_point_codes),
+                'makeup': (makeup_codes, save_makeup_codes),
+                'gamblers': (gamblers_codes, save_gamblers_codes),
+                'cancellation': (cancellation_codes, save_cancellation_codes)
+            }
+            if product_type in code_type_map:
+                codes, save_func = code_type_map[product_type]
+                for code in delivered_codes:
+                    if code in codes:
+                        codes[code]['recycled'] = True
+                save_func()
+
+        print(f"订单 {order_id}: 退款成功，退还 {refund_amount:.2f} {payment_method}")
+
+    save_orders()
+    print(f"\n✅ 退款完成")
+
+def change_order_status():
+    print("\n" + "="*60)
+    print("     订单状态变更")
+    print("="*60)
+    print("状态选项: pending(待支付), paid(已支付), cancelled(已取消)")
+    print("          expired(已过期), refunded(已退款), frozen(已冻结)")
+    print("-"*40)
+
+    username = input("请输入用户名: ").strip()
+    if username not in users:
+        print(f"用户 '{username}' 不存在")
+        return
+
+    keyword = input("请输入订单号/防伪码: ").strip()
+    if not keyword:
+        print("请输入有效的查询关键词")
+        return
+
+    found_orders = []
+    for order_id, order in orders.items():
+        if order.get('username') != username:
+            continue
+        anti_fake_code = order.get('anti_fake_code', '')
+        if keyword == order_id or keyword == anti_fake_code:
+            found_orders.append((order_id, order))
+
+    if not found_orders:
+        print(f"\n未找到用户 '{username}' 的匹配订单")
+        return
+
+    print(f"\n找到 {len(found_orders)} 个匹配订单")
+    for idx, (order_id, order) in enumerate(found_orders, 1):
+        display_order_detail(order_id, order, idx)
+
+    new_status = input("\n请输入新的订单状态: ").strip().lower()
+    valid_status = ['pending', 'paid', 'cancelled', 'expired', 'refunded', 'frozen']
+    if new_status not in valid_status:
+        print(f"无效状态，可选: {', '.join(valid_status)}")
+        return
+
+    confirm = input(f"确认将订单状态变更为 '{new_status}'? (y/n): ").strip().lower()
+    if confirm != 'y':
+        print("取消操作")
+        return
+
+    for order_id, order in found_orders:
+        old_status = order.get('status', 'unknown')
+        order['status'] = new_status
+        order['status_changed_at'] = int(time.time() * 1000)
+        order['status_changed_by'] = 'admin'
+        order['old_status'] = old_status
+
+    save_orders()
+    print(f"\n✅ 成功将 {len(found_orders)} 个订单状态变更为 '{new_status}'")
+
+def batch_order_processing():
+    print("\n" + "="*60)
+    print("     批量订单处理")
+    print("="*60)
+    print("功能: 批量处理用户的多个订单")
+    print("-"*40)
+
+    username = input("请输入用户名: ").strip()
+    if username not in users:
+        print(f"用户 '{username}' 不存在")
+        return
+
+    user_orders = []
+    for order_id, order in orders.items():
+        if order.get('username') == username:
+            user_orders.append((order_id, order))
+
+    if not user_orders:
+        print(f"用户 '{username}' 没有订单")
+        return
+
+    print(f"\n用户 '{username}' 共有 {len(user_orders)} 个订单:")
+    print("-"*50)
+    for idx, (order_id, order) in enumerate(user_orders, 1):
+        status = order.get('status', 'unknown')
+        product_name = order.get('product_name', 'N/A')
+        amount = order.get('product_price', 0)
+        print(f"  {idx}. {order_id[:20]}... {product_name} {amount:.2f} [{status}]")
+
+    print("\n批量操作选项:")
+    print("1. 批量取消订单 (仅待支付)")
+    print("2. 批量退款 (仅已支付)")
+    print("3. 批量冻结订单")
+    print("4. 批量删除订单")
+    print("5. 批量回收卡密")
+    print("0. 返回")
+
+    choice = input("请选择 (0-5): ").strip()
+
+    if choice == '0':
+        return
+    elif choice == '1':
+        target_status = 'pending'
+        action = '取消'
+        new_status = 'cancelled'
+    elif choice == '2':
+        target_status = 'paid'
+        action = '退款'
+        new_status = 'refunded'
+    elif choice == '3':
+        target_status = None
+        action = '冻结'
+        new_status = 'frozen'
+    elif choice == '4':
+        target_status = None
+        action = '删除'
+        new_status = None
+    elif choice == '5':
+        target_status = 'paid'
+        action = '回收卡密'
+        new_status = None
+    else:
+        print("无效选择")
+        return
+
+    confirm = input(f"确认对用户 '{username}' 执行 '{action}' 操作? (y/n): ").strip().lower()
+    if confirm != 'y':
+        print("取消操作")
+        return
+
+    processed = 0
+    for order_id, order in user_orders:
+        if target_status and order.get('status') != target_status:
+            continue
+
+        if choice == '1':
+            order['status'] = 'cancelled'
+            order['cancelled_at'] = int(time.time() * 1000)
+            processed += 1
+        elif choice == '2':
+            refund_amount = order.get('final_price', order.get('product_price', 0))
+            payment_method = order.get('payment_method', 'points')
+            if payment_method == 'points':
+                user = users.get(username)
+                if user:
+                    user['totalPoints'] = round(user.get('totalPoints', 0) + refund_amount, 2)
+                    save_users()
+            elif payment_method == 'pl':
+                update_user_pl_balance(username, refund_amount)
+                save_user_pl()
+            order['refunded'] = True
+            order['refunded_at'] = int(time.time() * 1000)
+            order['status'] = 'refunded'
+            processed += 1
+        elif choice == '3':
+            order['status'] = 'frozen'
+            order['frozen_at'] = int(time.time() * 1000)
+            processed += 1
+        elif choice == '4':
+            del orders[order_id]
+            processed += 1
+        elif choice == '5':
+            if order.get('delivered', False):
+                delivered_codes = order.get('delivered_codes', [])
+                product_type = order.get('product_type', '')
+                code_type_map = {
+                    'point': (point_codes, save_point_codes),
+                    'premium_point': (premium_point_codes, save_premium_point_codes),
+                    'reset': (reset_codes, save_reset_codes),
+                    'boost': (boost_codes, save_boost_codes),
+                    'special_point': (special_point_codes, save_special_point_codes),
+                    'makeup': (makeup_codes, save_makeup_codes),
+                    'gamblers': (gamblers_codes, save_gamblers_codes),
+                    'cancellation': (cancellation_codes, save_cancellation_codes)
+                }
+                if product_type in code_type_map:
+                    codes, save_func = code_type_map[product_type]
+                    for code in delivered_codes:
+                        if code in codes:
+                            codes[code]['recycled'] = True
+                    save_func()
+                order['reclaimed'] = True
+                processed += 1
+
+    save_orders()
+    print(f"\n✅ 成功处理 {processed} 个订单")
+
 def main_menu():
     while True:
         print("\n" + "="*70)
@@ -2887,6 +3791,8 @@ def main_menu():
         print("20. 批量操作工具")
         print("21. 删除用户")
         print("22. 刷新数据")
+        print("23. 模拟签到 (自动刷积分)")
+        print("24. 订单审查与异常处理")
         print("0. 退出")
         print("-"*70)
 
@@ -2945,6 +3851,10 @@ def main_menu():
             delete_user(username)
         elif choice == '22':
             refresh_data()
+        elif choice == '23':
+            simulate_attendance_menu()
+        elif choice == '24':
+            order_audit_menu()
         else:
             print("无效选项")
 
